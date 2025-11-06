@@ -1,20 +1,20 @@
+# Coolify 优化版 Docker Compose 配置
 version: '3.8'
 
 services:
   # Backend service
-  backend:
+  nofx-backend:
     build:
       context: .
       dockerfile: ./docker/Dockerfile.backend
+    container_name: nofx-backend
     restart: unless-stopped
-    expose:
-      - "8080"
+    environment:
+      - TZ=Asia/Shanghai
+      - AI_MAX_TOKENS=4000
+      - NOFX_ADMIN_PASSWORD=${NOFX_ADMIN_PASSWORD:-admin123}
     volumes:
       - nofx-data:/app/data
-    environment:
-      - TZ=${TZ:-Asia/Shanghai}
-      - AI_MAX_TOKENS=${AI_MAX_TOKENS:-4000}
-      - NOFX_ADMIN_PASSWORD=${NOFX_ADMIN_PASSWORD}
     networks:
       - nofx-network
     healthcheck:
@@ -24,24 +24,25 @@ services:
       retries: 3
       start_period: 60s
 
-  # Frontend service (main entry point)
-  frontend:
+  # Frontend service (主要服务，暴露给 Coolify)
+  nofx-frontend:
     build:
       context: .
       dockerfile: ./docker/Dockerfile.frontend
+    container_name: nofx-frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "3001:80"  # 使用 3001 端口避免冲突
     networks:
       - nofx-network
     depends_on:
-      - backend
+      - nofx-backend
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 5s
+      start_period: 10s
 
 networks:
   nofx-network:
