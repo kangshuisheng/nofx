@@ -199,7 +199,7 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 	}
 
 	// 初始化决策日志记录器（使用trader ID创建独立目录）
-	logDir := fmt.Sprintf("decision_logs/%s", config.ID)
+	logDir := fmt.Sprintf("data/decision_logs/%s", config.ID)
 	decisionLogger := logger.NewDecisionLogger(logDir)
 
 	// 设置默认系统提示词模板

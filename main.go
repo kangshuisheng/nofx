@@ -167,9 +167,14 @@ func main() {
 	_ = godotenv.Load()
 
 	// 初始化数据库配置
-	dbPath := "config.db"
+	dbPath := "data/config.db"
 	if len(os.Args) > 1 {
 		dbPath = os.Args[1]
+	}
+
+	// 确保数据目录存在
+	if err := os.MkdirAll("data", 0755); err != nil {
+		log.Printf("⚠️  创建数据目录失败: %v", err)
 	}
 
 	// 读取配置文件

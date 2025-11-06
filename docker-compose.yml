@@ -9,10 +9,7 @@ services:
     ports:
       - "${NOFX_BACKEND_PORT:-8081}:8080"  # 改为 8081 或其他未占用端口
     volumes:
-      - ./config.json:/app/config.json:ro
-      - nofx-data:/app  # 使用 volume 存储数据库和日志
-      - ./beta_codes.txt:/app/beta_codes.txt:ro
-      - ./prompts:/app/prompts
+      - nofx-data:/app/data  # 只挂载数据目录（数据库和日志）
       - /etc/localtime:/etc/localtime:ro  # Sync host time
     environment:
       - TZ=${NOFX_TIMEZONE:-Asia/Shanghai}  # Set timezone

@@ -36,8 +36,11 @@ docs/
 decision_logs/
 coin_pool_cache/
 *.log
+data/
+config.db/
+beta_codes.txt/
 
-# Config files (should be mounted)
+# Config files (will be copied from config.json.example)
 config.json
 
 # Web build artifacts (but include source for multi-stage build)
