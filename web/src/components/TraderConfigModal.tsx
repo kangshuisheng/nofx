@@ -73,7 +73,11 @@ export function TraderConfigModal({
 
   useEffect(() => {
     if (traderData) {
-      setFormData(traderData)
+      // 设置表单数据，确保 system_prompt_template 有默认值
+      setFormData({
+        ...traderData,
+        system_prompt_template: traderData.system_prompt_template || 'default',
+      })
       // 设置已选择的币种
       if (traderData.trading_symbols) {
         const coins = traderData.trading_symbols
@@ -99,13 +103,6 @@ export function TraderConfigModal({
         initial_balance: 1000,
         scan_interval_minutes: 3,
       })
-    }
-    // 确保旧数据也有默认的 system_prompt_template
-    if (traderData && traderData.system_prompt_template === undefined) {
-      setFormData((prev) => ({
-        ...prev,
-        system_prompt_template: 'default',
-      }))
     }
   }, [traderData, isEditMode, availableModels, availableExchanges])
 
