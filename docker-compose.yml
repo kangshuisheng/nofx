@@ -7,14 +7,14 @@ services:
     container_name: nofx-trading
     restart: unless-stopped
     ports:
-      - "${NOFX_BACKEND_PORT:-8081}:8080"  # 改为 8081 或其他未占用端口
+      - "${NOFX_BACKEND_PORT:-8081}:8080" # 改为 8081 或其他未占用端口
     volumes:
-      - nofx-data:/app/data  # 只挂载数据目录（数据库和日志）
-      - /etc/localtime:/etc/localtime:ro  # Sync host time
+      - nofx-data:/app/data # 只挂载数据目录（数据库和日志）
+      - /etc/localtime:/etc/localtime:ro # Sync host time
     environment:
-      - TZ=${NOFX_TIMEZONE:-Asia/Shanghai}  # Set timezone
-      - AI_MAX_TOKENS=4000  # AI响应的最大token数（默认2000，建议4000-8000）
-      - NOFX_ADMIN_PASSWORD=${NOFX_ADMIN_PASSWORD} # Admin password when admin_mode=true      
+      - TZ=${NOFX_TIMEZONE:-Asia/Shanghai} # Set timezone
+      - AI_MAX_TOKENS=4000 # AI响应的最大token数（默认2000，建议4000-8000）
+      - NOFX_ADMIN_PASSWORD=${NOFX_ADMIN_PASSWORD} # Admin password when admin_mode=true
     networks:
       - nofx-network
     healthcheck:
@@ -32,13 +32,21 @@ services:
     container_name: nofx-frontend
     restart: unless-stopped
     ports:
-      - "${NOFX_FRONTEND_PORT:-3001}:80"  # 改为 3001 或其他未占用端口
+      - "${NOFX_FRONTEND_PORT:-3001}:80" # 改为 3001 或其他未占用端口
     networks:
       - nofx-network
     depends_on:
       - nofx
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost/health",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -49,4 +57,4 @@ networks:
     driver: bridge
 
 volumes:
-  nofx-data:  # 持久化数据卷（存储数据库和日志）
+  nofx-data: # 持久化数据卷（存储数据库和日志）
