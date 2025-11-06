@@ -28,7 +28,7 @@ services:
   nofx-frontend:
     build:
       context: .
-      dockerfile: ./docker/Dockerfile.frontend
+      dockerfile: ./docker/Dockerfile.frontend.coolify
     container_name: nofx-frontend
     restart: unless-stopped
     ports:
