@@ -7,7 +7,7 @@ services:
     container_name: nofx-trading
     restart: unless-stopped
     ports:
-      - "${NOFX_BACKEND_PORT:-8080}:8080"
+      - "${NOFX_BACKEND_PORT:-8081}:8080"  # 改为 8081 或其他未占用端口
     volumes:
       - ./config.json:/app/config.json:ro
       - nofx-data:/app  # 使用 volume 存储数据库和日志
@@ -35,7 +35,7 @@ services:
     container_name: nofx-frontend
     restart: unless-stopped
     ports:
-      - "${NOFX_FRONTEND_PORT:-3000}:80"
+      - "${NOFX_FRONTEND_PORT:-3001}:80"  # 改为 3001 或其他未占用端口
     networks:
       - nofx-network
     depends_on:
