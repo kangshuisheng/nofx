@@ -1,5 +1,5 @@
 {
-  "admin_mode": true,
+  "admin_mode": false,
   "beta_mode": false,
   "leverage": {
     "btc_eth_leverage": 5,
