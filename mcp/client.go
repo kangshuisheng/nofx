@@ -67,12 +67,15 @@ func (client *Client) SetDeepSeekAPIKey(apiKey string, customURL string, customM
 		client.BaseURL = "https://api.deepseek.com/v1"
 		log.Printf("🔧 [MCP] DeepSeek 使用默认 BaseURL: %s", client.BaseURL)
 	}
-	if customModel != "" {
+	if customModel != "" && customModel != " " {
+		// 使用用户指定的自定义模型
 		client.Model = customModel
 		log.Printf("🔧 [MCP] DeepSeek 使用自定义 Model: %s", customModel)
 	} else {
+		// 默认使用 deepseek-chat (目前指向 V3)
+		// 注意：deepseek-chat 是官方推荐的默认模型名称
 		client.Model = "deepseek-chat"
-		log.Printf("🔧 [MCP] DeepSeek 使用默认 Model: %s", client.Model)
+		log.Printf("🔧 [MCP] DeepSeek 使用默认 Model: %s (V3)", client.Model)
 	}
 	// 打印 API Key 的前后各4位用于验证
 	if len(apiKey) > 8 {
@@ -92,11 +95,12 @@ func (client *Client) SetQwenAPIKey(apiKey string, customURL string, customModel
 		client.BaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 		log.Printf("🔧 [MCP] Qwen 使用默认 BaseURL: %s", client.BaseURL)
 	}
-	if customModel != "" {
+	if customModel != "" && customModel != " " {
+		// 使用用户指定的自定义模型
 		client.Model = customModel
 		log.Printf("🔧 [MCP] Qwen 使用自定义 Model: %s", customModel)
 	} else {
-		client.Model = "qwen3-max" 
+		client.Model = "qwen3-max"
 		log.Printf("🔧 [MCP] Qwen 使用默认 Model: %s", client.Model)
 	}
 	// 打印 API Key 的前后各4位用于验证
