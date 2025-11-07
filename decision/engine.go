@@ -225,13 +225,14 @@ func fetchMarketDataForContext(ctx *Context) error {
 
 // calculateMaxCandidates 根据账户状态计算需要分析的候选币种数量
 func calculateMaxCandidates(ctx *Context) int {
-	// ⚠️ 重要：限制候选币种数量，避免 Prompt 过大
+	// ⚠️ 重要：限制候选币种数量，避免 Prompt 过大 & 提高决策质量
 	// 根据持仓数量动态调整：持仓越少，可以分析更多候选币
+	// 🎯 优化：大幅降低上限，让 AI 专注分析高质量机会
 	const (
-		maxCandidatesWhenEmpty    = 30 // 无持仓时最多分析30个候选币
-		maxCandidatesWhenHolding1 = 25 // 持仓1个时最多分析25个候选币
-		maxCandidatesWhenHolding2 = 20 // 持仓2个时最多分析20个候选币
-		maxCandidatesWhenHolding3 = 15 // 持仓3个时最多分析15个候选币（避免 Prompt 过大）
+		maxCandidatesWhenEmpty    = 8 // 无持仓时最多分析8个候选币（精选机会）
+		maxCandidatesWhenHolding1 = 6 // 持仓1个时最多分析6个候选币
+		maxCandidatesWhenHolding2 = 4 // 持仓2个时最多分析4个候选币
+		maxCandidatesWhenHolding3 = 2 // 持仓3个时最多分析2个候选币（避免过载）
 	)
 
 	positionCount := len(ctx.Positions)
@@ -316,11 +317,10 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("5. 保证金: 总使用率 ≤ 90%\n")
 	sb.WriteString("6. 开仓金额: 建议 **≥12 USDT** (交易所最小名义价值 10 USDT + 安全边际)\n\n")
 
-	// 3. 输出格式 - 动态生成
-	sb.WriteString("#输出格式\n\n")
-	sb.WriteString("第一步: 思维链（纯文本）\n")
-	sb.WriteString("简洁分析你的思考过程\n\n")
-	sb.WriteString("第二步: JSON决策数组\n\n")
+	// 3. 输出格式要求 - 简化版，让提示词模板定义详细流程
+	sb.WriteString("# 输出格式\n\n")
+	sb.WriteString("**请严格按照上述提示词中定义的决策流程进行分析，完整输出所有步骤的思维链。**\n\n")
+	sb.WriteString("最后输出 JSON 决策数组：\n\n")
 	sb.WriteString("```json\n[\n")
 	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"下跌趋势+MACD死叉\"},\n", btcEthLeverage, accountEquity*5))
 	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"止盈离场\"}\n")
