@@ -319,7 +319,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 
 	// 3. 输出格式要求 - 简化版，让提示词模板定义详细流程
 	sb.WriteString("# 输出格式\n\n")
-	sb.WriteString("**请严格按照上述提示词中定义的决策流程进行分析，完整输出所有步骤的思维链。**\n\n")
+	sb.WriteString("**请严格按照上述提示词中定义的决策流程进行分析，简化输出思维链。**\n\n")
 	sb.WriteString("最后输出 JSON 决策数组：\n\n")
 	sb.WriteString("```json\n[\n")
 	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"下跌趋势+MACD死叉\"},\n", btcEthLeverage, accountEquity*5))
