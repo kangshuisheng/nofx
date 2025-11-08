@@ -97,17 +97,16 @@ type AutoTrader struct {
 	lastResetTime         time.Time
 	stopUntil             time.Time
 	isRunning             bool
-	startTime             time.Time               // 系统启动时间
-	callCount             int                     // AI调用次数
-	positionFirstSeenTime map[string]int64        // 持仓首次出现时间 (symbol_side -> timestamp毫秒)
-	stopMonitorCh         chan struct{}           // 用于停止监控goroutine
-	monitorWg             sync.WaitGroup          // 用于等待监控goroutine结束
-	peakPnLCache          map[string]float64      // 最高收益缓存 (symbol -> 峰值盈亏百分比)
-	peakPnLCacheMutex     sync.RWMutex            // 缓存读写锁
-	lastBalanceSyncTime   time.Time               // 上次余额同步时间
-	database              interface{}             // 数据库引用（用于自动更新余额）
-	userID                string                  // 用户ID
-	fearGreedClient       *market.FearGreedClient // 恐慌贪婪指数客户端
+	startTime             time.Time          // 系统启动时间
+	callCount             int                // AI调用次数
+	positionFirstSeenTime map[string]int64   // 持仓首次出现时间 (symbol_side -> timestamp毫秒)
+	stopMonitorCh         chan struct{}      // 用于停止监控goroutine
+	monitorWg             sync.WaitGroup     // 用于等待监控goroutine结束
+	peakPnLCache          map[string]float64 // 最高收益缓存 (symbol -> 峰值盈亏百分比)
+	peakPnLCacheMutex     sync.RWMutex       // 缓存读写锁
+	lastBalanceSyncTime   time.Time          // 上次余额同步时间
+	database              interface{}        // 数据库引用（用于自动更新余额）
+	userID                string             // 用户ID
 }
 
 // NewAutoTrader 创建自动交易器
@@ -199,7 +198,7 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 	}
 
 	// 初始化决策日志记录器（使用trader ID创建独立目录）
-	logDir := fmt.Sprintf("data/decision_logs/%s", config.ID)
+	logDir := fmt.Sprintf("decision_logs/%s", config.ID)
 	decisionLogger := logger.NewDecisionLogger(logDir)
 
 	// 设置默认系统提示词模板
@@ -208,9 +207,6 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		// feature/partial-close-dynamic-tpsl 分支默认使用 adaptive（支持动态止盈止损）
 		systemPromptTemplate = "adaptive"
 	}
-
-	// 初始化恐慌贪婪指数客户端
-	fearGreedClient := market.NewFearGreedClient()
 
 	return &AutoTrader{
 		id:                    config.ID,
@@ -237,7 +233,6 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		lastBalanceSyncTime:   time.Now(), // 初始化为当前时间
 		database:              database,
 		userID:                userID,
-		fearGreedClient:       fearGreedClient, // 添加恐慌贪婪指数客户端
 	}, nil
 }
 
@@ -274,6 +269,9 @@ func (at *AutoTrader) Run() error {
 
 // Stop 停止自动交易
 func (at *AutoTrader) Stop() {
+	if !at.isRunning {
+		return
+	}
 	at.isRunning = false
 	close(at.stopMonitorCh) // 通知监控goroutine停止
 	at.monitorWg.Wait()     // 等待监控goroutine结束
@@ -449,26 +447,17 @@ func (at *AutoTrader) runCycle() error {
 	log.Printf("📊 账户净值: %.2f USDT | 可用: %.2f USDT | 持仓: %d",
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance, ctx.Account.PositionCount)
 
-	// 5. 获取市场恐慌贪婪指数
-	fearGreedIndex, err := at.fearGreedClient.GetFearGreedIndex()
-	if err != nil {
-		log.Printf("⚠️ 获取恐慌贪婪指数失败: %v (将继续执行)", err)
-	} else {
-		ctx.FearGreedIndex = fearGreedIndex
-		log.Printf("📊 市场情绪: %s (指数: %d)", fearGreedIndex.GetMarketSentiment(), fearGreedIndex.Value)
-	}
-
-	// 6. 调用AI获取完整决策
+	// 5. 调用AI获取完整决策
 	log.Printf("🤖 正在请求AI分析并决策... [模板: %s]", at.systemPromptTemplate)
-	aiDecision, err := decision.GetFullDecisionWithCustomPrompt(ctx, at.mcpClient, at.customPrompt, at.overrideBasePrompt, at.systemPromptTemplate)
+	decision, err := decision.GetFullDecisionWithCustomPrompt(ctx, at.mcpClient, at.customPrompt, at.overrideBasePrompt, at.systemPromptTemplate)
 
 	// 即使有错误，也保存思维链、决策和输入prompt（用于debug）
-	if aiDecision != nil {
-		record.SystemPrompt = aiDecision.SystemPrompt // 保存系统提示词
-		record.InputPrompt = aiDecision.UserPrompt
-		record.CoTTrace = aiDecision.CoTTrace
-		if len(aiDecision.Decisions) > 0 {
-			decisionJSON, _ := json.MarshalIndent(aiDecision.Decisions, "", "  ")
+	if decision != nil {
+		record.SystemPrompt = decision.SystemPrompt // 保存系统提示词
+		record.InputPrompt = decision.UserPrompt
+		record.CoTTrace = decision.CoTTrace
+		if len(decision.Decisions) > 0 {
+			decisionJSON, _ := json.MarshalIndent(decision.Decisions, "", "  ")
 			record.DecisionJSON = string(decisionJSON)
 		}
 	}
@@ -478,18 +467,18 @@ func (at *AutoTrader) runCycle() error {
 		record.ErrorMessage = fmt.Sprintf("获取AI决策失败: %v", err)
 
 		// 打印系统提示词和AI思维链（即使有错误，也要输出以便调试）
-		if aiDecision != nil {
+		if decision != nil {
 			log.Print("\n" + strings.Repeat("=", 70) + "\n")
 			log.Printf("📋 系统提示词 [模板: %s] (错误情况)", at.systemPromptTemplate)
 			log.Println(strings.Repeat("=", 70))
-			log.Println(aiDecision.SystemPrompt)
+			log.Println(decision.SystemPrompt)
 			log.Println(strings.Repeat("=", 70))
 
-			if aiDecision.CoTTrace != "" {
+			if decision.CoTTrace != "" {
 				log.Print("\n" + strings.Repeat("-", 70) + "\n")
 				log.Println("💭 AI思维链分析（错误情况）:")
 				log.Println(strings.Repeat("-", 70))
-				log.Println(aiDecision.CoTTrace)
+				log.Println(decision.CoTTrace)
 				log.Println(strings.Repeat("-", 70))
 			}
 		}
@@ -502,19 +491,19 @@ func (at *AutoTrader) runCycle() error {
 	// log.Printf("\n" + strings.Repeat("=", 70))
 	// log.Printf("📋 系统提示词 [模板: %s]", at.systemPromptTemplate)
 	// log.Println(strings.Repeat("=", 70))
-	// log.Println(aiDecision.SystemPrompt)
+	// log.Println(decision.SystemPrompt)
 	// log.Printf(strings.Repeat("=", 70) + "\n")
 
 	// 6. 打印AI思维链
 	// log.Printf("\n" + strings.Repeat("-", 70))
 	// log.Println("💭 AI思维链分析:")
 	// log.Println(strings.Repeat("-", 70))
-	// log.Println(aiDecision.CoTTrace)
+	// log.Println(decision.CoTTrace)
 	// log.Printf(strings.Repeat("-", 70) + "\n")
 
 	// 7. 打印AI决策
-	// log.Printf("📋 AI决策列表 (%d 个):\n", len(aiDecision.Decisions))
-	// for i, d := range aiDecision.Decisions {
+	// log.Printf("📋 AI决策列表 (%d 个):\n", len(decision.Decisions))
+	// for i, d := range decision.Decisions {
 	//     log.Printf("  [%d] %s: %s - %s", i+1, d.Symbol, d.Action, d.Reasoning)
 	//     if d.Action == "open_long" || d.Action == "open_short" {
 	//        log.Printf("      杠杆: %dx | 仓位: %.2f USDT | 止损: %.4f | 止盈: %.4f",
@@ -527,7 +516,7 @@ func (at *AutoTrader) runCycle() error {
 	log.Print(strings.Repeat("-", 70))
 
 	// 8. 对决策排序：确保先平仓后开仓（防止仓位叠加超限）
-	sortedDecisions := sortDecisionsByPriority(aiDecision.Decisions)
+	sortedDecisions := sortDecisionsByPriority(decision.Decisions)
 
 	log.Println("🔄 执行顺序（已优化）: 先平仓→后开仓")
 	for i, d := range sortedDecisions {
@@ -1567,18 +1556,21 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			currentPnLPct = ((entryPrice - markPrice) / entryPrice) * float64(leverage) * 100
 		}
 
+		// 构造持仓唯一标识（区分多空）
+		posKey := symbol + "_" + side
+
 		// 获取该持仓的历史最高收益
 		at.peakPnLCacheMutex.RLock()
-		peakPnLPct, exists := at.peakPnLCache[symbol]
+		peakPnLPct, exists := at.peakPnLCache[posKey]
 		at.peakPnLCacheMutex.RUnlock()
 
 		if !exists {
 			// 如果没有历史最高记录，使用当前盈亏作为初始值
 			peakPnLPct = currentPnLPct
-			at.UpdatePeakPnL(symbol, currentPnLPct)
+			at.UpdatePeakPnL(symbol, side, currentPnLPct)
 		} else {
 			// 更新峰值缓存
-			at.UpdatePeakPnL(symbol, currentPnLPct)
+			at.UpdatePeakPnL(symbol, side, currentPnLPct)
 		}
 
 		// 计算回撤（从最高点下跌的幅度）
@@ -1597,8 +1589,8 @@ func (at *AutoTrader) checkPositionDrawdown() {
 				log.Printf("❌ 回撤平仓失败 (%s %s): %v", symbol, side, err)
 			} else {
 				log.Printf("✅ 回撤平仓成功: %s %s", symbol, side)
-				// 平仓后清理该symbol的缓存
-				at.ClearPeakPnLCache(symbol)
+				// 平仓后清理该持仓的缓存
+				at.ClearPeakPnLCache(symbol, side)
 			}
 		} else if currentPnLPct > 5.0 {
 			// 记录接近平仓条件的情况（用于调试）
@@ -1644,25 +1636,27 @@ func (at *AutoTrader) GetPeakPnLCache() map[string]float64 {
 }
 
 // UpdatePeakPnL 更新最高收益缓存
-func (at *AutoTrader) UpdatePeakPnL(symbol string, currentPnLPct float64) {
+func (at *AutoTrader) UpdatePeakPnL(symbol, side string, currentPnLPct float64) {
 	at.peakPnLCacheMutex.Lock()
 	defer at.peakPnLCacheMutex.Unlock()
 
-	if peak, exists := at.peakPnLCache[symbol]; exists {
+	posKey := symbol + "_" + side
+	if peak, exists := at.peakPnLCache[posKey]; exists {
 		// 更新峰值（如果是多头，取较大值；如果是空头，currentPnLPct为负，也要比较）
 		if currentPnLPct > peak {
-			at.peakPnLCache[symbol] = currentPnLPct
+			at.peakPnLCache[posKey] = currentPnLPct
 		}
 	} else {
 		// 首次记录
-		at.peakPnLCache[symbol] = currentPnLPct
+		at.peakPnLCache[posKey] = currentPnLPct
 	}
 }
 
-// ClearPeakPnLCache 清除指定symbol的峰值缓存
-func (at *AutoTrader) ClearPeakPnLCache(symbol string) {
+// ClearPeakPnLCache 清除指定持仓的峰值缓存
+func (at *AutoTrader) ClearPeakPnLCache(symbol, side string) {
 	at.peakPnLCacheMutex.Lock()
 	defer at.peakPnLCacheMutex.Unlock()
 
-	delete(at.peakPnLCache, symbol)
+	posKey := symbol + "_" + side
+	delete(at.peakPnLCache, posKey)
 }

@@ -21,6 +21,10 @@ var (
 	reArrayHead      = regexp.MustCompile(`^\[\s*\{`)
 	reArrayOpenSpace = regexp.MustCompile(`^\[\s+\{`)
 	reInvisibleRunes = regexp.MustCompile("[\u200B\u200C\u200D\uFEFF]")
+
+	// 新增：XML标签提取（支持思维链中包含任何字符）
+	reReasoningTag = regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
+	reDecisionTag  = regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
 )
 
 // PositionInfo 持仓信息
@@ -73,12 +77,11 @@ type Context struct {
 	Account         AccountInfo             `json:"account"`
 	Positions       []PositionInfo          `json:"positions"`
 	CandidateCoins  []CandidateCoin         `json:"candidate_coins"`
-	FearGreedIndex  *market.FearGreedIndex  `json:"fear_greed_index,omitempty"` // 恐慌贪婪指数
-	MarketDataMap   map[string]*market.Data `json:"-"`                          // 不序列化，但内部使用
-	OITopDataMap    map[string]*OITopData   `json:"-"`                          // OI Top数据映射
-	Performance     interface{}             `json:"-"`                          // 历史表现分析（logger.PerformanceAnalysis）
-	BTCETHLeverage  int                     `json:"-"`                          // BTC/ETH杠杆倍数（从配置读取）
-	AltcoinLeverage int                     `json:"-"`                          // 山寨币杠杆倍数（从配置读取）
+	MarketDataMap   map[string]*market.Data `json:"-"` // 不序列化，但内部使用
+	OITopDataMap    map[string]*OITopData   `json:"-"` // OI Top数据映射
+	Performance     interface{}             `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
+	BTCETHLeverage  int                     `json:"-"` // BTC/ETH杠杆倍数（从配置读取）
+	AltcoinLeverage int                     `json:"-"` // 山寨币杠杆倍数（从配置读取）
 }
 
 // Decision AI的交易决策
@@ -225,14 +228,13 @@ func fetchMarketDataForContext(ctx *Context) error {
 
 // calculateMaxCandidates 根据账户状态计算需要分析的候选币种数量
 func calculateMaxCandidates(ctx *Context) int {
-	// ⚠️ 重要：限制候选币种数量，避免 Prompt 过大 & 提高决策质量
+	// ⚠️ 重要：限制候选币种数量，避免 Prompt 过大
 	// 根据持仓数量动态调整：持仓越少，可以分析更多候选币
-	// 🎯 优化：大幅降低上限，让 AI 专注分析高质量机会
 	const (
-		maxCandidatesWhenEmpty    = 8 // 无持仓时最多分析8个候选币（精选机会）
-		maxCandidatesWhenHolding1 = 6 // 持仓1个时最多分析6个候选币
-		maxCandidatesWhenHolding2 = 4 // 持仓2个时最多分析4个候选币
-		maxCandidatesWhenHolding3 = 2 // 持仓3个时最多分析2个候选币（避免过载）
+		maxCandidatesWhenEmpty    = 30 // 无持仓时最多分析30个候选币
+		maxCandidatesWhenHolding1 = 25 // 持仓1个时最多分析25个候选币
+		maxCandidatesWhenHolding2 = 20 // 持仓2个时最多分析20个候选币
+		maxCandidatesWhenHolding3 = 15 // 持仓3个时最多分析15个候选币（避免 Prompt 过大）
 	)
 
 	positionCount := len(ctx.Positions)
@@ -317,15 +319,21 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("5. 保证金: 总使用率 ≤ 90%\n")
 	sb.WriteString("6. 开仓金额: 建议 **≥12 USDT** (交易所最小名义价值 10 USDT + 安全边际)\n\n")
 
-	// 3. 输出格式要求 - 简化版，让提示词模板定义详细流程
-	sb.WriteString("# 输出格式\n\n")
-	sb.WriteString("**请严格按照上述提示词中定义的决策流程进行分析，简化输出思维链。**\n\n")
-	sb.WriteString("最后输出 JSON 决策数组：\n\n")
+	// 3. 输出格式 - 动态生成
+	sb.WriteString("# 输出格式 (严格遵守)\n\n")
+	sb.WriteString("**必须使用XML标签 <reasoning> 和 <decision> 标签分隔思维链和决策JSON，避免解析错误**\n\n")
+	sb.WriteString("## 格式要求\n\n")
+	sb.WriteString("<reasoning>\n")
+	sb.WriteString("你的思维链分析...\n")
+	sb.WriteString("- 简洁分析你的思考过程 \n")
+	sb.WriteString("</reasoning>\n\n")
+	sb.WriteString("<decision>\n")
 	sb.WriteString("```json\n[\n")
 	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"下跌趋势+MACD死叉\"},\n", btcEthLeverage, accountEquity*5))
 	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"止盈离场\"}\n")
-	sb.WriteString("]\n```\n\n")
-	sb.WriteString("字段说明:\n")
+	sb.WriteString("]\n```\n")
+	sb.WriteString("</decision>\n\n")
+	sb.WriteString("## 字段说明\n\n")
 	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
 	sb.WriteString("- `confidence`: 0-100（开仓建议≥75）\n")
 	sb.WriteString("- 开仓时必填: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning\n\n")
@@ -346,12 +354,6 @@ func buildUserPrompt(ctx *Context) string {
 		sb.WriteString(fmt.Sprintf("BTC: %.2f (1h: %+.2f%%, 4h: %+.2f%%) | MACD: %.4f | RSI: %.2f\n\n",
 			btcData.CurrentPrice, btcData.PriceChange1h, btcData.PriceChange4h,
 			btcData.CurrentMACD, btcData.CurrentRSI7))
-	}
-
-	// 恐慌贪婪指数（市场情绪）
-	if ctx.FearGreedIndex != nil {
-		sb.WriteString(fmt.Sprintf("📊 市场情绪: %s\n", ctx.FearGreedIndex.GetMarketSentiment()))
-		sb.WriteString(fmt.Sprintf("💡 交易建议: %s\n\n", ctx.FearGreedIndex.GetTradingSuggestion()))
 	}
 
 	// 账户
@@ -470,15 +472,26 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 
 // extractCoTTrace 提取思维链分析
 func extractCoTTrace(response string) string {
-	// 查找JSON数组的开始位置
-	jsonStart := strings.Index(response, "[")
+	// 方法1: 优先尝试提取 <reasoning> 标签内容
+	if match := reReasoningTag.FindStringSubmatch(response); match != nil && len(match) > 1 {
+		log.Printf("✓ 使用 <reasoning> 标签提取思维链")
+		return strings.TrimSpace(match[1])
+	}
 
+	// 方法2: 如果没有 <reasoning> 标签，但有 <decision> 标签，提取 <decision> 之前的内容
+	if decisionIdx := strings.Index(response, "<decision>"); decisionIdx > 0 {
+		log.Printf("✓ 提取 <decision> 标签之前的内容作为思维链")
+		return strings.TrimSpace(response[:decisionIdx])
+	}
+
+	// 方法3: 后备方案 - 查找JSON数组的开始位置
+	jsonStart := strings.Index(response, "[")
 	if jsonStart > 0 {
-		// 思维链是JSON数组之前的内容
+		log.Printf("⚠️  使用旧版格式（[ 字符分离）提取思维链")
 		return strings.TrimSpace(response[:jsonStart])
 	}
 
-	// 如果找不到JSON，整个响应都是思维链
+	// 如果找不到任何标记，整个响应都是思维链
 	return strings.TrimSpace(response)
 }
 
@@ -492,8 +505,22 @@ func extractDecisions(response string) ([]Decision, error) {
 	// 否则正则表达式 \[ 无法匹配全角的 ［
 	s = fixMissingQuotes(s)
 
+	// 方法1: 优先尝试从 <decision> 标签中提取
+	var jsonPart string
+	if match := reDecisionTag.FindStringSubmatch(s); match != nil && len(match) > 1 {
+		jsonPart = strings.TrimSpace(match[1])
+		log.Printf("✓ 使用 <decision> 标签提取JSON")
+	} else {
+		// 后备方案：使用整个响应
+		jsonPart = s
+		log.Printf("⚠️  未找到 <decision> 标签，使用全文搜索JSON")
+	}
+
+	// 修复 jsonPart 中的全角字符
+	jsonPart = fixMissingQuotes(jsonPart)
+
 	// 1) 优先从 ```json 代码块中提取
-	if m := reJSONFence.FindStringSubmatch(s); m != nil && len(m) > 1 {
+	if m := reJSONFence.FindStringSubmatch(jsonPart); m != nil && len(m) > 1 {
 		jsonContent := strings.TrimSpace(m[1])
 		jsonContent = compactArrayOpen(jsonContent) // 把 "[ {" 规整为 "[{"
 		jsonContent = fixMissingQuotes(jsonContent) // 二次修复（防止 regex 提取后还有残留全角）
@@ -508,14 +535,14 @@ func extractDecisions(response string) ([]Decision, error) {
 	}
 
 	// 2) 退而求其次 (Fallback)：全文寻找首个对象数组
-	// 注意：此时 s 已经过 fixMissingQuotes()，全角字符已转换为半角
-	jsonContent := strings.TrimSpace(reJSONArray.FindString(s))
+	// 注意：此时 jsonPart 已经过 fixMissingQuotes()，全角字符已转换为半角
+	jsonContent := strings.TrimSpace(reJSONArray.FindString(jsonPart))
 	if jsonContent == "" {
 		// 🔧 安全回退 (Safe Fallback)：当AI只输出思维链没有JSON时，生成保底决策（避免系统崩溃）
 		log.Printf("⚠️  [SafeFallback] AI未输出JSON决策，进入安全等待模式 (AI response without JSON, entering safe wait mode)")
 
 		// 提取思维链摘要（最多 240 字符）
-		cotSummary := s
+		cotSummary := jsonPart
 		if len(cotSummary) > 240 {
 			cotSummary = cotSummary[:240] + "..."
 		}
