@@ -15,6 +15,7 @@ services:
       - NOFX_ADMIN_PASSWORD=${NOFX_ADMIN_PASSWORD:-admin123}
     volumes:
       - nofx-data:/app/data
+      - nofx-decision-logs:/app/decision_logs
     networks:
       - nofx-network
     healthcheck:
@@ -50,3 +51,4 @@ networks:
 
 volumes:
   nofx-data:
+  nofx-decision-logs:
