@@ -97,16 +97,17 @@ type AutoTrader struct {
 	lastResetTime         time.Time
 	stopUntil             time.Time
 	isRunning             bool
-	startTime             time.Time          // 系统启动时间
-	callCount             int                // AI调用次数
-	positionFirstSeenTime map[string]int64   // 持仓首次出现时间 (symbol_side -> timestamp毫秒)
-	stopMonitorCh         chan struct{}      // 用于停止监控goroutine
-	monitorWg             sync.WaitGroup     // 用于等待监控goroutine结束
-	peakPnLCache          map[string]float64 // 最高收益缓存 (symbol -> 峰值盈亏百分比)
-	peakPnLCacheMutex     sync.RWMutex       // 缓存读写锁
-	lastBalanceSyncTime   time.Time          // 上次余额同步时间
-	database              interface{}        // 数据库引用（用于自动更新余额）
-	userID                string             // 用户ID
+	startTime             time.Time               // 系统启动时间
+	callCount             int                     // AI调用次数
+	positionFirstSeenTime map[string]int64        // 持仓首次出现时间 (symbol_side -> timestamp毫秒)
+	stopMonitorCh         chan struct{}           // 用于停止监控goroutine
+	monitorWg             sync.WaitGroup          // 用于等待监控goroutine结束
+	peakPnLCache          map[string]float64      // 最高收益缓存 (symbol -> 峰值盈亏百分比)
+	peakPnLCacheMutex     sync.RWMutex            // 缓存读写锁
+	lastBalanceSyncTime   time.Time               // 上次余额同步时间
+	database              interface{}             // 数据库引用（用于自动更新余额）
+	userID                string                  // 用户ID
+	fearGreedClient       *market.FearGreedClient // 恐慌贪婪指数客户端
 }
 
 // NewAutoTrader 创建自动交易器
@@ -175,7 +176,7 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 	switch config.Exchange {
 	case "binance":
 		log.Printf("🏦 [%s] 使用币安合约交易", config.Name)
-		trader = NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey)
+		trader = NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, userID)
 	case "hyperliquid":
 		log.Printf("🏦 [%s] 使用Hyperliquid交易", config.Name)
 		trader, err = NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.HyperliquidTestnet)
@@ -239,10 +240,15 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 // Run 运行自动交易主循环
 func (at *AutoTrader) Run() error {
 	at.isRunning = true
+	at.stopMonitorCh = make(chan struct{})
+	at.startTime = time.Now()
+
 	log.Println("🚀 AI驱动自动交易系统启动")
 	log.Printf("💰 初始余额: %.2f USDT", at.initialBalance)
 	log.Printf("⚙️  扫描间隔: %v", at.config.ScanInterval)
 	log.Println("🤖 AI将全权决定杠杆、仓位大小、止损止盈等参数")
+	at.monitorWg.Add(1)
+	defer at.monitorWg.Done()
 
 	// 启动回撤监控
 	at.startDrawdownMonitor()
@@ -261,6 +267,9 @@ func (at *AutoTrader) Run() error {
 			if err := at.runCycle(); err != nil {
 				log.Printf("❌ 执行失败: %v", err)
 			}
+		case <-at.stopMonitorCh:
+			log.Printf("[%s] ⏹ 收到停止信号，退出自动交易主循环", at.name)
+			return nil
 		}
 	}
 
@@ -449,15 +458,15 @@ func (at *AutoTrader) runCycle() error {
 
 	// 5. 调用AI获取完整决策
 	log.Printf("🤖 正在请求AI分析并决策... [模板: %s]", at.systemPromptTemplate)
-	decision, err := decision.GetFullDecisionWithCustomPrompt(ctx, at.mcpClient, at.customPrompt, at.overrideBasePrompt, at.systemPromptTemplate)
+	aiDecision, err := decision.GetFullDecisionWithCustomPrompt(ctx, at.mcpClient, at.customPrompt, at.overrideBasePrompt, at.systemPromptTemplate)
 
 	// 即使有错误，也保存思维链、决策和输入prompt（用于debug）
-	if decision != nil {
-		record.SystemPrompt = decision.SystemPrompt // 保存系统提示词
-		record.InputPrompt = decision.UserPrompt
-		record.CoTTrace = decision.CoTTrace
-		if len(decision.Decisions) > 0 {
-			decisionJSON, _ := json.MarshalIndent(decision.Decisions, "", "  ")
+	if aiDecision != nil {
+		record.SystemPrompt = aiDecision.SystemPrompt // 保存系统提示词
+		record.InputPrompt = aiDecision.UserPrompt
+		record.CoTTrace = aiDecision.CoTTrace
+		if len(aiDecision.Decisions) > 0 {
+			decisionJSON, _ := json.MarshalIndent(aiDecision.Decisions, "", "  ")
 			record.DecisionJSON = string(decisionJSON)
 		}
 	}
@@ -467,18 +476,18 @@ func (at *AutoTrader) runCycle() error {
 		record.ErrorMessage = fmt.Sprintf("获取AI决策失败: %v", err)
 
 		// 打印系统提示词和AI思维链（即使有错误，也要输出以便调试）
-		if decision != nil {
+		if aiDecision != nil {
 			log.Print("\n" + strings.Repeat("=", 70) + "\n")
 			log.Printf("📋 系统提示词 [模板: %s] (错误情况)", at.systemPromptTemplate)
 			log.Println(strings.Repeat("=", 70))
-			log.Println(decision.SystemPrompt)
+			log.Println(aiDecision.SystemPrompt)
 			log.Println(strings.Repeat("=", 70))
 
-			if decision.CoTTrace != "" {
+			if aiDecision.CoTTrace != "" {
 				log.Print("\n" + strings.Repeat("-", 70) + "\n")
 				log.Println("💭 AI思维链分析（错误情况）:")
 				log.Println(strings.Repeat("-", 70))
-				log.Println(decision.CoTTrace)
+				log.Println(aiDecision.CoTTrace)
 				log.Println(strings.Repeat("-", 70))
 			}
 		}
@@ -516,7 +525,7 @@ func (at *AutoTrader) runCycle() error {
 	log.Print(strings.Repeat("-", 70))
 
 	// 8. 对决策排序：确保先平仓后开仓（防止仓位叠加超限）
-	sortedDecisions := sortDecisionsByPriority(decision.Decisions)
+	sortedDecisions := sortDecisionsByPriority(aiDecision.Decisions)
 
 	log.Println("🔄 执行顺序（已优化）: 先平仓→后开仓")
 	for i, d := range sortedDecisions {
@@ -614,14 +623,6 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		unrealizedPnl := pos["unRealizedProfit"].(float64)
 		liquidationPrice := pos["liquidationPrice"].(float64)
 
-		// 计算盈亏百分比
-		pnlPct := 0.0
-		if side == "long" {
-			pnlPct = ((markPrice - entryPrice) / entryPrice) * 100
-		} else {
-			pnlPct = ((entryPrice - markPrice) / entryPrice) * 100
-		}
-
 		// 计算占用保证金（估算）
 		leverage := 10 // 默认值，实际应该从持仓信息获取
 		if lev, ok := pos["leverage"].(float64); ok {
@@ -629,6 +630,9 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		}
 		marginUsed := (quantity * markPrice) / float64(leverage)
 		totalMarginUsed += marginUsed
+
+		// 计算盈亏百分比（基于保证金，考虑杠杆）
+		pnlPct := calculatePnLPercentage(unrealizedPnl, marginUsed)
 
 		// 跟踪持仓首次出现时间
 		posKey := symbol + "_" + side
@@ -639,6 +643,11 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		}
 		updateTime := at.positionFirstSeenTime[posKey]
 
+		// 获取该持仓的历史最高收益率
+		at.peakPnLCacheMutex.RLock()
+		peakPnlPct := at.peakPnLCache[symbol]
+		at.peakPnLCacheMutex.RUnlock()
+
 		positionInfos = append(positionInfos, decision.PositionInfo{
 			Symbol:           symbol,
 			Side:             side,
@@ -648,6 +657,7 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 			Leverage:         leverage,
 			UnrealizedPnL:    unrealizedPnl,
 			UnrealizedPnLPct: pnlPct,
+			PeakPnLPct:       peakPnlPct,
 			LiquidationPrice: liquidationPrice,
 			MarginUsed:       marginUsed,
 			UpdateTime:       updateTime,
@@ -1368,11 +1378,7 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 		marginUsed := (quantity * markPrice) / float64(leverage)
 
 		// 计算盈亏百分比（基于保证金）
-		// 收益率 = 未实现盈亏 / 保证金 × 100%
-		pnlPct := 0.0
-		if marginUsed > 0 {
-			pnlPct = (unrealizedPnl / marginUsed) * 100
-		}
+		pnlPct := calculatePnLPercentage(unrealizedPnl, marginUsed)
 
 		result = append(result, map[string]interface{}{
 			"symbol":             symbol,
@@ -1389,6 +1395,15 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 	}
 
 	return result, nil
+}
+
+// calculatePnLPercentage 计算盈亏百分比（基于保证金，自动考虑杠杆）
+// 收益率 = 未实现盈亏 / 保证金 × 100%
+func calculatePnLPercentage(unrealizedPnl, marginUsed float64) float64 {
+	if marginUsed > 0 {
+		return (unrealizedPnl / marginUsed) * 100
+	}
+	return 0.0
 }
 
 // sortDecisionsByPriority 对决策排序：先平仓，再开仓，最后hold/wait
