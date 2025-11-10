@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/pool"
@@ -318,7 +319,11 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 		accountEquity*0.8, accountEquity*1.5, accountEquity*5, accountEquity*10))
 	sb.WriteString(fmt.Sprintf("4. 杠杆限制: **山寨币最大%dx杠杆** | **BTC/ETH最大%dx杠杆** (⚠️ 严格执行，不可超过)\n", altcoinLeverage, btcEthLeverage))
 	sb.WriteString("5. 保证金: 总使用率 ≤ 90%\n")
-	sb.WriteString("6. 开仓金额: 建议 **≥12 USDT** (交易所最小名义价值 10 USDT + 安全边际)\n\n")
+	sb.WriteString("6. 开仓金额: 建议 **≥12 USDT** (交易所最小名义价值 10 USDT + 安全边际)\n")
+	sb.WriteString("7. 部分平仓（partial_close）约束:\n")
+	sb.WriteString("   - 单次部分平仓比例: **5%-100%** (建议整数或0.5步长)\n")
+	sb.WriteString("   - 单次部分平仓名义价值: **≥10 USDT**\n")
+	sb.WriteString("   - 剩余仓位名义价值: **≥15 USDT** (否则建议全平)\n\n")
 
 	// 3. 输出格式 - 动态生成
 	sb.WriteString("# 输出格式 (严格遵守)\n\n")
@@ -811,10 +816,21 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		}
 	}
 
-	// 部分平仓验证
+	//\t//	// 部分平仓验证
 	if d.Action == "partial_close" {
 		if d.ClosePercentage <= 0 || d.ClosePercentage > 100 {
-			return fmt.Errorf("平仓百分比必须在0-100之间: %.1f", d.ClosePercentage)
+			return fmt.Errorf("partial_close ClosePercentage必须在1-100之间，当前值: %.2f", d.ClosePercentage)
+		}
+
+		// 验证平仓百分比是否为合理的数值（避免过小数值）
+		if d.ClosePercentage < 5.0 {
+			return fmt.Errorf("partial_close ClosePercentage过小(%.1f%%)，建议≥5%%以确保有足够的平仓价值", d.ClosePercentage)
+		}
+
+		// 验证是否为合理的步长（避免过于精确的百分比）
+		percentage := d.ClosePercentage
+		if math.Mod(percentage*10, 5) != 0 { // 检查是否不是0.5的倍数
+			return fmt.Errorf("partial_close ClosePercentage建议使用整数或0.5步长，当前值: %.2f。推荐值: 5, 10, 15, 20, 25, 30, 33, 40, 45, 50, 55, 60, 66, 70, 75, 80, 85, 90, 95, 100", d.ClosePercentage)
 		}
 	}
 
