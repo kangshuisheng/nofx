@@ -314,16 +314,12 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	// 2. 硬约束（风险控制）- 动态生成
 	sb.WriteString("# 硬约束（风险控制）\n\n")
 	sb.WriteString("1. 风险回报比: 必须 ≥ 1:3（冒1%风险，赚3%+收益）\n")
-	sb.WriteString("2. 最多持仓: 3个币种（质量>数量）, 如有特别好的机会，可增持至最多5个币种持仓！\n")
+	sb.WriteString("2. 最多持仓: 3个币种（质量>数量）\n")
 	sb.WriteString(fmt.Sprintf("3. 单币仓位: 山寨%.0f-%.0f U | BTC/ETH %.0f-%.0f U\n",
 		accountEquity*0.6, accountEquity*1.3, accountEquity*3, accountEquity*6))
 	sb.WriteString(fmt.Sprintf("4. 杠杆限制: **山寨币最大%dx杠杆** | **BTC/ETH最大%dx杠杆** (⚠️ 严格执行，不可超过)\n", altcoinLeverage, btcEthLeverage))
 	sb.WriteString("5. 保证金: 总使用率 ≤ 90%\n")
 	sb.WriteString("6. 开仓金额: 建议 **≥12 USDT** (交易所最小名义价值 10 USDT + 安全边际)\n")
-	sb.WriteString("7. 部分平仓（partial_close）约束:\n")
-	sb.WriteString("   - 单次部分平仓比例: **5%-100%** (建议整数或0.5步长)\n")
-	sb.WriteString("   - 单次部分平仓名义价值: **≥10 USDT**\n")
-	sb.WriteString("   - 剩余仓位名义价值: **≥15 USDT** (否则建议全平)\n\n")
 
 	// 3. 输出格式 - 动态生成
 	sb.WriteString("# 输出格式 (严格遵守)\n\n")
