@@ -458,7 +458,7 @@ func (at *AutoTrader) runCycle() error {
 
 	// 5. 调用AI获取完整决策
 	log.Printf("🤖 正在请求AI分析并决策... [模板: %s]", at.systemPromptTemplate)
-	aiDecision, err := decision.GetFullDecisionWithCustomPrompt(ctx, at.mcpClient, at.customPrompt, at.overrideBasePrompt, at.systemPromptTemplate)
+	decision, err := decision.GetFullDecisionWithCustomPrompt(ctx, at.mcpClient, at.customPrompt, at.overrideBasePrompt, at.systemPromptTemplate)
 
 	if decision != nil && decision.AIRequestDurationMs > 0 {
 		record.AIRequestDurationMs = decision.AIRequestDurationMs
@@ -468,12 +468,12 @@ func (at *AutoTrader) runCycle() error {
 	}
 
 	// 即使有错误，也保存思维链、决策和输入prompt（用于debug）
-	if aiDecision != nil {
-		record.SystemPrompt = aiDecision.SystemPrompt // 保存系统提示词
-		record.InputPrompt = aiDecision.UserPrompt
-		record.CoTTrace = aiDecision.CoTTrace
-		if len(aiDecision.Decisions) > 0 {
-			decisionJSON, _ := json.MarshalIndent(aiDecision.Decisions, "", "  ")
+	if decision != nil {
+		record.SystemPrompt = decision.SystemPrompt // 保存系统提示词
+		record.InputPrompt = decision.UserPrompt
+		record.CoTTrace = decision.CoTTrace
+		if len(decision.Decisions) > 0 {
+			decisionJSON, _ := json.MarshalIndent(decision.Decisions, "", "  ")
 			record.DecisionJSON = string(decisionJSON)
 		}
 	}
@@ -483,18 +483,18 @@ func (at *AutoTrader) runCycle() error {
 		record.ErrorMessage = fmt.Sprintf("获取AI决策失败: %v", err)
 
 		// 打印系统提示词和AI思维链（即使有错误，也要输出以便调试）
-		if aiDecision != nil {
+		if decision != nil {
 			log.Print("\n" + strings.Repeat("=", 70) + "\n")
 			log.Printf("📋 系统提示词 [模板: %s] (错误情况)", at.systemPromptTemplate)
 			log.Println(strings.Repeat("=", 70))
-			log.Println(aiDecision.SystemPrompt)
+			log.Println(decision.SystemPrompt)
 			log.Println(strings.Repeat("=", 70))
 
-			if aiDecision.CoTTrace != "" {
+			if decision.CoTTrace != "" {
 				log.Print("\n" + strings.Repeat("-", 70) + "\n")
 				log.Println("💭 AI思维链分析（错误情况）:")
 				log.Println(strings.Repeat("-", 70))
-				log.Println(aiDecision.CoTTrace)
+				log.Println(decision.CoTTrace)
 				log.Println(strings.Repeat("-", 70))
 			}
 		}
@@ -532,7 +532,7 @@ func (at *AutoTrader) runCycle() error {
 	log.Print(strings.Repeat("-", 70))
 
 	// 8. 对决策排序：确保先平仓后开仓（防止仓位叠加超限）
-	sortedDecisions := sortDecisionsByPriority(aiDecision.Decisions)
+	sortedDecisions := sortDecisionsByPriority(decision.Decisions)
 
 	log.Println("🔄 执行顺序（已优化）: 先平仓→后开仓")
 	for i, d := range sortedDecisions {
