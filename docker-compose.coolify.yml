@@ -1,5 +1,5 @@
 # Coolify 优化版 Docker Compose 配置
-version: '3.8'
+version: "3.8"
 
 services:
   # Backend service
@@ -13,13 +13,23 @@ services:
       - TZ=Asia/Shanghai
       - AI_MAX_TOKENS=4000
       - NOFX_ADMIN_PASSWORD=${NOFX_ADMIN_PASSWORD:-admin123}
+      - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY}
+      - JWT_SECRET=${JWT_SECRET}
     volumes:
       - nofx-data:/app/data
       - nofx-decision-logs:/app/decision_logs
     networks:
       - nofx-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/api/health",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -33,13 +43,21 @@ services:
     container_name: nofx-frontend
     restart: unless-stopped
     ports:
-      - "3001:80"  # 使用 3001 端口避免冲突
+      - "3001:80" # 使用 3001 端口避免冲突
     networks:
       - nofx-network
     depends_on:
       - nofx-backend
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost/health",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
