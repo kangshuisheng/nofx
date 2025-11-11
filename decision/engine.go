@@ -331,7 +331,21 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 		accountEquity*0.8, accountEquity*1.5, accountEquity*5, accountEquity*10))
 	sb.WriteString(fmt.Sprintf("4. 杠杆限制: **山寨币最大%dx杠杆** | **BTC/ETH最大%dx杠杆** (⚠️ 严格执行，不可超过)\n", altcoinLeverage, btcEthLeverage))
 	sb.WriteString("5. 保证金: 总使用率 ≤ 90%\n")
-	sb.WriteString("6. 开仓金额: 建议 **≥12 USDT** (交易所最小名义价值 10 USDT + 安全边际)\n\n")
+
+	// 6. 开仓金额：根据账户规模动态提示
+	sb.WriteString("6. 开仓金额: 山寨币≥12 USDT")
+	if accountEquity < 20.0 {
+		// 小账户特殊提示
+		sb.WriteString(" | BTC/ETH≥12 USDT (⚠️ 小账户模式，降低门槛)")
+	} else if accountEquity < 100.0 {
+		// 中型账户动态门槛
+		minBTCETH := calculateMinPositionSize("BTCUSDT", accountEquity)
+		sb.WriteString(fmt.Sprintf(" | BTC/ETH≥%.0f USDT (根据账户规模动态调整)", minBTCETH))
+	} else {
+		// 大账户标准门槛
+		sb.WriteString(" | BTC/ETH≥60 USDT")
+	}
+	sb.WriteString("\n\n")
 
 	// 3. 输出格式 - 动态生成
 	sb.WriteString("# 输出格式 (严格遵守)\n\n")
@@ -701,6 +715,36 @@ func findMatchingBracket(s string, start int) int {
 	return -1
 }
 
+// calculateMinPositionSize 根据账户净值和币种动态计算最小开仓金额
+func calculateMinPositionSize(symbol string, accountEquity float64) float64 {
+	const (
+		absoluteMinimum = 12.0 // 交易所绝对最小值 (10 USDT + 20% 安全边际)
+		standardBTCETH  = 60.0 // 标准 BTC/ETH 最小值 (因价格高和精度限制)
+	)
+
+	isBTCETH := symbol == "BTCUSDT" || symbol == "ETHUSDT"
+
+	// 山寨币始终使用绝对最小值
+	if !isBTCETH {
+		return absoluteMinimum
+	}
+
+	// BTC/ETH 动态调整策略
+	// 小账户(<20U): 使用绝对最小值，避免完全无法交易
+	if accountEquity < 20.0 {
+		return absoluteMinimum
+	}
+
+	// 中型账户(20-100U): 线性插值，平滑过渡
+	// 例: 20U账户→12U, 60U账户→36U, 100U账户→60U
+	if accountEquity < 100.0 {
+		return absoluteMinimum + (standardBTCETH-absoluteMinimum)*(accountEquity-20.0)/80.0
+	}
+
+	// 大账户(≥100U): 使用标准值
+	return standardBTCETH
+}
+
 // validateDecision 验证单个决策的有效性
 func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
 	// 验证action
@@ -744,18 +788,17 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		}
 
 		// ✅ 验证最小开仓金额（防止数量格式化为 0 的错误）
-		// Binance 最小名义价值 10 USDT + 安全边际
-		const minPositionSizeGeneral = 12.0 // 10 + 20% 安全边际
-		const minPositionSizeBTCETH = 60.0  // BTC/ETH 因价格高和精度限制需要更大金额（更灵活）
-
-		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-			if d.PositionSizeUSD < minPositionSizeBTCETH {
-				return fmt.Errorf("%s 开仓金额过小(%.2f USDT)，必须≥%.2f USDT（因价格高且精度限制，避免数量四舍五入为0）", d.Symbol, d.PositionSizeUSD, minPositionSizeBTCETH)
+		// 使用动态计算函数，根据账户规模自适应调整
+		minPositionSize := calculateMinPositionSize(d.Symbol, accountEquity)
+		if d.PositionSizeUSD < minPositionSize {
+			// 小账户特殊提示：引导用户理解动态门槛
+			if accountEquity < 20.0 && (d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT") {
+				return fmt.Errorf("%s 开仓金额过小(%.2f USDT)，当前账户规模(%.2f USDT)要求≥%.2f USDT（小账户动态调整）",
+					d.Symbol, d.PositionSizeUSD, accountEquity, minPositionSize)
 			}
-		} else {
-			if d.PositionSizeUSD < minPositionSizeGeneral {
-				return fmt.Errorf("开仓金额过小(%.2f USDT)，必须≥%.2f USDT（Binance 最小名义价值要求）", d.PositionSizeUSD, minPositionSizeGeneral)
-			}
+			// 通用错误提示
+			return fmt.Errorf("开仓金额过小(%.2f USDT)，必须≥%.2f USDT（交易所最小名义价值要求）",
+				d.PositionSizeUSD, minPositionSize)
 		}
 
 		// 验证仓位价值上限（加1%容差以避免浮点数精度问题）
