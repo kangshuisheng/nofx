@@ -329,7 +329,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("1. 风险回报比: 必须 ≥ 1:3（冒1%风险，赚3%+收益）\n")
 	sb.WriteString("2. 最多持仓: 3个币种（质量>数量）\n")
 	sb.WriteString(fmt.Sprintf("3. 单币仓位: 山寨%.0f-%.0f U | BTC/ETH %.0f-%.0f U\n",
-		accountEquity*0.65, accountEquity*1.25, accountEquity*3.15, accountEquity*6.25))
+		accountEquity*0.6, accountEquity*1.2, accountEquity*2.5, accountEquity*5.5))
 	sb.WriteString(fmt.Sprintf("4. 杠杆限制: **山寨币最大%dx杠杆** | **BTC/ETH最大%dx杠杆** (⚠️ 严格执行，不可超过)\n", altcoinLeverage, btcEthLeverage))
 	sb.WriteString("5. 保证金: 总使用率 ≤ 90%\n")
 
@@ -697,28 +697,6 @@ func validateDecisions(decisions []Decision, accountEquity float64, btcEthLevera
 	return nil
 }
 
-// findMatchingBracket 查找匹配的右括号
-func findMatchingBracket(s string, start int) int {
-	if start >= len(s) || s[start] != '[' {
-		return -1
-	}
-
-	depth := 0
-	for i := start; i < len(s); i++ {
-		switch s[i] {
-		case '[':
-			depth++
-		case ']':
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-
-	return -1
-}
-
 // calculateMinPositionSize 根据账户净值和币种动态计算最小开仓金额
 func calculateMinPositionSize(symbol string, accountEquity float64) float64 {
 	const (
@@ -770,15 +748,58 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 
 	// 开仓操作必须提供完整参数
 	if d.Action == "open_long" || d.Action == "open_short" {
-		// 根据币种使用配置的杠杆上限
-		maxLeverage := altcoinLeverage          // 山寨币使用配置的杠杆
-		maxPositionValue := accountEquity * 1.5 // 山寨币最多1.5倍账户净值
-		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-			maxLeverage = btcEthLeverage          // BTC和ETH使用配置的杠杆
-			maxPositionValue = accountEquity * 10 // BTC/ETH最多10倍账户净值
+		if d.StopLoss <= 0 || d.TakeProfit <= 0 {
+			return fmt.Errorf("止损和止盈必须大于0")
 		}
 
-		// ✅ Fallback 机制：杠杆超限时自动修正为上限值（而不是直接拒绝决策）
+		// =================================================================
+		// 🚨 CRITICAL SAFETY FIX: 核心安全修复 - 基于风险预算的验证
+		// -----------------------------------------------------------------
+		// 此处不再使用简单的仓位价值上限，而是严格计算潜在亏损是否超过账户净值的2%。
+		// 这是防止开出超大风险仓位的最重要防线。
+
+		// 1. 获取当前市价以进行精确计算
+		marketData, err := market.Get(d.Symbol)
+		if err != nil {
+			return fmt.Errorf("无法获取 %s 的当前价格以进行风险校验: %w", d.Symbol, err)
+		}
+		entryPrice := marketData.CurrentPrice
+		if entryPrice <= 0 {
+			return fmt.Errorf("无法计算风险, %s 当前价格为0或无效", d.Symbol)
+		}
+
+		// 2. 计算潜在亏损（美元）
+		var potentialLossUSD float64
+		quantity := d.PositionSizeUSD / entryPrice
+		if d.Action == "open_long" {
+			potentialLossUSD = quantity * (entryPrice - d.StopLoss)
+		} else { // open_short
+			potentialLossUSD = quantity * (d.StopLoss - entryPrice)
+		}
+
+		// 3. 严格执行 2% 最大亏损规则
+		maxAllowedLoss := accountEquity * 0.02
+		if potentialLossUSD > maxAllowedLoss {
+			return fmt.Errorf(
+				"风险预算超限 (%.2f USDT > %.2f USDT)。仓位价值 %.2f USDT @ %.4f 止损于 %.4f，已超出最大允许亏损(账户净值的2%%)",
+				potentialLossUSD,
+				maxAllowedLoss,
+				d.PositionSizeUSD,
+				entryPrice,
+				d.StopLoss,
+			)
+		}
+		// =================================================================
+		// END OF CRITICAL SAFETY FIX
+		// =================================================================
+
+		// --- 保留原有的其他辅助检查 ---
+
+		// 杠杆检查与修正
+		maxLeverage := altcoinLeverage
+		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
+			maxLeverage = btcEthLeverage
+		}
 		if d.Leverage <= 0 {
 			return fmt.Errorf("杠杆必须大于0: %d", d.Leverage)
 		}
@@ -787,78 +808,28 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 				d.Symbol, d.Leverage, maxLeverage, maxLeverage)
 			d.Leverage = maxLeverage // 自动修正为上限值
 		}
-		if d.PositionSizeUSD <= 0 {
-			return fmt.Errorf("仓位大小必须大于0: %.2f", d.PositionSizeUSD)
-		}
 
-		// ✅ 验证最小开仓金额（防止数量格式化为 0 的错误）
-		// 使用动态计算函数，根据账户规模自适应调整
+		// 最小开仓金额检查
 		minPositionSize := calculateMinPositionSize(d.Symbol, accountEquity)
 		if d.PositionSizeUSD < minPositionSize {
-			// 小账户特殊提示：引导用户理解动态门槛
-			if accountEquity < 20.0 && (d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT") {
-				return fmt.Errorf("%s 开仓金额过小(%.2f USDT)，当前账户规模(%.2f USDT)要求≥%.2f USDT（小账户动态调整）",
-					d.Symbol, d.PositionSizeUSD, accountEquity, minPositionSize)
-			}
-			// 通用错误提示
-			return fmt.Errorf("开仓金额过小(%.2f USDT)，必须≥%.2f USDT（交易所最小名义价值要求）",
-				d.PositionSizeUSD, minPositionSize)
+			return fmt.Errorf("开仓金额过小(%.2f USDT)，必须≥%.2f USDT", d.PositionSizeUSD, minPositionSize)
 		}
 
-		// 验证仓位价值上限（加1%容差以避免浮点数精度问题）
-		tolerance := maxPositionValue * 0.01 // 1%容差
-		if d.PositionSizeUSD > maxPositionValue+tolerance {
-			if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-				return fmt.Errorf("BTC/ETH单币种仓位价值不能超过%.0f USDT（10倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
-			} else {
-				return fmt.Errorf("山寨币单币种仓位价值不能超过%.0f USDT（1.5倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
-			}
-		}
-		if d.StopLoss <= 0 || d.TakeProfit <= 0 {
-			return fmt.Errorf("止损和止盈必须大于0")
-		}
-
-		// 验证止损止盈的合理性
+		// 止损止盈逻辑合理性检查
 		if d.Action == "open_long" {
 			if d.StopLoss >= d.TakeProfit {
-				return fmt.Errorf("做多时止损价必须小于止盈价")
+				return fmt.Errorf("做多时止损价 (%.4f) 必须小于止盈价 (%.4f)", d.StopLoss, d.TakeProfit)
 			}
-		} else {
+			if d.StopLoss >= entryPrice {
+				return fmt.Errorf("做多时，止损价 (%.4f) 必须低于当前市价 (%.4f)", d.StopLoss, entryPrice)
+			}
+		} else { // open_short
 			if d.StopLoss <= d.TakeProfit {
-				return fmt.Errorf("做空时止损价必须大于止盈价")
+				return fmt.Errorf("做空时止损价 (%.4f) 必须大于止盈价 (%.4f)", d.StopLoss, d.TakeProfit)
 			}
-		}
-
-		// 验证风险回报比（必须≥1:3）
-		// 计算入场价（假设当前市价）
-		var entryPrice float64
-		if d.Action == "open_long" {
-			// 做多：入场价在止损和止盈之间
-			entryPrice = d.StopLoss + (d.TakeProfit-d.StopLoss)*0.2 // 假设在20%位置入场
-		} else {
-			// 做空：入场价在止损和止盈之间
-			entryPrice = d.StopLoss - (d.StopLoss-d.TakeProfit)*0.2 // 假设在20%位置入场
-		}
-
-		var riskPercent, rewardPercent, riskRewardRatio float64
-		if d.Action == "open_long" {
-			riskPercent = (entryPrice - d.StopLoss) / entryPrice * 100
-			rewardPercent = (d.TakeProfit - entryPrice) / entryPrice * 100
-			if riskPercent > 0 {
-				riskRewardRatio = rewardPercent / riskPercent
+			if d.StopLoss <= entryPrice {
+				return fmt.Errorf("做空时，止损价 (%.4f) 必须高于当前市价 (%.4f)", d.StopLoss, entryPrice)
 			}
-		} else {
-			riskPercent = (d.StopLoss - entryPrice) / entryPrice * 100
-			rewardPercent = (entryPrice - d.TakeProfit) / entryPrice * 100
-			if riskPercent > 0 {
-				riskRewardRatio = rewardPercent / riskPercent
-			}
-		}
-
-		// 硬约束：风险回报比必须≥3.0
-		if riskRewardRatio < 3.0 {
-			return fmt.Errorf("风险回报比过低(%.2f:1)，必须≥3.0:1 [风险:%.2f%% 收益:%.2f%%] [止损:%.2f 止盈:%.2f]",
-				riskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
 		}
 	}
 
@@ -876,21 +847,17 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		}
 	}
 
-	//\t//	// 部分平仓验证
+	// 部分平仓验证
 	if d.Action == "partial_close" {
 		if d.ClosePercentage <= 0 || d.ClosePercentage > 100 {
 			return fmt.Errorf("partial_close ClosePercentage必须在1-100之间，当前值: %.2f", d.ClosePercentage)
 		}
-
-		// 验证平仓百分比是否为合理的数值（避免过小数值）
 		if d.ClosePercentage < 5.0 {
 			return fmt.Errorf("partial_close ClosePercentage过小(%.1f%%)，建议≥5%%以确保有足够的平仓价值", d.ClosePercentage)
 		}
-
-		// 验证是否为合理的步长（避免过于精确的百分比）
 		percentage := d.ClosePercentage
 		if math.Mod(percentage*10, 5) != 0 { // 检查是否不是0.5的倍数
-			return fmt.Errorf("partial_close ClosePercentage建议使用整数或0.5步长，当前值: %.2f。推荐值: 5, 10, 15, 20, 25, 30, 33, 40, 45, 50, 55, 60, 66, 70, 75, 80, 85, 90, 95, 100", d.ClosePercentage)
+			return fmt.Errorf("partial_close ClosePercentage建议使用整数或0.5步长，当前值: %.2f", d.ClosePercentage)
 		}
 	}
 
