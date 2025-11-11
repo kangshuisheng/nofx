@@ -457,8 +457,9 @@ type UpdateExchangeConfigRequest struct {
 // handleCreateTrader 创建新的AI交易员
 func (s *Server) handleCreateTrader(c *gin.Context) {
 	userID := c.GetString("user_id")
+	var err error // Declare err for later use
 	var req CreateTraderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err = c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -482,6 +483,19 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("无效的币种格式: %s，必须以USDT结尾", symbol)})
 				return
 			}
+		}
+	}
+
+	// ✅ 检查交易员名称是否重复
+	existingTraders, err := s.database.GetTraders(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("检查交易员名称失败: %v", err)})
+		return
+	}
+	for _, existing := range existingTraders {
+		if existing.Name == req.Name {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("交易员名称 '%s' 已存在，请使用其他名称", req.Name)})
+			return
 		}
 	}
 
@@ -530,71 +544,98 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		scanIntervalMinutes = 3 // 默认3分钟，且不允许小于3
 	}
 
-	// ✨ 查询交易所实际余额，覆盖用户输入
-	actualBalance := req.InitialBalance // 默认使用用户输入
-	exchanges, err := s.database.GetExchanges(userID)
-	if err != nil {
-		log.Printf("⚠️ 获取交易所配置失败，使用用户输入的初始资金: %v", err)
-	}
+	// ✅ Fix #787, #807, #790: Respect user-specified initial balance
+	// ✅ Fix P&L calculation: Use total equity instead of available balance when auto-querying
+	actualBalance := req.InitialBalance // Default: use user input
 
-	// 查找匹配的交易所配置
-	var exchangeCfg *config.ExchangeConfig
-	for _, ex := range exchanges {
-		if ex.ID == req.ExchangeID {
-			exchangeCfg = ex
-			break
-		}
-	}
+	// Only auto-query from exchange when user input <= 0
+	if actualBalance <= 0 {
+		log.Printf("ℹ️ User didn't specify initial balance (%.2f), querying from exchange...", actualBalance)
 
-	if exchangeCfg == nil {
-		log.Printf("⚠️ 未找到交易所 %s 的配置，使用用户输入的初始资金", req.ExchangeID)
-	} else if !exchangeCfg.Enabled {
-		log.Printf("⚠️ 交易所 %s 未启用，使用用户输入的初始资金", req.ExchangeID)
-	} else {
-		// 根据交易所类型创建临时 trader 查询余额
-		var tempTrader trader.Trader
-		var createErr error
+		exchanges, exchangeErr := s.database.GetExchanges(userID)
+		if exchangeErr != nil {
+			log.Printf("⚠️ 获取交易所配置失败，使用默认值 100 USDT: %v", exchangeErr)
+			actualBalance = 100.0
+		} else {
+			// 查找匹配的交易所配置
+			var exchangeCfg *config.ExchangeConfig
+			for _, ex := range exchanges {
+				if ex.ID == req.ExchangeID {
+					exchangeCfg = ex
+					break
+				}
+			}
 
-		switch req.ExchangeID {
-		case "binance":
-			tempTrader = trader.NewFuturesTrader(exchangeCfg.APIKey, exchangeCfg.SecretKey, userID)
-		case "hyperliquid":
-			tempTrader, createErr = trader.NewHyperliquidTrader(
-				exchangeCfg.APIKey, // private key
-				exchangeCfg.HyperliquidWalletAddr,
-				exchangeCfg.Testnet,
-			)
-		case "aster":
-			tempTrader, createErr = trader.NewAsterTrader(
-				exchangeCfg.AsterUser,
-				exchangeCfg.AsterSigner,
-				exchangeCfg.AsterPrivateKey,
-			)
-		default:
-			log.Printf("⚠️ 不支持的交易所类型: %s，使用用户输入的初始资金", req.ExchangeID)
-		}
-
-		if createErr != nil {
-			log.Printf("⚠️ 创建临时 trader 失败，使用用户输入的初始资金: %v", createErr)
-		} else if tempTrader != nil {
-			// 查询实际余额
-			balanceInfo, balanceErr := tempTrader.GetBalance()
-			if balanceErr != nil {
-				log.Printf("⚠️ 查询交易所余额失败，使用用户输入的初始资金: %v", balanceErr)
+			if exchangeCfg == nil {
+				log.Printf("⚠️ 未找到交易所 %s 的配置，使用默认值 100 USDT", req.ExchangeID)
+				actualBalance = 100.0
+			} else if !exchangeCfg.Enabled {
+				log.Printf("⚠️ 交易所 %s 未启用，使用默认值 100 USDT", req.ExchangeID)
+				actualBalance = 100.0
 			} else {
-				// 提取可用余额
-				if availableBalance, ok := balanceInfo["available_balance"].(float64); ok && availableBalance > 0 {
-					actualBalance = availableBalance
-					log.Printf("✓ 查询到交易所实际余额: %.2f USDT (用户输入: %.2f USDT)", actualBalance, req.InitialBalance)
-				} else if totalBalance, ok := balanceInfo["balance"].(float64); ok && totalBalance > 0 {
-					// 有些交易所可能只返回 balance 字段
-					actualBalance = totalBalance
-					log.Printf("✓ 查询到交易所实际余额: %.2f USDT (用户输入: %.2f USDT)", actualBalance, req.InitialBalance)
-				} else {
-					log.Printf("⚠️ 无法从余额信息中提取可用余额，使用用户输入的初始资金")
+				// 根据交易所类型创建临时 trader 查询余额
+				var tempTrader trader.Trader
+				var createErr error
+
+				switch req.ExchangeID {
+				case "binance":
+					tempTrader = trader.NewFuturesTrader(exchangeCfg.APIKey, exchangeCfg.SecretKey, userID)
+				case "hyperliquid":
+					tempTrader, createErr = trader.NewHyperliquidTrader(
+						exchangeCfg.APIKey, // private key
+						exchangeCfg.HyperliquidWalletAddr,
+						exchangeCfg.Testnet,
+					)
+				case "aster":
+					tempTrader, createErr = trader.NewAsterTrader(
+						exchangeCfg.AsterUser,
+						exchangeCfg.AsterSigner,
+						exchangeCfg.AsterPrivateKey,
+					)
+				default:
+					log.Printf("⚠️ 不支持的交易所类型: %s，使用默认值 100 USDT", req.ExchangeID)
+					actualBalance = 100.0
+				}
+
+				if createErr != nil {
+					log.Printf("⚠️ 创建临时 trader 失败，使用默认值 100 USDT: %v", createErr)
+					actualBalance = 100.0
+				} else if tempTrader != nil {
+					// 查询实际余额
+					balanceInfo, balanceErr := tempTrader.GetBalance()
+					if balanceErr != nil {
+						log.Printf("⚠️ 查询交易所余额失败，使用默认值 100 USDT: %v", balanceErr)
+						actualBalance = 100.0
+					} else {
+						// ✅ 使用总资产（total equity）而不是可用余额
+						// 总资产 = 钱包余额 + 未实现盈亏，这样才能正确计算总盈亏
+						totalWalletBalance := 0.0
+						totalUnrealizedProfit := 0.0
+
+						if wallet, ok := balanceInfo["totalWalletBalance"].(float64); ok {
+							totalWalletBalance = wallet
+						}
+						if unrealized, ok := balanceInfo["totalUnrealizedProfit"].(float64); ok {
+							totalUnrealizedProfit = unrealized
+						}
+
+						// 总资产 = 钱包余额 + 未实现盈亏
+						totalEquity := totalWalletBalance + totalUnrealizedProfit
+
+						if totalEquity > 0 {
+							actualBalance = totalEquity
+							log.Printf("✓ 查询到交易所总资产余额: %.2f USDT (钱包: %.2f + 未实现: %.2f)",
+								actualBalance, totalWalletBalance, totalUnrealizedProfit)
+						} else {
+							log.Printf("⚠️ 无法从余额信息中提取总资产余额，使用默认值 100 USDT")
+							actualBalance = 100.0
+						}
+					}
 				}
 			}
 		}
+	} else {
+		log.Printf("✓ 使用用户指定的初始余额: %.2f USDT", actualBalance)
 	}
 
 	// 创建交易员配置（数据库实体）
@@ -766,23 +807,20 @@ func (s *Server) handleDeleteTrader(c *gin.Context) {
 	userID := c.GetString("user_id")
 	traderID := c.Param("id")
 
-	// 从数据库删除
+	// ✅ 步骤1：先从内存中停止并移除交易员（RemoveTrader会处理停止逻辑和竞赛缓存清除）
+	if err := s.traderManager.RemoveTrader(traderID); err != nil {
+		// 交易员不在内存中也不是错误，可能已经被移除或从未加载
+		log.Printf("⚠️ 从内存中移除交易员时出现警告: %v", err)
+	}
+
+	// ✅ 步骤2：最后才从数据库删除
 	err := s.database.DeleteTrader(userID, traderID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("删除交易员失败: %v", err)})
 		return
 	}
 
-	// 如果交易员正在运行，先停止它
-	if trader, err := s.traderManager.GetTrader(traderID); err == nil {
-		status := trader.GetStatus()
-		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
-			trader.Stop()
-			log.Printf("⏹  已停止运行中的交易员: %s", traderID)
-		}
-	}
-
-	log.Printf("✓ 交易员已删除: %s", traderID)
+	log.Printf("✓ 交易员已完全删除: %s", traderID)
 	c.JSON(http.StatusOK, gin.H{"message": "交易员已删除"})
 }
 
@@ -963,16 +1001,28 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 		return
 	}
 
-	// 提取可用余额
+	// ✅ 使用总资产（total equity）而不是可用余额
+	// 总资产 = 钱包余额 + 未实现盈亏，这样才能正确计算总盈亏
 	var actualBalance float64
-	if availableBalance, ok := balanceInfo["available_balance"].(float64); ok && availableBalance > 0 {
-		actualBalance = availableBalance
-	} else if availableBalance, ok := balanceInfo["availableBalance"].(float64); ok && availableBalance > 0 {
-		actualBalance = availableBalance
-	} else if totalBalance, ok := balanceInfo["balance"].(float64); ok && totalBalance > 0 {
-		actualBalance = totalBalance
+	totalWalletBalance := 0.0
+	totalUnrealizedProfit := 0.0
+
+	if wallet, ok := balanceInfo["totalWalletBalance"].(float64); ok {
+		totalWalletBalance = wallet
+	}
+	if unrealized, ok := balanceInfo["totalUnrealizedProfit"].(float64); ok {
+		totalUnrealizedProfit = unrealized
+	}
+
+	// 总资产 = 钱包余额 + 未实现盈亏
+	totalEquity := totalWalletBalance + totalUnrealizedProfit
+
+	if totalEquity > 0 {
+		actualBalance = totalEquity
+		log.Printf("✓ 查询到交易所总资产余额: %.2f USDT (钱包: %.2f + 未实现: %.2f)",
+			actualBalance, totalWalletBalance, totalUnrealizedProfit)
 	} else {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法获取可用余额"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法获取总资产余额"})
 		return
 	}
 
