@@ -1205,28 +1205,133 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
             ))}
           </div>
         ) : (
-          <div
-            className="text-center py-12 md:py-16"
-            style={{ color: '#848E9C' }}
-          >
-            <Bot className="w-16 h-16 md:w-24 md:h-24 mx-auto mb-3 md:mb-4 opacity-50" />
-            <div className="text-base md:text-lg font-semibold mb-2">
-              {t('noTraders', language)}
-            </div>
-            <div className="text-xs md:text-sm mb-3 md:mb-4">
-              {t('createFirstTrader', language)}
-            </div>
-            {(configuredModels.length === 0 ||
-              configuredExchanges.length === 0) && (
-              <div className="text-xs md:text-sm text-yellow-500">
-                {configuredModels.length === 0 &&
-                configuredExchanges.length === 0
-                  ? t('configureModelsAndExchangesFirst', language)
-                  : configuredModels.length === 0
-                    ? t('configureModelsFirst', language)
-                    : t('configureExchangesFirst', language)}
+          <div className="max-w-2xl mx-auto py-8 md:py-12">
+            {/* Quick Start Header */}
+            <div className="text-center mb-6 md:mb-8">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Bot className="w-8 h-8 md:w-10 md:h-10 opacity-50" style={{ color: '#848E9C' }} />
+                <h2 className="text-xl md:text-2xl font-bold" style={{ color: '#F0B90B' }}>
+                  {t('quickStart', language)}
+                </h2>
               </div>
-            )}
+              <p className="text-sm md:text-base" style={{ color: '#848E9C' }}>
+                {t('quickStartSubtitle', language)}
+              </p>
+            </div>
+
+            {/* Step-by-Step Guide */}
+            <div className="space-y-4">
+              {/* Step 1: AI Model */}
+              <div className="rounded-lg p-4 md:p-6" style={{ backgroundColor: '#1E2329', border: '1px solid #2B3139' }}>
+                <div className="flex items-start gap-3 md:gap-4">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-base md:text-lg font-bold"
+                       style={{ backgroundColor: configuredModels.length > 0 ? '#0ECB81' : '#474D57', color: '#fff' }}>
+                    {configuredModels.length > 0 ? '✓' : '1'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base md:text-lg font-semibold mb-2" style={{ color: '#EAECEF' }}>
+                      {t('quickStartStep1Title', language)}
+                    </h3>
+                    {configuredModels.length > 0 ? (
+                      <p className="text-sm md:text-base mb-2" style={{ color: '#0ECB81' }}>
+                        {t('step1Completed', language)}: {configuredModels.map(m => getModelDisplayName(m.id)).join(', ')}
+                      </p>
+                    ) : (
+                      <>
+                        <p className="text-xs md:text-sm mb-3" style={{ color: '#848E9C' }}>
+                          {t('step1Description', language)}
+                        </p>
+                        <button
+                          onClick={() => navigate('/settings')}
+                          className="px-4 py-2 rounded text-sm md:text-base font-medium transition-colors"
+                          style={{ backgroundColor: '#F0B90B', color: '#000' }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#FCD535'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#F0B90B'}
+                        >
+                          {t('goToSettings', language)}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 2: Exchange */}
+              <div className="rounded-lg p-4 md:p-6" style={{ backgroundColor: '#1E2329', border: '1px solid #2B3139' }}>
+                <div className="flex items-start gap-3 md:gap-4">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-base md:text-lg font-bold"
+                       style={{ backgroundColor: configuredExchanges.length > 0 ? '#0ECB81' : '#474D57', color: '#fff' }}>
+                    {configuredExchanges.length > 0 ? '✓' : '2'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base md:text-lg font-semibold mb-2" style={{ color: '#EAECEF' }}>
+                      {t('quickStartStep2Title', language)}
+                    </h3>
+                    {configuredExchanges.length > 0 ? (
+                      <p className="text-sm md:text-base mb-2" style={{ color: '#0ECB81' }}>
+                        {t('step2Completed', language)}: {configuredExchanges.map(e => e.name).join(', ')}
+                      </p>
+                    ) : (
+                      <>
+                        <p className="text-xs md:text-sm mb-3" style={{ color: '#848E9C' }}>
+                          {t('step2Description', language)}
+                        </p>
+                        <button
+                          onClick={() => navigate('/settings')}
+                          className="px-4 py-2 rounded text-sm md:text-base font-medium transition-colors"
+                          style={{ backgroundColor: '#F0B90B', color: '#000' }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#FCD535'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#F0B90B'}
+                        >
+                          {t('goToSettings', language)}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 3: Create Trader */}
+              <div className="rounded-lg p-4 md:p-6" style={{ backgroundColor: '#1E2329', border: '1px solid #2B3139' }}>
+                <div className="flex items-start gap-3 md:gap-4">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-base md:text-lg font-bold"
+                       style={{ backgroundColor: '#474D57', color: '#fff' }}>
+                    3
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base md:text-lg font-semibold mb-2" style={{ color: '#EAECEF' }}>
+                      {t('quickStartStep3Title', language)}
+                    </h3>
+                    <p className="text-xs md:text-sm mb-3" style={{ color: '#848E9C' }}>
+                      {configuredModels.length > 0 && configuredExchanges.length > 0
+                        ? t('step3Ready', language)
+                        : t('step3Description', language)}
+                    </p>
+                    <button
+                      onClick={() => setShowCreateModal(true)}
+                      disabled={configuredModels.length === 0 || configuredExchanges.length === 0}
+                      className="px-4 py-2 rounded text-sm md:text-base font-medium transition-colors disabled:cursor-not-allowed"
+                      style={{
+                        backgroundColor: configuredModels.length > 0 && configuredExchanges.length > 0 ? '#0ECB81' : '#2B3139',
+                        color: configuredModels.length > 0 && configuredExchanges.length > 0 ? '#000' : '#474D57'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (configuredModels.length > 0 && configuredExchanges.length > 0) {
+                          e.currentTarget.style.backgroundColor = '#2EBD85'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (configuredModels.length > 0 && configuredExchanges.length > 0) {
+                          e.currentTarget.style.backgroundColor = '#0ECB81'
+                        }
+                      }}
+                    >
+                      {t('createTrader', language)}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -2652,6 +2757,65 @@ function ExchangeConfigModal({
               </>
             )}
           </div>
+
+          {/* 測試網選項 */}
+          {selectedExchange && (
+            <div
+              className="p-4 rounded"
+              style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+            >
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={testnet}
+                  onChange={(e) => setTestnet(e.target.checked)}
+                  disabled={selectedExchange.id === 'aster'}
+                  className="w-4 h-4 rounded"
+                  style={{
+                    accentColor: '#F0B90B',
+                    cursor:
+                      selectedExchange.id === 'aster'
+                        ? 'not-allowed'
+                        : 'pointer',
+                  }}
+                />
+                <div className="flex-1">
+                  <div
+                    className="text-sm font-semibold"
+                    style={{
+                      color:
+                        selectedExchange.id === 'aster' ? '#848E9C' : '#EAECEF',
+                    }}
+                  >
+                    {t('useTestnet', language)}
+                  </div>
+                  <div
+                    className="text-xs mt-1"
+                    style={{ color: '#848E9C', lineHeight: '1.5' }}
+                  >
+                    {selectedExchange.id === 'aster' ? (
+                      <span style={{ color: '#F6465D' }}>
+                        ⚠️ Aster DEX 目前不支援測試網環境
+                      </span>
+                    ) : (
+                      t('testnetDescription', language)
+                    )}
+                  </div>
+                  {testnet && selectedExchange.id === 'hyperliquid' && (
+                    <a
+                      href="https://app.hyperliquid-testnet.xyz/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 mt-2 text-xs"
+                      style={{ color: '#F0B90B' }}
+                    >
+                      🚰 領取 Hyperliquid 測試幣 →
+                    </a>
+                  )}
+                </div>
+              </label>
+            </div>
+          )}
 
           <div
             className="flex gap-3 mt-6 pt-4 sticky bottom-0"

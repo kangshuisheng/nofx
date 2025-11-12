@@ -155,6 +155,21 @@ export const translations = {
     configureExchangesFirst: 'Please configure exchanges first',
     configureModelsAndExchangesFirst:
       'Please configure AI models and exchanges first',
+
+    // Quick Start Onboarding
+    quickStart: 'Quick Start',
+    quickStartSubtitle: 'Complete the steps below to start using AI traders',
+    quickStartStep1Title: 'Configure AI Model',
+    step1Description: 'Choose an AI model (OpenAI, DeepSeek, Qwen, Claude) to power your trading decisions',
+    step1Completed: 'Configured',
+    quickStartStep2Title: 'Connect Exchange',
+    step2Description: 'Link your exchange account (Binance, OKX, Bybit) to execute trades',
+    step2Completed: 'Configured',
+    quickStartStep3Title: 'Create AI Trader',
+    step3Description: 'Complete steps 1 and 2 to enable trader creation',
+    step3Ready: 'All set! Create your first trader now',
+    goToSettings: 'Go to Settings',
+
     modelNotConfigured: 'Selected model is not configured',
     exchangeNotConfigured: 'Selected exchange is not configured',
     confirmDeleteTrader: 'Are you sure you want to delete this trader?',
@@ -573,13 +588,13 @@ export const translations = {
     howToStart: 'How to Get Started with NOFX',
     fourSimpleSteps:
       'Four simple steps to start your AI automated trading journey',
-    step1Title: 'Clone GitHub Repository',
+    howToStartStep1Title: 'Clone GitHub Repository',
     step1Desc:
       'git clone https://github.com/tinkle-community/nofx and switch to dev branch to test new features.',
-    step2Title: 'Configure Environment',
+    howToStartStep2Title: 'Configure Environment',
     step2Desc:
       'Frontend setup for exchange APIs (like Binance, Hyperliquid), AI models and custom prompts.',
-    step3Title: 'Deploy & Run',
+    howToStartStep3Title: 'Deploy & Run',
     step3Desc:
       'One-click Docker deployment, start AI agents. Note: High-risk market, only test with money you can afford to lose.',
     step4Title: 'Optimize & Contribute',
@@ -1007,6 +1022,21 @@ export const translations = {
     configureModelsFirst: '请先配置AI模型',
     configureExchangesFirst: '请先配置交易所',
     configureModelsAndExchangesFirst: '请先配置AI模型和交易所',
+
+    // Quick Start Onboarding
+    quickStart: '快速开始',
+    quickStartSubtitle: '完成以下步骤开始使用 AI 交易员',
+    quickStartStep1Title: '配置 AI 模型',
+    step1Description: '选择一个 AI 模型（OpenAI、DeepSeek、Qwen、Claude）来驱动您的交易决策',
+    step1Completed: '已配置',
+    quickStartStep2Title: '连接交易所',
+    step2Description: '连接您的交易所账户（Binance、OKX、Bybit）以执行交易',
+    step2Completed: '已配置',
+    quickStartStep3Title: '创建 AI 交易员',
+    step3Description: '完成前两步后可创建交易员',
+    step3Ready: '一切就绪，立即创建您的第一个交易员',
+    goToSettings: '前往设置',
+
     modelNotConfigured: '所选模型未配置',
     exchangeNotConfigured: '所选交易所未配置',
     confirmDeleteTrader: '确定要删除这个交易员吗？',
@@ -1381,13 +1411,13 @@ export const translations = {
     // How It Works Section
     howToStart: '如何开始使用 NOFX',
     fourSimpleSteps: '四个简单步骤，开启 AI 自动交易之旅',
-    step1Title: '拉取 GitHub 仓库',
+    howToStartStep1Title: '拉取 GitHub 仓库',
     step1Desc:
       'git clone https://github.com/tinkle-community/nofx 并切换到 dev 分支测试新功能。',
-    step2Title: '配置环境',
+    howToStartStep2Title: '配置环境',
     step2Desc:
       '前端设置交易所 API（如 Binance、Hyperliquid）、AI 模型和自定义提示词。',
-    step3Title: '部署与运行',
+    howToStartStep3Title: '部署与运行',
     step3Desc:
       '一键 Docker 部署，启动 AI 代理。注意：高风险市场，仅用闲钱测试。',
     step4Title: '优化与贡献',
