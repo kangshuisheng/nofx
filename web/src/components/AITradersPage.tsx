@@ -515,7 +515,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       const request = {
         models: Object.fromEntries(
           updatedModels.map((model) => [
-            model.provider, // 使用 provider 而不是 id
+            model.id, // 使用模型ID作为键，匹配后端期望的结构
             {
               enabled: model.enabled,
               api_key: model.apiKey || '',
