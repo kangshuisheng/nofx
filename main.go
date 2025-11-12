@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -203,42 +205,43 @@ func main() {
 	useDefaultCoins := useDefaultCoinsStr == "true"
 	apiPortStr, _ := database.GetSystemConfig("api_server_port")
 
-	// 设置JWT密钥（优先使用环境变量）
+	// 设置JWT密钥（优先级：环境变量 > 数据库自动生成）
 	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	if jwtSecret == "" {
-		// 回退到数据库配置
+		// 尝试从数据库获取（可能是之前自动生成的）
 		jwtSecret, _ = database.GetSystemConfig("jwt_secret")
 		if jwtSecret == "" {
-			// 安全性增强：拒绝使用默认密钥，强制用户配置
-			log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			log.Println("❌ 错误：JWT_SECRET 未设置")
-			log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			// 首次运行：自动生成随机密钥并保存到数据库
+			randomBytes := make([]byte, 32)
+			_, err := rand.Read(randomBytes)
+			if err != nil {
+				log.Fatal("❌ 生成随机 JWT 密钥失败:", err)
+			}
+			jwtSecret = base64.StdEncoding.EncodeToString(randomBytes)
+
+			// 保存到数据库（持久化）
+			err = database.SetSystemConfig("jwt_secret", jwtSecret)
+			if err != nil {
+				log.Fatal("❌ 保存 JWT 密钥到数据库失败:", err)
+			}
+
+			log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			log.Println("🔐 首次启动：已自动生成 JWT 密钥")
+			log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 			log.Println("")
-			log.Println("为了安全性，本系统不允许使用默认 JWT 密钥。")
-			log.Println("请使用以下任一方法设置 JWT 密钥：")
+			log.Println("✓ 密钥已安全保存到数据库 (config.db)")
+			log.Println("✓ 重启服务后密钥仍然有效，用户无需重新登录")
 			log.Println("")
-			log.Println("方法 1: 设置环境变量（推荐）")
-			log.Println("  $ export JWT_SECRET=\"$(openssl rand -base64 32)\"")
-			log.Println("  $ ./nofx")
+			log.Println("📝 生产环境建议（可选）：")
+			log.Println("  使用自定义密钥：export JWT_SECRET='your-secret'")
 			log.Println("")
-			log.Println("方法 2: 在 config.json 中设置")
-			log.Println("  {")
-			log.Println("    \"jwt_secret\": \"your-super-secret-random-key-at-least-32-chars\",")
-			log.Println("    ...")
-			log.Println("  }")
-			log.Println("")
-			log.Println("方法 3: 使用 Docker Compose")
-			log.Println("  environment:")
-			log.Println("    - JWT_SECRET=your-super-secret-random-key")
-			log.Println("")
-			log.Println("⚠️  重要：请使用至少 32 字符的随机字符串，不要使用弱密钥！")
-			log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-			log.Fatal("服务启动失败：JWT_SECRET 未设置")
+			log.Println("⚠️  备份提示：config.db 包含敏感数据，请妥善保管")
+			log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		} else {
 			log.Printf("🔑 使用数据库中的 JWT 密钥")
 		}
 	} else {
-		log.Printf("🔑 使用环境变量 JWT 密钥")
+		log.Printf("🔑 使用环境变量 JWT 密钥（优先级最高）")
 	}
 	auth.SetJWTSecret(jwtSecret)
 
