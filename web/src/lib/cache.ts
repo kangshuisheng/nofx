@@ -25,9 +25,9 @@ export const CacheDependencies = {
    * 單個交易員的狀態數據
    */
   TRADER_STATE: (traderId: string) => [
-    `status-${traderId}`,      // 運行狀態
-    `account-${traderId}`,     // 賬戶信息
-    `performance-${traderId}`, // 性能分析
+    `status-${traderId}`,      // Running state
+    `account-${traderId}`,     // Account info
+    `performance-${traderId}`, // Performance analysis
   ],
 } as const
 
@@ -51,9 +51,9 @@ export const cacheManager = {
    */
   onTraderUpdated: (traderId: string) => {
     console.log(`[Cache] Invalidating after trader updated: ${traderId}`)
-    // 更新列表
+    // Update list
     CacheDependencies.TRADER_LIFECYCLE.forEach(key => mutate(key))
-    // 更新該交易員的詳細數據
+    // Update trader's detailed data
     CacheDependencies.TRADER_STATE(traderId).forEach(key => mutate(key))
   },
 
@@ -83,7 +83,7 @@ export const cacheManager = {
     console.log(`[Cache] Invalidating after trader state changed: ${traderId}`)
     // 更新列表（is_running 字段）
     CacheDependencies.TRADER_LIFECYCLE.forEach(key => mutate(key))
-    // 更新該交易員狀態
+    // Update trader state
     mutate(`status-${traderId}`)
   },
 
@@ -113,7 +113,7 @@ export const cacheManager = {
     console.log(`[Cache] Invalidating after balance synced: ${traderId}`)
     mutate(`account-${traderId}`)
     mutate(`performance-${traderId}`)
-    // 列表頁也需要更新（顯示當前餘額）
+    // List page also needs update (displays current balance)
     CacheDependencies.TRADER_LIFECYCLE.forEach(key => mutate(key))
   },
 }

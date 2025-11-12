@@ -303,7 +303,7 @@ describe('API Guard Logic (PR #669)', () => {
     it('should handle numeric traderId', () => {
       const user = { id: '1', email: 'test@example.com' }
       const token = 'valid-token'
-      const traderId = 123 // 數字而非字串
+      const traderId = 123 // Number instead of string
       const currentPage = 'trader'
 
       const key =

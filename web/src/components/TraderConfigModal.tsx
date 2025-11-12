@@ -226,7 +226,7 @@ export function TraderConfigModal({
 
       const data = await response.json()
 
-      // total_equity = 当前账户净值（包含未实现盈亏）
+      // total_equity = current account net value (includes unrealized P&L)
       // 这应该作为新的初始余额
       const currentBalance = data.total_equity || data.balance || 0
 
@@ -734,7 +734,7 @@ export function TraderConfigModal({
                     selectedTemplate?.description?.['zh'] ||
                     ''
 
-                  // 只在有描述時顯示
+                  // Only show when description exists
                   if (!description) return null
 
                   return (

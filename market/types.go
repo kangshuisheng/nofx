@@ -1,6 +1,9 @@
 package market
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Data 市场数据结构
 type Data struct {
@@ -117,6 +120,17 @@ type Kline struct {
 }
 
 type KlineResponse []interface{}
+
+// BinanceErrorResponse represents Binance API error response
+type BinanceErrorResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+}
+
+// Error implements error interface
+func (e *BinanceErrorResponse) Error() string {
+	return fmt.Sprintf("Binance API error (code %d): %s", e.Code, e.Msg)
+}
 
 type PriceTicker struct {
 	Symbol string `json:"symbol"`

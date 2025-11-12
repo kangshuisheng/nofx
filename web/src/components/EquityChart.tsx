@@ -119,7 +119,7 @@ export function EquityChart({ traderId }: EquityChartProps) {
     account?.initial_balance || // 从交易员配置读取真实初始余额
     (validHistory[0]
       ? validHistory[0].total_equity - validHistory[0].pnl
-      : undefined) || // 备选：淨值 - 盈亏
+      : undefined) || // Fallback: Net value - P&L
     1000 // 默认值（与创建交易员时的默认配置一致）
 
   // 转换数据格式

@@ -77,7 +77,7 @@ export function TwoStageKeyModal({
   }, [isOpen, stage])
 
   const handleStage1Next = async () => {
-    // ✅ 標準化輸入（移除可能的 0x 前綴）再驗證長度
+    // ✅ Normalize input (remove potential 0x prefix) before validating length
     const normalized1 = part1.startsWith('0x') ? part1.slice(2) : part1
     if (normalized1.length < expectedPart1Length) {
       setError(
@@ -134,7 +134,7 @@ export function TwoStageKeyModal({
   }
 
   const handleStage2Complete = () => {
-    // ✅ 標準化輸入（移除可能的 0x 前綴）再驗證長度
+    // ✅ Normalize input (remove potential 0x prefix) before validating length
     const normalized2 = part2.startsWith('0x') ? part2.slice(2) : part2
     if (normalized2.length < expectedPart2Length) {
       setError(
