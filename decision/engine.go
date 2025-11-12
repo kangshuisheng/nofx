@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math"
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/pool"
@@ -856,10 +855,6 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		}
 		if d.ClosePercentage < 5.0 {
 			return fmt.Errorf("partial_close ClosePercentage过小(%.1f%%)，建议≥5%%以确保有足够的平仓价值", d.ClosePercentage)
-		}
-		percentage := d.ClosePercentage
-		if math.Mod(percentage*10, 5) != 0 { // 检查是否不是0.5的倍数
-			return fmt.Errorf("partial_close ClosePercentage建议使用整数或0.5步长，当前值: %.2f", d.ClosePercentage)
 		}
 	}
 
