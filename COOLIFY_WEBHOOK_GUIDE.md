@@ -48,7 +48,17 @@ Webhook 就像一个“通知系统”。你希望在 `git push` 代码到 GitHu
 
 ## 🔍 故障排查
 
--   **红色的叉 ❌**: 如果你看到交付记录是红色的，点击它可以查看具体错误。最常见的原因是 Coolify 的 URL 粘贴错了。
--   **GitHub App 权限**: 如果你使用 Coolify 的 GitHub App 来连接仓库，请确保你已经为这个 App 授权了对该 forked 仓库的访问权限。你可能需要进入 GitHub 的 `Settings` -> `Applications` -> `Coolify GitHub App` -> `Configure`，然后在 `Repository access` 部分，确保你的 forked 仓库被选中了。
+-   **收到 `401 Unauthorized` 错误?**
+    -   这是最常见的错误，意味着你的请求没有被 Coolify 认证。
+    -   **解决方案**: 你需要在 GitHub Webhook 设置中添加一个 `Secret`。
+        1.  回到 Coolify 应用的 **Webhooks** 设置页面。
+        2.  找到一个叫做 **"Deploy Token"** 或者 **"Secret"** 的东西。它是一长串随机字符。如果没有，可能会有一个 "Regenerate" (重新生成) 按钮。
+        3.  **复制**这个 Token。
+        4.  回到 GitHub 的 Webhook 设置页面，找到 **"Secret"** 输入框。
+        5.  将你复制的 Token **粘贴**进去。
+        6.  保存更改，然后再次 `git push` 测试。
+
+-   **收到红色的叉 ❌ 但不是 401?** 
+    -   如果错误不是 `401`，点击交付记录查看具体错误。最常见的原因是 Coolify 的 `Payload URL` 粘贴错了。
 
 按照这个指南操作，你的 forked 仓库也能享受到丝滑的自动化部署体验了！
