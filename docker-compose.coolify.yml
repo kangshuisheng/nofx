@@ -22,10 +22,8 @@ services:
       test:
         [
           "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
+          "curl",
+          "-f",
           "http://localhost:8080/api/health",
         ]
       interval: 30s
@@ -51,10 +49,8 @@ services:
       test:
         [
           "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
+          "curl",
+          "-f",
           "http://localhost/health",
         ]
       interval: 30s
