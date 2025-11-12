@@ -1271,6 +1271,95 @@ sudo apt-get install libta-lib0-dev
 
 ---
 
+## 🧪 Developer Tools & Testing
+
+For contributors and developers working on NOFX, we provide convenient development tools via Makefile.
+
+### Quick Commands
+
+```bash
+# View all available commands
+make help
+
+# Testing
+make test              # Run all tests (backend + frontend)
+make test-backend      # Go tests only
+make test-frontend     # React/Vitest tests only
+make test-coverage     # Generate HTML coverage report
+
+# Build
+make build             # Build backend binary
+make build-frontend    # Build frontend production bundle
+
+# Development
+make run               # Run backend in dev mode
+make run-frontend      # Run frontend dev server (hot reload)
+
+# Code Quality
+make fmt               # Format Go code (go fmt)
+make lint              # Run linter (requires golangci-lint)
+make clean             # Clean all build artifacts
+
+# Docker
+make docker-build      # Build Docker images
+make docker-up         # Start all containers
+make docker-down       # Stop all containers
+make docker-logs       # View container logs
+
+# Dependencies
+make deps              # Download Go dependencies
+make deps-update       # Update all Go dependencies
+make deps-frontend     # Install frontend dependencies
+```
+
+### Manual Commands (Without Makefile)
+
+If you prefer not to use Makefile or don't have `make` installed:
+
+```bash
+# Backend tests
+go test ./...                            # Run all tests
+go test -v ./...                         # Verbose output
+go test -coverprofile=coverage.out ./... # Generate coverage
+go tool cover -html=coverage.out         # View coverage in browser
+
+# Frontend tests
+cd web
+npm run test          # Run Vitest tests
+npm run test:ui       # Interactive test UI
+
+# Build
+go build -o nofx                         # Backend
+cd web && npm run build                  # Frontend
+
+# Development
+go run main.go                           # Backend
+cd web && npm run dev                    # Frontend dev server
+
+# Code formatting
+go fmt ./...                             # Format Go code
+cd web && npm run lint                   # Lint frontend code
+```
+
+### Test Coverage Guidelines
+
+When contributing code:
+- ✅ All existing tests must pass
+- ✅ New features should include tests (aim for >80% coverage)
+- ✅ Critical paths (authentication, trading logic) require 100% coverage
+- ✅ Frontend components should have basic smoke tests
+
+### Continuous Integration
+
+Pull requests automatically run:
+- Backend tests (`go test ./...`)
+- Frontend build verification
+- Code linting and formatting checks
+
+For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
 ## 📈 Performance Optimization Tips
 
 1. **Set reasonable decision cycle**: Recommended 3-5 minutes, avoid over-trading

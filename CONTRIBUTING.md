@@ -138,20 +138,74 @@ sudo apt-get install libta-lib0-dev
 
 ### 5. Test Your Changes
 
+#### Quick Testing with Makefile (Recommended)
+
+We provide a Makefile for convenient testing and development:
+
 ```bash
-# Run backend tests
-go test ./...
+# Run all tests (backend + frontend)
+make test
 
-# Build backend
-go build -o nofx
+# Run specific test suites
+make test-backend       # Go tests only
+make test-frontend      # React/Vitest tests only
+make test-coverage      # Generate HTML coverage report
 
-# Run frontend in dev mode
-cd web
-npm run dev
+# Build
+make build              # Build backend binary
+make build-frontend     # Build frontend assets
 
-# Build frontend
-npm run build
+# Development
+make run                # Run backend in dev mode
+make run-frontend       # Run frontend dev server
+
+# Code quality
+make fmt                # Format Go code
+make lint               # Run linter (requires golangci-lint)
+make clean              # Clean build artifacts
+
+# Docker
+make docker-build       # Build Docker images
+make docker-up          # Start containers
+make docker-down        # Stop containers
+make docker-logs        # View logs
 ```
+
+#### Manual Testing Commands
+
+If you prefer manual commands or don't have `make` installed:
+
+```bash
+# Backend tests
+go test ./...                           # Run all tests
+go test -v ./...                        # Verbose output
+go test -coverprofile=coverage.out ./...  # With coverage
+go tool cover -html=coverage.out        # View coverage in browser
+
+# Frontend tests
+cd web
+npm run test            # Run Vitest tests
+npm run test:ui         # Interactive test UI (if configured)
+
+# Build verification
+go build -o nofx        # Backend
+cd web && npm run build # Frontend
+
+# Run in development
+go run main.go          # Backend
+cd web && npm run dev   # Frontend dev server
+```
+
+#### Test Requirements
+
+Before submitting your PR, ensure:
+
+- ✅ **All existing tests pass** (`make test` or `go test ./...`)
+- ✅ **New features include tests** (aim for >80% coverage for new code)
+- ✅ **Frontend tests for UI components** (when applicable)
+- ✅ **No linting errors** (`make lint` or `golangci-lint run`)
+- ✅ **Code is formatted** (`make fmt` or `go fmt ./...`)
+- ✅ **Build succeeds** (`make build` and `make build-frontend`)
 
 ### 6. Commit Your Changes
 
