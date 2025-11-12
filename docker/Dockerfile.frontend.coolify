@@ -1,7 +1,16 @@
-# Stage 1: Build the React application
-FROM node:20-alpine AS build
+# Coolify-specific Frontend Dockerfile
+# Based on the original Dockerfile.frontend for simplicity and correctness.
 
-# Set build arguments
+ARG NODE_VERSION=20-alpine
+ARG NGINX_VERSION=alpine
+
+# --------------------------------------------------------------
+# Build Stage (Node)
+# --------------------------------------------------------------
+FROM node:${NODE_VERSION} AS builder
+WORKDIR /build
+
+# Set build arguments for Vite
 ARG VITE_API_BASE_URL
 ARG VITE_MCP_API_BASE_URL
 ARG VITE_SENTRY_DSN
@@ -13,27 +22,28 @@ ENV VITE_MCP_API_BASE_URL=${VITE_MCP_API_BASE_URL}
 ENV VITE_SENTRY_DSN=${VITE_SENTRY_DSN}
 ENV VITE_SENTRY_AUTH_TOKEN=${VITE_SENTRY_AUTH_TOKEN}
 
-WORKDIR /app
-COPY frontend/package*.json ./
-RUN npm install
-COPY frontend/ ./
+COPY web/package*.json ./
+RUN npm ci
+
+COPY web/ ./
 RUN npm run build
 
-# Stage 2: Serve the application with Nginx
-FROM nginx:1.27.0-alpine
+# --------------------------------------------------------------
+# Runtime Stage (Nginx)
+# --------------------------------------------------------------
+FROM nginx:${NGINX_VERSION}
 
-# Install curl for health checks
+# Install curl for the health check
 RUN apk add --no-cache curl
 
-COPY --from=build /app/dist /usr/share/nginx/html
-
-# Use Coolify-specific Nginx configuration
+# Use the Coolify-specific Nginx configuration
 COPY nginx/nginx.coolify.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /build/dist /usr/share/nginx/html
 
 EXPOSE 80
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s \
+# Health check using curl (wget is not available in nginx:alpine)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost/health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
