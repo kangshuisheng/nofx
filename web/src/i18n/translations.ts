@@ -11,6 +11,7 @@ export const translations = {
     competition: 'Competition',
     running: 'RUNNING',
     stopped: 'STOPPED',
+    strategy: 'Strategy',
     adminMode: 'Admin Mode',
     logout: 'Logout',
     switchTrader: 'Switch Trader:',
@@ -202,6 +203,18 @@ export const translations = {
       'Hyperliquid uses private key for trading authentication',
     hyperliquidWalletAddressDesc:
       'Wallet address corresponding to the private key',
+    // Hyperliquid Agent Wallet (New Security Model)
+    hyperliquidAgentWalletTitle: 'Hyperliquid Agent Wallet Configuration',
+    hyperliquidAgentWalletDesc:
+      'Use Agent Wallet for secure trading: Agent wallet signs transactions (balance ~0), Main wallet holds funds (never expose private key)',
+    hyperliquidAgentPrivateKey: 'Agent Private Key',
+    enterHyperliquidAgentPrivateKey: 'Enter Agent wallet private key',
+    hyperliquidAgentPrivateKeyDesc:
+      'Agent wallet private key for signing transactions (keep balance near 0 for security)',
+    hyperliquidMainWalletAddress: 'Main Wallet Address',
+    enterHyperliquidMainWalletAddress: 'Enter Main wallet address',
+    hyperliquidMainWalletAddressDesc:
+      'Main wallet address that holds your trading funds (never expose its private key)',
     asterUserDesc:
       'Main wallet address - The EVM wallet address you use to log in to Aster (Note: Only EVM wallets are supported, Solana wallets are not supported)',
     asterSignerDesc:
@@ -813,6 +826,7 @@ export const translations = {
     competition: '竞赛',
     running: '运行中',
     stopped: '已停止',
+    strategy: '策略',
     adminMode: '管理员模式',
     logout: '退出',
     switchTrader: '切换交易员:',
@@ -948,10 +962,10 @@ export const translations = {
     currentTraders: '当前交易员',
     noTraders: '暂无AI交易员',
     createFirstTrader: '创建您的第一个AI交易员开始使用',
-    dashboardEmptyTitle: '開始使用吧！',
+    dashboardEmptyTitle: '开始使用吧！',
     dashboardEmptyDescription:
-      '創建您的第一個 AI 交易員，自動化您的交易策略。連接交易所、選擇 AI 模型，幾分鐘內即可開始交易！',
-    goToTradersPage: '創建您的第一個交易員',
+      '创建您的第一个 AI 交易员，自动化您的交易策略。连接交易所、选择 AI 模型，几分钟内即可开始交易！',
+    goToTradersPage: '创建您的第一个交易员',
     configureModelsFirst: '请先配置AI模型',
     configureExchangesFirst: '请先配置交易所',
     configureModelsAndExchangesFirst: '请先配置AI模型和交易所',
@@ -1001,6 +1015,18 @@ export const translations = {
     enterPassphrase: '输入Passphrase (OKX必填)',
     hyperliquidPrivateKeyDesc: 'Hyperliquid 使用私钥进行交易认证',
     hyperliquidWalletAddressDesc: '与私钥对应的钱包地址',
+    // Hyperliquid 代理钱包 (新安全模型)
+    hyperliquidAgentWalletTitle: 'Hyperliquid 代理钱包配置',
+    hyperliquidAgentWalletDesc:
+      '使用代理钱包安全交易：代理钱包用于签名（餘額~0），主钱包持有资金（永不暴露私钥）',
+    hyperliquidAgentPrivateKey: '代理私钥',
+    enterHyperliquidAgentPrivateKey: '输入代理钱包私钥',
+    hyperliquidAgentPrivateKeyDesc:
+      '代理钱包私钥，用于签名交易（为了安全应保持余额接近0）',
+    hyperliquidMainWalletAddress: '主钱包地址',
+    enterHyperliquidMainWalletAddress: '输入主钱包地址',
+    hyperliquidMainWalletAddressDesc:
+      '持有交易资金的主钱包地址（永不暴露其私钥）',
     asterUserDesc:
       '主钱包地址 - 您用于登录 Aster 的 EVM 钱包地址（注意：仅支持 EVM 钱包，不支持 Solana 钱包）',
     asterSignerDesc:
@@ -1081,9 +1107,11 @@ export const translations = {
     promptTemplateNof1: 'NoF1 英文框架',
     promptTemplateTaroLong: 'Taro 长仓',
     promptDescDefault: '📊 默认稳健策略',
-    promptDescDefaultContent: '最大化夏普比率，平衡风险收益，适合新手和长期稳定交易',
+    promptDescDefaultContent:
+      '最大化夏普比率，平衡风险收益，适合新手和长期稳定交易',
     promptDescAdaptive: '🛡️ 保守策略 (v6.0.0)',
-    promptDescAdaptiveContent: '严格风控，BTC 强制确认，高胜率优先，适合保守型交易者',
+    promptDescAdaptiveContent:
+      '严格风控，BTC 强制确认，高胜率优先，适合保守型交易者',
     promptDescAdaptiveRelaxed: '⚡ 激进策略 (v6.0.0)',
     promptDescAdaptiveRelaxedContent:
       '高频交易，BTC 可选确认，追求交易机会，适合波动市场',
@@ -1093,7 +1121,8 @@ export const translations = {
     promptDescNof1Content:
       'Hyperliquid 交易所专用，英文提示词，风险调整回报最大化',
     promptDescTaroLong: '📈 Taro 长仓策略',
-    promptDescTaroLongContent: '数据驱动决策，多维度验证，持续学习进化，长仓专用',
+    promptDescTaroLongContent:
+      '数据驱动决策，多维度验证，持续学习进化，长仓专用',
 
     // Loading & Error
     loading: '加载中...',
@@ -1224,9 +1253,9 @@ export const translations = {
     completeRegistrationSubtitle: '以完成注册',
     loginSuccess: '登录成功',
     registrationSuccess: '注册成功',
-    loginFailed: '登錄失敗，請檢查您的郵箱和密碼。',
-    registrationFailed: '註冊失敗，請重試。',
-    verificationFailed: 'OTP 驗證失敗，請檢查驗證碼後重試。',
+    loginFailed: '登录失败，请检查您的邮箱和密码。',
+    registrationFailed: '注册失败，请重试。',
+    verificationFailed: 'OTP 验证失败，请检查验证码后重试。',
     invalidCredentials: '邮箱或密码错误',
     weak: '弱',
     medium: '中',

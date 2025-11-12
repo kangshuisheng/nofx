@@ -94,6 +94,7 @@ export interface TraderInfo {
   custom_prompt?: string
   use_coin_pool?: boolean
   use_oi_top?: boolean
+  system_prompt_template?: string
 }
 
 export interface AIModel {
@@ -197,7 +198,7 @@ export interface TraderConfigData {
   trading_symbols: string
   custom_prompt: string
   override_base_prompt: boolean
-  system_prompt_template?: string  // 系统提示词模板
+  system_prompt_template: string
   is_cross_margin: boolean
   use_coin_pool: boolean
   use_oi_top: boolean
