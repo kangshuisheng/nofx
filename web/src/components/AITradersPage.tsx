@@ -2218,6 +2218,20 @@ function ExchangeConfigModal({
                               >
                                 📖 查看币安官方教程 ↗
                               </a>
+                              <div className="mt-3">
+                                <a
+                                  href="https://www.binance.com/en/my/settings/api-management"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-2 px-3 py-2 rounded text-sm font-semibold transition-all hover:scale-105"
+                                  style={{
+                                    background: 'rgba(240, 185, 11, 0.2)',
+                                    color: '#F0B90B',
+                                  }}
+                                >
+                                  🔑 {t('goToAPIManagement', language)}
+                                </a>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -2354,6 +2368,50 @@ function ExchangeConfigModal({
                 {/* Aster 交易所的字段 */}
                 {selectedExchange.id === 'aster' && (
                   <>
+                    {/* Aster API 管理提示 */}
+                    <div
+                      className="p-3 rounded mb-4"
+                      style={{
+                        background: 'rgba(240, 185, 11, 0.1)',
+                        border: '1px solid rgba(240, 185, 11, 0.3)',
+                      }}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="flex-shrink-0 mt-0.5">
+                          <div
+                            className="w-6 h-6 rounded-full flex items-center justify-center"
+                            style={{
+                              background: 'rgba(240, 185, 11, 0.2)',
+                            }}
+                          >
+                            <span style={{ color: '#F0B90B' }}>ℹ️</span>
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          <div
+                            className="text-sm font-medium mb-2"
+                            style={{ color: '#EAECEF' }}
+                          >
+                            {t('asterUsdtWarning', language)}
+                          </div>
+                          <div className="mt-3">
+                            <a
+                              href="https://www.asterdex.com/en/api-wallet"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 px-3 py-2 rounded text-sm font-semibold transition-all hover:scale-105"
+                              style={{
+                                background: 'rgba(240, 185, 11, 0.2)',
+                                color: '#F0B90B',
+                              }}
+                            >
+                              🔑 {t('goToAPIManagement', language)}
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                     <div>
                       <label
                         className="block text-sm font-semibold mb-2 flex items-center gap-2"

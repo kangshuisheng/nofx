@@ -228,6 +228,9 @@ export const translations = {
     hyperliquidExchangeName: 'Hyperliquid',
     asterExchangeName: 'Aster DEX',
 
+    // API Management
+    goToAPIManagement: 'Go to API Management',
+
     // Secure input
     secureInputButton: 'Secure Input',
     secureInputReenter: 'Re-enter Securely',
@@ -1074,6 +1077,9 @@ export const translations = {
     // Exchange names
     hyperliquidExchangeName: 'Hyperliquid',
     asterExchangeName: 'Aster DEX',
+
+    // API Management
+    goToAPIManagement: '前往 API 管理',
 
     // Secure input
     secureInputButton: '安全输入',
