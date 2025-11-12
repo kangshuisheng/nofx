@@ -1245,7 +1245,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       {showModelModal && (
         <ModelConfigModal
           allModels={supportedModels}
-          configuredModels={allModels}
+          configuredModels={allModels || []}
           editingModelId={editingModel}
           onSave={handleSaveModelConfig}
           onDelete={handleDeleteModelConfig}
