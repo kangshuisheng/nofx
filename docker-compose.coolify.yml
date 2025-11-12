@@ -16,6 +16,11 @@ services:
     volumes:
       - nofx-data:/app/data
       - nofx-decision-logs:/app/decision_logs
+    # 关键修改 1：明确暴露 80 端口，让 Coolify 知道“大门”在哪
+    ports:
+      - "80"
+    expose:
+      - "80"
     networks:
       - nofx-network
     healthcheck:
