@@ -396,9 +396,12 @@ type CreateTraderRequest struct {
 	IsCrossMargin        *bool   `json:"is_cross_margin"`        // 指针类型，nil表示使用默认值true
 	UseCoinPool          bool    `json:"use_coin_pool"`
 	UseOITop             bool    `json:"use_oi_top"`
-	TakerFeeRate         float64 `json:"taker_fee_rate"` // Taker fee rate, default 0.0004 (0.04%)
-	MakerFeeRate         float64 `json:"maker_fee_rate"` // Maker fee rate, default 0.0002 (0.02%)
-	Timeframes           string  `json:"timeframes"`     // 时间线选择 (逗号分隔，例如: "1m,4h,1d")
+	TakerFeeRate         float64 `json:"taker_fee_rate"`        // Taker fee rate, default 0.0004 (0.04%)
+	MakerFeeRate         float64 `json:"maker_fee_rate"`        // Maker fee rate, default 0.0002 (0.02%)
+	OrderStrategy        string  `json:"order_strategy"`        // Order strategy: market_only, conservative_hybrid, limit_only
+	LimitPriceOffset     float64 `json:"limit_price_offset"`    // Limit price offset percentage, default -0.03 (-0.03%)
+	LimitTimeoutSeconds  int     `json:"limit_timeout_seconds"` // Limit order timeout in seconds, default 60
+	Timeframes           string  `json:"timeframes"`            // 时间线选择 (逗号分隔，例如: "1m,4h,1d")
 }
 
 type ModelConfig struct {
@@ -682,6 +685,24 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		timeframes = "4h" // 默认只勾选4小时线
 	}
 
+	// 设置订单策略默认值
+	orderStrategy := req.OrderStrategy
+	if orderStrategy == "" {
+		orderStrategy = "conservative_hybrid" // 默认使用保守混合策略
+	}
+
+	// 设置限价偏移默认值
+	limitPriceOffset := req.LimitPriceOffset
+	if limitPriceOffset == 0 {
+		limitPriceOffset = -0.03 // 默认 -0.03%
+	}
+
+	// 设置限价超时默认值
+	limitTimeoutSeconds := req.LimitTimeoutSeconds
+	if limitTimeoutSeconds == 0 {
+		limitTimeoutSeconds = 60 // 默认 60 秒
+	}
+
 	// 查询 AI Model 和 Exchange 的自增 ID
 	aiModels, err := s.database.GetAIModels(userID)
 	if err != nil {
@@ -737,9 +758,12 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		SystemPromptTemplate: systemPromptTemplate,
 		IsCrossMargin:        isCrossMargin,
 		ScanIntervalMinutes:  scanIntervalMinutes,
-		TakerFeeRate:         takerFeeRate, // 添加 Taker 费率
-		MakerFeeRate:         makerFeeRate, // 添加 Maker 费率
-		Timeframes:           timeframes,   // 添加时间线选择
+		TakerFeeRate:         takerFeeRate,        // 添加 Taker 费率
+		MakerFeeRate:         makerFeeRate,        // 添加 Maker 费率
+		OrderStrategy:        orderStrategy,       // 添加订单策略
+		LimitPriceOffset:     limitPriceOffset,    // 添加限价偏移
+		LimitTimeoutSeconds:  limitTimeoutSeconds, // 添加限价超时
+		Timeframes:           timeframes,          // 添加时间线选择
 		IsRunning:            false,
 	}
 
@@ -781,8 +805,12 @@ type UpdateTraderRequest struct {
 	OverrideBasePrompt   bool    `json:"override_base_prompt"`
 	SystemPromptTemplate string  `json:"system_prompt_template"`
 	IsCrossMargin        *bool   `json:"is_cross_margin"`
-	TakerFeeRate         float64 `json:"taker_fee_rate"` // Taker fee rate
-	MakerFeeRate         float64 `json:"maker_fee_rate"` // Maker fee rate
+	TakerFeeRate         float64 `json:"taker_fee_rate"`        // Taker fee rate
+	MakerFeeRate         float64 `json:"maker_fee_rate"`        // Maker fee rate
+	OrderStrategy        string  `json:"order_strategy"`        // Order strategy
+	LimitPriceOffset     float64 `json:"limit_price_offset"`    // Limit price offset
+	LimitTimeoutSeconds  int     `json:"limit_timeout_seconds"` // Limit timeout in seconds
+	Timeframes           string  `json:"timeframes"`            // Timeframes selection
 }
 
 // handleUpdateTrader 更新交易员配置
@@ -883,6 +911,46 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 			existingTrader.MakerFeeRate, makerFeeRate)
 	}
 
+	// 设置订单策略，允许更新
+	orderStrategy := req.OrderStrategy
+	if orderStrategy == "" {
+		if existingTrader.OrderStrategy != "" {
+			orderStrategy = existingTrader.OrderStrategy // 保持原值
+		} else {
+			orderStrategy = "conservative_hybrid" // 使用默认值
+		}
+	}
+
+	// 设置限价偏移，允许更新
+	limitPriceOffset := req.LimitPriceOffset
+	if limitPriceOffset == 0 {
+		if existingTrader.LimitPriceOffset != 0 {
+			limitPriceOffset = existingTrader.LimitPriceOffset // 保持原值
+		} else {
+			limitPriceOffset = -0.03 // 使用默认值
+		}
+	}
+
+	// 设置限价超时，允许更新
+	limitTimeoutSeconds := req.LimitTimeoutSeconds
+	if limitTimeoutSeconds == 0 {
+		if existingTrader.LimitTimeoutSeconds > 0 {
+			limitTimeoutSeconds = existingTrader.LimitTimeoutSeconds // 保持原值
+		} else {
+			limitTimeoutSeconds = 60 // 使用默认值
+		}
+	}
+
+	// 设置时间线选择，允许更新
+	timeframes := req.Timeframes
+	if timeframes == "" {
+		if existingTrader.Timeframes != "" {
+			timeframes = existingTrader.Timeframes // 保持原值
+		} else {
+			timeframes = "4h" // 使用默认值
+		}
+	}
+
 	// 查询 AI Model 和 Exchange 的自增 ID
 	aiModels, err := s.database.GetAIModels(userID)
 	if err != nil {
@@ -938,6 +1006,10 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		ScanIntervalMinutes:  scanIntervalMinutes,
 		TakerFeeRate:         takerFeeRate,             // 添加 Taker 费率
 		MakerFeeRate:         makerFeeRate,             // 添加 Maker 费率
+		OrderStrategy:        orderStrategy,            // 添加订单策略
+		LimitPriceOffset:     limitPriceOffset,         // 添加限价偏移
+		LimitTimeoutSeconds:  limitTimeoutSeconds,      // 添加限价超时
+		Timeframes:           timeframes,               // 添加时间线选择
 		IsRunning:            existingTrader.IsRunning, // 保持原值
 	}
 
