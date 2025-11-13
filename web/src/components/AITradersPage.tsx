@@ -964,7 +964,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  {supportedModels.filter(m => m.enabled).map((model) => (
+                  {supportedModels.map((model) => (
                     <button
                       key={model.id}
                       type="button"
@@ -1081,7 +1081,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  {supportedExchanges.filter(ex => ex.enabled).map((exchange) => (
+                  {supportedExchanges.map((exchange) => (
                     <button
                       key={exchange.id}
                       type="button"
