@@ -118,12 +118,14 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
 
   const { data: allModels, mutate: mutateModels } = useSWR<AIModel[]>(
     user && token ? 'models' : null,
-    api.getModelConfigs
+    api.getModelConfigs,
+    { refreshInterval: 10000 } // Auto-refresh every 10 seconds
   )
 
   const { data: allExchanges, mutate: mutateExchanges } = useSWR<Exchange[]>(
     user && token ? 'exchanges' : null,
-    api.getExchangeConfigs
+    api.getExchangeConfigs,
+    { refreshInterval: 10000 } // Auto-refresh every 10 seconds
   )
 
   // 加载支持的模型和交易所列表（用于选择）
@@ -589,17 +591,27 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         ),
       }
 
-      await toast.promise(api.updateModelConfigs(request), {
-        loading: '正在更新模型配置…',
-        success: '模型配置已更新',
-        error: '更新模型配置失败',
-      })
+      // Optimistic update - immediately update UI
+      const previousModels = allModels
+      mutateModels(updatedModels, false)
 
-      // 自动刷新模型列表（等待刷新完成）
-      await mutateModels()
+      try {
+        await toast.promise(api.updateModelConfigs(request), {
+          loading: '正在更新模型配置…',
+          success: '模型配置已更新',
+          error: '更新模型配置失败',
+        })
 
-      setShowModelModal(false)
-      setEditingModel(null)
+        // Revalidate to ensure data consistency
+        await mutateModels()
+
+        setShowModelModal(false)
+        setEditingModel(null)
+      } catch (error) {
+        // Rollback on error
+        mutateModels(previousModels, false)
+        throw error // Re-throw to be caught by outer catch
+      }
     } catch (error) {
       console.error('Failed to save model config:', error)
       toast.error(t('saveConfigFailed', language))
@@ -728,17 +740,27 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         ),
       }
 
-      await toast.promise(api.updateExchangeConfigsEncrypted(request), {
-        loading: '正在更新交易所配置…',
-        success: '交易所配置已更新',
-        error: '更新交易所配置失败',
-      })
+      // Optimistic update - immediately update UI
+      const previousExchanges = allExchanges
+      mutateExchanges(updatedExchanges, false)
 
-      // 自动刷新交易所列表（等待刷新完成）
-      await mutateExchanges()
+      try {
+        await toast.promise(api.updateExchangeConfigsEncrypted(request), {
+          loading: '正在更新交易所配置…',
+          success: '交易所配置已更新',
+          error: '更新交易所配置失败',
+        })
 
-      setShowExchangeModal(false)
-      setEditingExchange(null)
+        // Revalidate to ensure data consistency
+        await mutateExchanges()
+
+        setShowExchangeModal(false)
+        setEditingExchange(null)
+      } catch (error) {
+        // Rollback on error
+        mutateExchanges(previousExchanges, false)
+        throw error // Re-throw to be caught by outer catch
+      }
     } catch (error) {
       console.error('Failed to save exchange config:', error)
       toast.error(t('saveConfigFailed', language))
