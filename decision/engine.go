@@ -330,9 +330,9 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("# 硬约束（风险控制）\n\n")
 	sb.WriteString("1. 风险回报比: 必须 ≥ 1:3（冒1%风险，赚3%+收益）\n")
 	sb.WriteString("2. 最多持仓: 3个币种（质量>数量）\n")
-	// 仓位价值限制：山寨币1.25倍净值，BTC/ETH 2.5倍净值（与代码验证逻辑保持一致）
-	sb.WriteString(fmt.Sprintf("3. 单币仓位: 山寨币≤%.0f USDT (1.25倍净值) | BTC/ETH≤%.0f USDT (2.5倍净值)\n",
-		accountEquity*1.25, accountEquity*2.5))
+	// 仓位价值限制：山寨币1.15倍净值，BTC/ETH 2.25倍净值（与代码验证逻辑保持一致）
+	sb.WriteString(fmt.Sprintf("3. 单币仓位: 山寨币≤%.0f USDT (1.15倍净值) | BTC/ETH≤%.0f USDT (2.25倍净值)\n",
+		accountEquity*1.15, accountEquity*2.25))
 	sb.WriteString(fmt.Sprintf("4. 杠杆限制: **山寨币最大%dx杠杆** | **BTC/ETH最大%dx杠杆** (⚠️ 严格执行，不可超过)\n", altcoinLeverage, btcEthLeverage))
 	sb.WriteString("5. 保证金: 总使用率 ≤ 90%\n")
 
@@ -359,8 +359,8 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	// ⚠️ 重要提醒：防止 AI 误读市场数据中的数字
 	sb.WriteString("⚠️ **重要提醒：计算 position_size_usd 的正确方法**\n\n")
 	sb.WriteString(fmt.Sprintf("- 当前账户净值：**%.2f USDT**\n", accountEquity))
-	sb.WriteString(fmt.Sprintf("- 山寨币开仓范围：**12 - %.0f USDT** (最大1.25倍净值)\n", accountEquity*1.25))
-	sb.WriteString(fmt.Sprintf("- BTC/ETH开仓范围：**%.0f - %.0f USDT** (最大2.5倍净值)\n", minBTCETH, accountEquity*2.5))
+	sb.WriteString(fmt.Sprintf("- 山寨币开仓范围：**12 - %.0f USDT** (最大1.15倍净值)\n", accountEquity*1.15))
+	sb.WriteString(fmt.Sprintf("- BTC/ETH开仓范围：**%.0f - %.0f USDT** (最大2.25倍净值)\n", minBTCETH, accountEquity*2.25))
 	sb.WriteString("- ❌ **不要使用市场数据中的任何数字**（如 Open Interest 合约数、Volume、价格等）作为 position_size_usd\n")
 	sb.WriteString("- ✅ **position_size_usd 必须根据账户净值和上述范围计算**\n\n")
 
@@ -374,7 +374,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("</reasoning>\n\n")
 	sb.WriteString("<decision>\n")
 	sb.WriteString("```json\n[\n")
-	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"下跌趋势+MACD死叉\"},\n", btcEthLeverage, accountEquity*5))
+	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"下跌趋势+MACD死叉\"},\n", btcEthLeverage, accountEquity*2.25))
 	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"止盈离场\"}\n")
 	sb.WriteString("]\n```\n")
 	sb.WriteString("</decision>\n\n")
@@ -826,10 +826,10 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		// - 山寨币：1.25倍净值（波动性高，风险大，限制更严格）
 		// - BTC/ETH：2.5倍净值（相对稳定，流动性好，允许更大仓位）
 		maxLeverage := altcoinLeverage           // 山寨币使用配置的杠杆
-		maxPositionValue := accountEquity * 1.25 // 山寨币最多1.25倍账户净值
+		maxPositionValue := accountEquity * 1.15 // 山寨币最多1.15倍账户净值
 		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-			maxLeverage = btcEthLeverage           // BTC和ETH使用配置的杠杆
-			maxPositionValue = accountEquity * 2.5 // BTC/ETH最多2.5倍账户净值
+			maxLeverage = btcEthLeverage            // BTC和ETH使用配置的杠杆
+			maxPositionValue = accountEquity * 2.25 // BTC/ETH最多2.25倍账户净值
 		}
 
 		// =================================================================
