@@ -634,179 +634,239 @@ func getFundingRate(symbol string) (float64, error) {
 	return rate, nil
 }
 
-// Format 格式化输出市场数据
+// Format 格式化市场数据 (最终优化版，支持所有高级策略)
 func Format(data *Data) string {
 	var sb strings.Builder
 
-	// 使用动态精度格式化价格
+	// 1. 核心摘要信息 (策略需要 OI)
 	priceStr := formatPriceWithDynamicPrecision(data.CurrentPrice)
-	sb.WriteString(fmt.Sprintf("current_price = %s, current_ema20 = %.3f, current_macd = %.3f, current_rsi (7 period) = %.3f\n\n",
-		priceStr, data.CurrentEMA20, data.CurrentMACD, data.CurrentRSI7))
+	sb.WriteString(fmt.Sprintf("Price: %s | OI Chg(4h): %.2f%% | Funding: %.2e\n\n",
+		priceStr, data.OpenInterest.Change4h, data.FundingRate))
 
-	sb.WriteString(fmt.Sprintf("In addition, here is the latest %s open interest and funding rate for perps:\n\n",
-		data.Symbol))
-
-	if data.OpenInterest != nil {
-		// P0修复：输出OI变化率（用于AI验证"近4小时上升>+3%"）
-		// 简化版：只添加单位标注，避免 AI 误读合约数量为开仓金额
-		oiLatestStr := fmt.Sprintf("%.0f contracts", data.OpenInterest.Latest)
-		oiAverageStr := fmt.Sprintf("%.0f contracts", data.OpenInterest.Average)
-
-		// P0修复：根據實際時間段動態顯示
-		var changeLabel string
-		if data.OpenInterest.ActualPeriod == "N/A" {
-			changeLabel = "Change(4h): N/A (insufficient data, system uptime < 15min)"
-		} else if data.OpenInterest.ActualPeriod == "0m" {
-			// ✅ 修复：只有1個數據點（剛啟動）
-			changeLabel = "Change(4h): 0.00% [just started, need 2+ samples for trend calculation]"
-		} else if data.OpenInterest.ActualPeriod == "4h" {
-			// 完整 4 小時數據
-			changeLabel = fmt.Sprintf("Change(4h): %.3f%%", data.OpenInterest.Change4h)
-		} else {
-			// 降級使用較短時間段
-			changeLabel = fmt.Sprintf("Change(4h): %.3f%% [degraded: using %s data, system uptime < 4h]",
-				data.OpenInterest.Change4h, data.OpenInterest.ActualPeriod)
-		}
-
-		sb.WriteString(fmt.Sprintf("Open Interest: Latest: %s | Average: %s | %s\n\n",
-			oiLatestStr, oiAverageStr, changeLabel))
-	}
-
-	sb.WriteString(fmt.Sprintf("Funding Rate: %.2e\n\n", data.FundingRate))
-
-	if data.IntradaySeries != nil {
-		sb.WriteString("Intraday series (3‑minute intervals, oldest → latest):\n\n")
-
-		if len(data.IntradaySeries.MidPrices) > 0 {
-			sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.IntradaySeries.MidPrices)))
-		}
-
-		if len(data.IntradaySeries.EMA20Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.IntradaySeries.EMA20Values)))
-		}
-
-		if len(data.IntradaySeries.MACDValues) > 0 {
-			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.IntradaySeries.MACDValues)))
-		}
-
-		if len(data.IntradaySeries.RSI7Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (7‑Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI7Values)))
-		}
-
-		if len(data.IntradaySeries.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI14Values)))
-		}
-
-		if len(data.IntradaySeries.Volume) > 0 {
-			sb.WriteString(fmt.Sprintf("3m Trading Volume (USDT, reference only): %s\n\n", formatFloatSlice(data.IntradaySeries.Volume)))
-		}
-
-		sb.WriteString(fmt.Sprintf("3m ATR (14‑period): %.3f\n\n", data.IntradaySeries.ATR14))
-	}
-
+	// 2. 15分钟周期数据 (入场信号核心)
 	if data.MidTermSeries15m != nil {
-		sb.WriteString("Mid‑term series (15‑minute intervals, oldest → latest):\n\n")
+		sb.WriteString("- 15min (Entry Signal):\n")
 
-		if len(data.MidTermSeries15m.MidPrices) > 0 {
-			sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.MidTermSeries15m.MidPrices)))
+		const seriesLength = 6
+
+		prices := data.MidTermSeries15m.MidPrices
+		if len(prices) > seriesLength {
+			prices = prices[len(prices)-seriesLength:]
 		}
+		sb.WriteString(fmt.Sprintf("  - Prices: %s\n", formatFloatSlice(prices)))
 
-		if len(data.MidTermSeries15m.EMA20Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.MidTermSeries15m.EMA20Values)))
+		macds := data.MidTermSeries15m.MACDValues
+		if len(macds) > seriesLength {
+			macds = macds[len(macds)-seriesLength:]
 		}
+		sb.WriteString(fmt.Sprintf("  - MACD:   %s\n", formatFloatSlice(macds)))
 
-		if len(data.MidTermSeries15m.MACDValues) > 0 {
-			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.MidTermSeries15m.MACDValues)))
+		rsi14s := data.MidTermSeries15m.RSI14Values
+		if len(rsi14s) > seriesLength {
+			rsi14s = rsi14s[len(rsi14s)-seriesLength:]
 		}
+		sb.WriteString(fmt.Sprintf("  - RSI(14):%s\n", formatFloatSlice(rsi14s)))
 
-		if len(data.MidTermSeries15m.RSI7Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (7‑Period): %s\n\n", formatFloatSlice(data.MidTermSeries15m.RSI7Values)))
-		}
-
-		if len(data.MidTermSeries15m.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.MidTermSeries15m.RSI14Values)))
-		}
-	}
-
-	if data.MidTermSeries1h != nil {
-		sb.WriteString("Mid‑term series (1‑hour intervals, oldest → latest):\n\n")
-
-		if len(data.MidTermSeries1h.MidPrices) > 0 {
-			sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.MidTermSeries1h.MidPrices)))
-		}
-
-		if len(data.MidTermSeries1h.EMA20Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.MidTermSeries1h.EMA20Values)))
-		}
-
-		if len(data.MidTermSeries1h.MACDValues) > 0 {
-			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.MidTermSeries1h.MACDValues)))
-		}
-
-		if len(data.MidTermSeries1h.RSI7Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (7‑Period): %s\n\n", formatFloatSlice(data.MidTermSeries1h.RSI7Values)))
-		}
-
-		if len(data.MidTermSeries1h.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.MidTermSeries1h.RSI14Values)))
+		// ⭐️ 新增：为“成交量共振”规则提供15分钟的成交量数据
+		// 注意: 我们需要从 IntradaySeries(3m) 获取成交量数据来近似15m的成交量活动
+		if data.IntradaySeries != nil && len(data.IntradaySeries.Volume) > 0 {
+			lastVolume := data.IntradaySeries.Volume[len(data.IntradaySeries.Volume)-1]
+			sb.WriteString(fmt.Sprintf("  - Volume(last 3m): %.2f\n\n", lastVolume))
+		} else {
+			sb.WriteString("\n")
 		}
 	}
 
+	// 3. 4小时周期数据 (趋势判断和风险管理核心)
 	if data.LongerTermContext != nil {
-		sb.WriteString("Longer‑term context (4‑hour timeframe):\n\n")
+		sb.WriteString("- 4H (Trend & Risk):\n")
 
-		sb.WriteString(fmt.Sprintf("20‑Period EMA: %.3f vs. 50‑Period EMA: %.3f\n\n",
+		// ⭐️ 优化：输出 EMA20 和 EMA50 的具体数值，供“趋势健康度”规则使用
+		sb.WriteString(fmt.Sprintf("  - EMAs: EMA20(%.3f) vs EMA50(%.3f)\n",
 			data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
 
-		sb.WriteString(fmt.Sprintf("3‑Period ATR: %.3f vs. 14‑Period ATR: %.3f\n\n",
-			data.LongerTermContext.ATR3, data.LongerTermContext.ATR14))
+		// 为 ATR 动态止损提供数据
+		sb.WriteString(fmt.Sprintf("  - ATR(14) for StopLoss: %.4f\n", data.LongerTermContext.ATR14))
 
-		sb.WriteString(fmt.Sprintf("Current Volume: %.3f vs. Average Volume: %.3f\n\n",
-			data.LongerTermContext.CurrentVolume, data.LongerTermContext.AverageVolume))
-
-		if len(data.LongerTermContext.MACDValues) > 0 {
-			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.LongerTermContext.MACDValues)))
-		}
-
-		if len(data.LongerTermContext.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.LongerTermContext.RSI14Values)))
-		}
+		// 为信心评分提供成交量数据
+		sb.WriteString(fmt.Sprintf("  - Volume Ratio (Current/Avg): %.2f\n\n", data.LongerTermContext.CurrentVolume/data.LongerTermContext.AverageVolume))
 	}
-
-	if data.DailyContext != nil {
-		sb.WriteString("Daily series (1‑day intervals, oldest → latest):\n\n")
-
-		if len(data.DailyContext.MidPrices) > 0 {
-			sb.WriteString(fmt.Sprintf("Daily close prices: %s\n\n", formatFloatSlice(data.DailyContext.MidPrices)))
-		}
-
-		if len(data.DailyContext.EMA20Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.DailyContext.EMA20Values)))
-		}
-
-		if len(data.DailyContext.EMA50Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA indicators (50‑period): %s\n\n", formatFloatSlice(data.DailyContext.EMA50Values)))
-		}
-
-		if len(data.DailyContext.MACDValues) > 0 {
-			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.DailyContext.MACDValues)))
-		}
-
-		if len(data.DailyContext.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.DailyContext.RSI14Values)))
-		}
-
-		if len(data.DailyContext.ATR14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("ATR indicators (14‑period): %s\n\n", formatFloatSlice(data.DailyContext.ATR14Values)))
-		}
-
-		if len(data.DailyContext.Volume) > 0 {
-			sb.WriteString(fmt.Sprintf("Daily trading volume (USDT): %s\n\n", formatFloatSlice(data.DailyContext.Volume)))
-		}
-	}
-
 	return sb.String()
 }
+
+// Format 格式化输出市场数据
+// func Format(data *Data) string {
+// 	var sb strings.Builder
+
+// 	// 使用动态精度格式化价格
+// 	priceStr := formatPriceWithDynamicPrecision(data.CurrentPrice)
+// 	sb.WriteString(fmt.Sprintf("current_price = %s, current_ema20 = %.3f, current_macd = %.3f, current_rsi (7 period) = %.3f\n\n",
+// 		priceStr, data.CurrentEMA20, data.CurrentMACD, data.CurrentRSI7))
+
+// 	sb.WriteString(fmt.Sprintf("In addition, here is the latest %s open interest and funding rate for perps:\n\n",
+// 		data.Symbol))
+
+// 	if data.OpenInterest != nil {
+// 		// P0修复：输出OI变化率（用于AI验证"近4小时上升>+3%"）
+// 		// 简化版：只添加单位标注，避免 AI 误读合约数量为开仓金额
+// 		oiLatestStr := fmt.Sprintf("%.0f contracts", data.OpenInterest.Latest)
+// 		oiAverageStr := fmt.Sprintf("%.0f contracts", data.OpenInterest.Average)
+
+// 		// P0修复：根據實際時間段動態顯示
+// 		var changeLabel string
+// 		if data.OpenInterest.ActualPeriod == "N/A" {
+// 			changeLabel = "Change(4h): N/A (insufficient data, system uptime < 15min)"
+// 		} else if data.OpenInterest.ActualPeriod == "0m" {
+// 			// ✅ 修复：只有1個數據點（剛啟動）
+// 			changeLabel = "Change(4h): 0.00% [just started, need 2+ samples for trend calculation]"
+// 		} else if data.OpenInterest.ActualPeriod == "4h" {
+// 			// 完整 4 小時數據
+// 			changeLabel = fmt.Sprintf("Change(4h): %.3f%%", data.OpenInterest.Change4h)
+// 		} else {
+// 			// 降級使用較短時間段
+// 			changeLabel = fmt.Sprintf("Change(4h): %.3f%% [degraded: using %s data, system uptime < 4h]",
+// 				data.OpenInterest.Change4h, data.OpenInterest.ActualPeriod)
+// 		}
+
+// 		sb.WriteString(fmt.Sprintf("Open Interest: Latest: %s | Average: %s | %s\n\n",
+// 			oiLatestStr, oiAverageStr, changeLabel))
+// 	}
+
+// 	sb.WriteString(fmt.Sprintf("Funding Rate: %.2e\n\n", data.FundingRate))
+
+// 	if data.IntradaySeries != nil {
+// 		sb.WriteString("Intraday series (3‑minute intervals, oldest → latest):\n\n")
+
+// 		if len(data.IntradaySeries.MidPrices) > 0 {
+// 			sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.IntradaySeries.MidPrices)))
+// 		}
+
+// 		if len(data.IntradaySeries.EMA20Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.IntradaySeries.EMA20Values)))
+// 		}
+
+// 		if len(data.IntradaySeries.MACDValues) > 0 {
+// 			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.IntradaySeries.MACDValues)))
+// 		}
+
+// 		if len(data.IntradaySeries.RSI7Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("RSI indicators (7‑Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI7Values)))
+// 		}
+
+// 		if len(data.IntradaySeries.RSI14Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI14Values)))
+// 		}
+
+// 		if len(data.IntradaySeries.Volume) > 0 {
+// 			sb.WriteString(fmt.Sprintf("3m Trading Volume (USDT, reference only): %s\n\n", formatFloatSlice(data.IntradaySeries.Volume)))
+// 		}
+
+// 		sb.WriteString(fmt.Sprintf("3m ATR (14‑period): %.3f\n\n", data.IntradaySeries.ATR14))
+// 	}
+
+// 	if data.MidTermSeries15m != nil {
+// 		sb.WriteString("Mid‑term series (15‑minute intervals, oldest → latest):\n\n")
+
+// 		if len(data.MidTermSeries15m.MidPrices) > 0 {
+// 			sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.MidTermSeries15m.MidPrices)))
+// 		}
+
+// 		if len(data.MidTermSeries15m.EMA20Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.MidTermSeries15m.EMA20Values)))
+// 		}
+
+// 		if len(data.MidTermSeries15m.MACDValues) > 0 {
+// 			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.MidTermSeries15m.MACDValues)))
+// 		}
+
+// 		if len(data.MidTermSeries15m.RSI7Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("RSI indicators (7‑Period): %s\n\n", formatFloatSlice(data.MidTermSeries15m.RSI7Values)))
+// 		}
+
+// 		if len(data.MidTermSeries15m.RSI14Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.MidTermSeries15m.RSI14Values)))
+// 		}
+// 	}
+
+// 	if data.MidTermSeries1h != nil {
+// 		sb.WriteString("Mid‑term series (1‑hour intervals, oldest → latest):\n\n")
+
+// 		if len(data.MidTermSeries1h.MidPrices) > 0 {
+// 			sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.MidTermSeries1h.MidPrices)))
+// 		}
+
+// 		if len(data.MidTermSeries1h.EMA20Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.MidTermSeries1h.EMA20Values)))
+// 		}
+
+// 		if len(data.MidTermSeries1h.MACDValues) > 0 {
+// 			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.MidTermSeries1h.MACDValues)))
+// 		}
+
+// 		if len(data.MidTermSeries1h.RSI7Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("RSI indicators (7‑Period): %s\n\n", formatFloatSlice(data.MidTermSeries1h.RSI7Values)))
+// 		}
+
+// 		if len(data.MidTermSeries1h.RSI14Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.MidTermSeries1h.RSI14Values)))
+// 		}
+// 	}
+
+// 	if data.LongerTermContext != nil {
+// 		sb.WriteString("Longer‑term context (4‑hour timeframe):\n\n")
+
+// 		sb.WriteString(fmt.Sprintf("20‑Period EMA: %.3f vs. 50‑Period EMA: %.3f\n\n",
+// 			data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
+
+// 		sb.WriteString(fmt.Sprintf("3‑Period ATR: %.3f vs. 14‑Period ATR: %.3f\n\n",
+// 			data.LongerTermContext.ATR3, data.LongerTermContext.ATR14))
+
+// 		sb.WriteString(fmt.Sprintf("Current Volume: %.3f vs. Average Volume: %.3f\n\n",
+// 			data.LongerTermContext.CurrentVolume, data.LongerTermContext.AverageVolume))
+
+// 		if len(data.LongerTermContext.MACDValues) > 0 {
+// 			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.LongerTermContext.MACDValues)))
+// 		}
+
+// 		if len(data.LongerTermContext.RSI14Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.LongerTermContext.RSI14Values)))
+// 		}
+// 	}
+
+// 	if data.DailyContext != nil {
+// 		sb.WriteString("Daily series (1‑day intervals, oldest → latest):\n\n")
+
+// 		if len(data.DailyContext.MidPrices) > 0 {
+// 			sb.WriteString(fmt.Sprintf("Daily close prices: %s\n\n", formatFloatSlice(data.DailyContext.MidPrices)))
+// 		}
+
+// 		if len(data.DailyContext.EMA20Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.DailyContext.EMA20Values)))
+// 		}
+
+// 		if len(data.DailyContext.EMA50Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("EMA indicators (50‑period): %s\n\n", formatFloatSlice(data.DailyContext.EMA50Values)))
+// 		}
+
+// 		if len(data.DailyContext.MACDValues) > 0 {
+// 			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.DailyContext.MACDValues)))
+// 		}
+
+// 		if len(data.DailyContext.RSI14Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.DailyContext.RSI14Values)))
+// 		}
+
+// 		if len(data.DailyContext.ATR14Values) > 0 {
+// 			sb.WriteString(fmt.Sprintf("ATR indicators (14‑period): %s\n\n", formatFloatSlice(data.DailyContext.ATR14Values)))
+// 		}
+
+// 		if len(data.DailyContext.Volume) > 0 {
+// 			sb.WriteString(fmt.Sprintf("Daily trading volume (USDT): %s\n\n", formatFloatSlice(data.DailyContext.Volume)))
+// 		}
+// 	}
+
+// 	return sb.String()
+// }
 
 // formatPriceWithDynamicPrecision 根据价格区间动态选择精度
 // 这样可以完美支持从超低价 meme coin (< 0.0001) 到 BTC/ETH 的所有币种
