@@ -1556,6 +1556,30 @@ func (s *Server) handleTraderList(c *gin.Context) {
 		return
 	}
 
+	// 获取用户的所有 AI 模型和交易所配置，用于将整数 ID 映射到字符串 ID
+	aiModels, err := s.database.GetAIModels(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取AI模型配置失败"})
+		return
+	}
+
+	exchanges, err := s.database.GetExchanges(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取交易所配置失败"})
+		return
+	}
+
+	// 创建映射：整数 ID -> 字符串 ModelID/ExchangeID
+	aiModelMap := make(map[int]string)
+	for _, model := range aiModels {
+		aiModelMap[model.ID] = model.ModelID
+	}
+
+	exchangeMap := make(map[int]string)
+	for _, exchange := range exchanges {
+		exchangeMap[exchange.ID] = exchange.ExchangeID
+	}
+
 	result := make([]map[string]interface{}, 0, len(traders))
 	for _, trader := range traders {
 		// 获取实时运行状态
@@ -1567,13 +1591,24 @@ func (s *Server) handleTraderList(c *gin.Context) {
 			}
 		}
 
-		// 返回完整的 AIModelID（如 "admin_deepseek"），不要截断
-		// 前端需要完整 ID 来验证模型是否存在（与 handleGetTraderConfig 保持一致）
+		// 返回 AI 模型的 ModelID（如 "deepseek", "qwen-chat"），而不是整数 ID
+		// 前端需要使用 .includes() 方法来检查模型类型
+		aiModelID := aiModelMap[trader.AIModelID]
+		if aiModelID == "" {
+			aiModelID = "unknown" // 如果找不到，返回默认值
+		}
+
+		// 返回交易所的 ExchangeID（如 "binance", "hyperliquid"），而不是整数 ID
+		exchangeID := exchangeMap[trader.ExchangeID]
+		if exchangeID == "" {
+			exchangeID = "unknown" // 如果找不到，返回默认值
+		}
+
 		result = append(result, map[string]interface{}{
 			"trader_id":              trader.ID,
 			"trader_name":            trader.Name,
-			"ai_model":               trader.AIModelID, // 使用完整 ID
-			"exchange_id":            trader.ExchangeID,
+			"ai_model":               aiModelID,
+			"exchange_id":            exchangeID,
 			"is_running":             isRunning,
 			"initial_balance":        trader.InitialBalance,
 			"system_prompt_template": trader.SystemPromptTemplate,
@@ -1593,7 +1628,7 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		return
 	}
 
-	traderConfig, _, _, err := s.database.GetTraderConfig(userID, traderID)
+	traderConfig, aiModel, exchange, err := s.database.GetTraderConfig(userID, traderID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("获取交易员配置失败: %v", err)})
 		return
@@ -1608,14 +1643,18 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		}
 	}
 
-	// 返回完整的模型ID，不做转换，保持与前端模型列表一致
-	aiModelID := traderConfig.AIModelID
+	// 返回 AI 模型的 ModelID（如 "deepseek", "qwen-chat"），而不是整数 ID
+	// 前端需要使用 .includes() 方法来检查模型类型
+	aiModelID := aiModel.ModelID
+
+	// 返回交易所的 ExchangeID（如 "binance", "hyperliquid"），而不是整数 ID
+	exchangeID := exchange.ExchangeID
 
 	result := map[string]interface{}{
 		"trader_id":              traderConfig.ID,
 		"trader_name":            traderConfig.Name,
 		"ai_model":               aiModelID,
-		"exchange_id":            traderConfig.ExchangeID,
+		"exchange_id":            exchangeID,
 		"initial_balance":        traderConfig.InitialBalance,
 		"scan_interval_minutes":  traderConfig.ScanIntervalMinutes,
 		"btc_eth_leverage":       traderConfig.BTCETHLeverage,
