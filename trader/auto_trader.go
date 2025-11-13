@@ -81,9 +81,9 @@ type AutoTraderConfig struct {
 	SystemPromptTemplate string // 系统提示词模板名称（如 "default", "aggressive"）
 
 	// 订单策略配置
-	OrderStrategy        string  // Order strategy: "market_only", "conservative_hybrid", "limit_only"
-	LimitPriceOffset     float64 // Limit order price offset percentage (e.g., -0.03 for -0.03%)
-	LimitTimeoutSeconds  int     // Timeout in seconds before converting to market order
+	OrderStrategy       string  // Order strategy: "market_only", "conservative_hybrid", "limit_only"
+	LimitPriceOffset    float64 // Limit order price offset percentage (e.g., -0.03 for -0.03%)
+	LimitTimeoutSeconds int     // Timeout in seconds before converting to market order
 }
 
 // AutoTrader 自动交易器

@@ -205,8 +205,8 @@ func (tm *TraderManager) addTraderFromDB(traderCfg *config.TraderRecord, aiModel
 	traderConfig := trader.AutoTraderConfig{
 		ID:                    traderCfg.ID,
 		Name:                  traderCfg.Name,
-		AIModel:               aiModelCfg.Provider, // 使用provider作为模型标识
-		Exchange:              exchangeCfg.ExchangeID,      // 使用exchange ID
+		AIModel:               aiModelCfg.Provider,    // 使用provider作为模型标识
+		Exchange:              exchangeCfg.ExchangeID, // 使用exchange ID
 		BinanceAPIKey:         "",
 		BinanceSecretKey:      "",
 		HyperliquidPrivateKey: "",
@@ -317,8 +317,8 @@ func (tm *TraderManager) AddTraderFromDB(traderCfg *config.TraderRecord, aiModel
 	traderConfig := trader.AutoTraderConfig{
 		ID:                    traderCfg.ID,
 		Name:                  traderCfg.Name,
-		AIModel:               aiModelCfg.Provider, // 使用provider作为模型标识
-		Exchange:              exchangeCfg.ExchangeID,      // 使用exchange ID
+		AIModel:               aiModelCfg.Provider,    // 使用provider作为模型标识
+		Exchange:              exchangeCfg.ExchangeID, // 使用exchange ID
 		BinanceAPIKey:         "",
 		BinanceSecretKey:      "",
 		HyperliquidPrivateKey: "",
@@ -438,21 +438,21 @@ func (tm *TraderManager) RemoveTrader(traderID string) error {
 	// 确保交易员已停止（檢查 nil 避免測試時 panic）
 	if trader != nil {
 		status := trader.GetStatus()
-	if status != nil {
-		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
-			log.Printf("⚠️ 交易员 %s 仍在运行，正在停止...", traderID)
-			trader.Stop()
+		if status != nil {
+			if isRunning, ok := status["is_running"].(bool); ok && isRunning {
+				log.Printf("⚠️ 交易员 %s 仍在运行，正在停止...", traderID)
+				trader.Stop()
 
-			// 等待停止（最多5秒）
-			for i := 0; i < 50; i++ {
-				time.Sleep(100 * time.Millisecond)
-				status := trader.GetStatus()
-				if running, ok := status["is_running"].(bool); !ok || !running {
-					break
+				// 等待停止（最多5秒）
+				for i := 0; i < 50; i++ {
+					time.Sleep(100 * time.Millisecond)
+					status := trader.GetStatus()
+					if running, ok := status["is_running"].(bool); !ok || !running {
+						break
+					}
 				}
 			}
 		}
-	}
 	}
 
 	// 从map中删除
@@ -1050,8 +1050,8 @@ func (tm *TraderManager) loadSingleTrader(traderCfg *config.TraderRecord, aiMode
 	traderConfig := trader.AutoTraderConfig{
 		ID:                   traderCfg.ID,
 		Name:                 traderCfg.Name,
-		AIModel:              aiModelCfg.Provider, // 使用provider作为模型标识
-		Exchange:             exchangeCfg.ExchangeID,      // 使用exchange ID
+		AIModel:              aiModelCfg.Provider,    // 使用provider作为模型标识
+		Exchange:             exchangeCfg.ExchangeID, // 使用exchange ID
 		InitialBalance:       traderCfg.InitialBalance,
 		BTCETHLeverage:       traderCfg.BTCETHLeverage,
 		AltcoinLeverage:      traderCfg.AltcoinLeverage,

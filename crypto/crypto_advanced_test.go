@@ -248,33 +248,33 @@ func TestDataKeyVariousFormats(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		keyValue string
+		name       string
+		keyValue   string
 		shouldWork bool
 	}{
 		{
-			name:     "Base64 encoded 32-byte key",
-			keyValue: base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012")),
+			name:       "Base64 encoded 32-byte key",
+			keyValue:   base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012")),
 			shouldWork: true,
 		},
 		{
-			name:     "Plain text (will be hashed)",
-			keyValue: "my-secret-key-password",
+			name:       "Plain text (will be hashed)",
+			keyValue:   "my-secret-key-password",
 			shouldWork: true,
 		},
 		{
-			name:     "Hex encoded key",
-			keyValue: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			name:       "Hex encoded key",
+			keyValue:   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			shouldWork: true,
 		},
 		{
-			name:     "Empty key",
-			keyValue: "",
+			name:       "Empty key",
+			keyValue:   "",
 			shouldWork: false,
 		},
 		{
-			name:     "Short key (will be hashed)",
-			keyValue: "short",
+			name:       "Short key (will be hashed)",
+			keyValue:   "short",
 			shouldWork: true,
 		},
 	}
@@ -387,9 +387,9 @@ func TestLargeDataEncryption(t *testing.T) {
 
 	// Test with various sizes
 	sizes := []int{
-		1 * 1024,       // 1 KB
-		10 * 1024,      // 10 KB
-		100 * 1024,     // 100 KB
+		1 * 1024,        // 1 KB
+		10 * 1024,       // 10 KB
+		100 * 1024,      // 100 KB
 		1 * 1024 * 1024, // 1 MB
 	}
 

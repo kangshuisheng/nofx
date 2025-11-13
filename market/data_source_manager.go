@@ -9,32 +9,32 @@ import (
 
 // DataSource 数据源接口
 type DataSource interface {
-	GetName() string                                              // 获取数据源名称
+	GetName() string                                               // 获取数据源名称
 	GetKlines(symbol, interval string, limit int) ([]Kline, error) // 获取K线数据
-	GetTicker(symbol string) (*Ticker, error)                     // 获取ticker数据
-	HealthCheck() error                                           // 健康检查
-	GetLatency() time.Duration                                    // 获取延迟
+	GetTicker(symbol string) (*Ticker, error)                      // 获取ticker数据
+	HealthCheck() error                                            // 健康检查
+	GetLatency() time.Duration                                     // 获取延迟
 }
 
 // DataSourceStatus 数据源状态
 type DataSourceStatus struct {
-	Name           string        // 数据源名称
-	Healthy        bool          // 是否健康
-	Latency        time.Duration // 延迟
-	LastCheckTime  time.Time     // 最后检查时间
-	FailureCount   int           // 连续失败次数
-	SuccessCount   int           // 总成功次数
-	TotalRequests  int           // 总请求次数
+	Name          string        // 数据源名称
+	Healthy       bool          // 是否健康
+	Latency       time.Duration // 延迟
+	LastCheckTime time.Time     // 最后检查时间
+	FailureCount  int           // 连续失败次数
+	SuccessCount  int           // 总成功次数
+	TotalRequests int           // 总请求次数
 }
 
 // DataSourceManager 数据源管理器
 type DataSourceManager struct {
-	sources      []DataSource                   // 数据源列表
-	statuses     map[string]*DataSourceStatus   // 数据源状态
-	currentIndex int                             // 当前使用的数据源索引（轮询）
-	mu           sync.RWMutex                   // 读写锁
-	stopChan     chan struct{}                  // 停止信号
-	checkInterval time.Duration                 // 健康检查间隔
+	sources       []DataSource                 // 数据源列表
+	statuses      map[string]*DataSourceStatus // 数据源状态
+	currentIndex  int                          // 当前使用的数据源索引（轮询）
+	mu            sync.RWMutex                 // 读写锁
+	stopChan      chan struct{}                // 停止信号
+	checkInterval time.Duration                // 健康检查间隔
 }
 
 // NewDataSourceManager 创建数据源管理器

@@ -724,8 +724,8 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		ID:                   traderID,
 		UserID:               userID,
 		Name:                 req.Name,
-		AIModelID:            aiModelIntID,   // 使用查询到的自增 ID
-		ExchangeID:           exchangeIntID,  // 使用查询到的自增 ID
+		AIModelID:            aiModelIntID,  // 使用查询到的自增 ID
+		ExchangeID:           exchangeIntID, // 使用查询到的自增 ID
 		InitialBalance:       actualBalance, // 使用实际查询的余额
 		BTCETHLeverage:       btcEthLeverage,
 		AltcoinLeverage:      altcoinLeverage,
@@ -925,8 +925,8 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		ID:                   traderID,
 		UserID:               userID,
 		Name:                 req.Name,
-		AIModelID:            aiModelIntID,   // 使用查询到的自增 ID
-		ExchangeID:           exchangeIntID,  // 使用查询到的自增 ID
+		AIModelID:            aiModelIntID,  // 使用查询到的自增 ID
+		ExchangeID:           exchangeIntID, // 使用查询到的自增 ID
 		InitialBalance:       req.InitialBalance,
 		BTCETHLeverage:       btcEthLeverage,
 		AltcoinLeverage:      altcoinLeverage,
@@ -1257,7 +1257,7 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 	safeModels := make([]SafeModelConfig, len(models))
 	for i, model := range models {
 		safeModels[i] = SafeModelConfig{
-			ID:              model.ModelID,  // 返回 model_id（例如 "deepseek"）而不是自增 ID
+			ID:              model.ModelID, // 返回 model_id（例如 "deepseek"）而不是自增 ID
 			Name:            model.Name,
 			Provider:        model.Provider,
 			Enabled:         model.Enabled,
@@ -1352,7 +1352,7 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 	safeExchanges := make([]SafeExchangeConfig, len(exchanges))
 	for i, exchange := range exchanges {
 		safeExchanges[i] = SafeExchangeConfig{
-			ID:                    exchange.ExchangeID,  // 返回 exchange_id（例如 "binance"）
+			ID:                    exchange.ExchangeID, // 返回 exchange_id（例如 "binance"）
 			Name:                  exchange.Name,
 			Type:                  exchange.Type,
 			Enabled:               exchange.Enabled,
@@ -2267,7 +2267,7 @@ func (s *Server) handleGetSupportedExchanges(c *gin.Context) {
 	safeExchanges := make([]SafeExchangeConfig, len(exchanges))
 	for i, exchange := range exchanges {
 		safeExchanges[i] = SafeExchangeConfig{
-			ID:                    exchange.ExchangeID,  // 返回 exchange_id（例如 "binance"）
+			ID:                    exchange.ExchangeID, // 返回 exchange_id（例如 "binance"）
 			Name:                  exchange.Name,
 			Type:                  exchange.Type,
 			Enabled:               exchange.Enabled,

@@ -21,7 +21,7 @@ type WSMonitor struct {
 	wsClient        *WSClient
 	combinedClient  *CombinedStreamsClient
 	symbols         []string
-	timeframes      []string      // 动态配置的时间线
+	timeframes      []string // 动态配置的时间线
 	featuresMap     sync.Map
 	alertsChan      chan Alert
 	klineDataMap1m  sync.Map      // 存储每个交易对的1分钟K线历史数据

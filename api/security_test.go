@@ -75,7 +75,7 @@ func TestSQLInjectionProtection(t *testing.T) {
 		Email:        testEmail,
 		PasswordHash: hashedPassword,
 		OTPSecret:    "JBSWY3DPEHPK3PXP", // Test OTP secret
-		OTPVerified:  true,                 // Set to true to allow login
+		OTPVerified:  true,               // Set to true to allow login
 	}
 	err = db.CreateUser(user)
 	if err != nil {
@@ -95,9 +95,9 @@ func TestSQLInjectionProtection(t *testing.T) {
 			endpoint: "/api/traders",
 			method:   "POST",
 			payload: map[string]interface{}{
-				"name":          "'; DROP TABLE traders; --",
-				"ai_model_id":   "deepseek",
-				"exchange_id":   "binance",
+				"name":            "'; DROP TABLE traders; --",
+				"ai_model_id":     "deepseek",
+				"exchange_id":     "binance",
 				"initial_balance": 1000.0,
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -108,9 +108,9 @@ func TestSQLInjectionProtection(t *testing.T) {
 			endpoint: "/api/traders",
 			method:   "POST",
 			payload: map[string]interface{}{
-				"name":          "test' UNION SELECT * FROM users--",
-				"ai_model_id":   "deepseek",
-				"exchange_id":   "binance",
+				"name":            "test' UNION SELECT * FROM users--",
+				"ai_model_id":     "deepseek",
+				"exchange_id":     "binance",
 				"initial_balance": 1000.0,
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -175,9 +175,9 @@ func TestXSSProtection(t *testing.T) {
 		}
 		t.Run("XSS_"+testName, func(t *testing.T) {
 			reqBody := map[string]interface{}{
-				"name":          payload,
-				"ai_model_id":   "deepseek",
-				"exchange_id":   "binance",
+				"name":            payload,
+				"ai_model_id":     "deepseek",
+				"exchange_id":     "binance",
 				"initial_balance": 1000.0,
 			}
 
@@ -225,9 +225,9 @@ func TestInputValidation(t *testing.T) {
 			name:     "Empty trader name",
 			endpoint: "/api/traders",
 			payload: map[string]interface{}{
-				"name":          "",
-				"ai_model_id":   "deepseek",
-				"exchange_id":   "binance",
+				"name":            "",
+				"ai_model_id":     "deepseek",
+				"exchange_id":     "binance",
 				"initial_balance": 1000.0,
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -237,9 +237,9 @@ func TestInputValidation(t *testing.T) {
 			name:     "Extremely long name (buffer overflow attempt)",
 			endpoint: "/api/traders",
 			payload: map[string]interface{}{
-				"name":          strings.Repeat("A", 10000),
-				"ai_model_id":   "deepseek",
-				"exchange_id":   "binance",
+				"name":            strings.Repeat("A", 10000),
+				"ai_model_id":     "deepseek",
+				"exchange_id":     "binance",
 				"initial_balance": 1000.0,
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -253,7 +253,7 @@ func TestInputValidation(t *testing.T) {
 				"ai_model_id":      "deepseek",
 				"exchange_id":      "binance",
 				"btc_eth_leverage": 100,
-				"initial_balance": 1000.0,
+				"initial_balance":  1000.0,
 			},
 			expectedStatus: http.StatusBadRequest,
 			errorContains:  "杠杆",
@@ -266,7 +266,7 @@ func TestInputValidation(t *testing.T) {
 				"ai_model_id":      "deepseek",
 				"exchange_id":      "binance",
 				"btc_eth_leverage": -5,
-				"initial_balance": 1000.0,
+				"initial_balance":  1000.0,
 			},
 			expectedStatus: http.StatusBadRequest,
 			errorContains:  "杠杆",
@@ -288,9 +288,9 @@ func TestInputValidation(t *testing.T) {
 			name:     "Negative initial balance",
 			endpoint: "/api/traders",
 			payload: map[string]interface{}{
-				"name":          "TestTrader",
-				"ai_model_id":   "deepseek",
-				"exchange_id":   "binance",
+				"name":            "TestTrader",
+				"ai_model_id":     "deepseek",
+				"exchange_id":     "binance",
 				"initial_balance": -1000.0,
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -300,9 +300,9 @@ func TestInputValidation(t *testing.T) {
 			name:     "Zero initial balance",
 			endpoint: "/api/traders",
 			payload: map[string]interface{}{
-				"name":          "TestTrader",
-				"ai_model_id":   "deepseek",
-				"exchange_id":   "binance",
+				"name":            "TestTrader",
+				"ai_model_id":     "deepseek",
+				"exchange_id":     "binance",
 				"initial_balance": 0,
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -624,7 +624,7 @@ func TestConcurrentAuthenticationRequests(t *testing.T) {
 		Email:        testEmail,
 		PasswordHash: hashedPassword,
 		OTPSecret:    "JBSWY3DPEHPK3PXP", // Test OTP secret
-		OTPVerified:  true,                 // Set to true to allow login
+		OTPVerified:  true,               // Set to true to allow login
 	}
 	err = db.CreateUser(user)
 	if err != nil {
