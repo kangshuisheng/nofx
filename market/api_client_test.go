@@ -18,21 +18,21 @@ func TestGetKlinesWithRetry(t *testing.T) {
 	}{
 		{
 			name:     "Valid BTCUSDT 3m K-lines",
-			symbol   "BTCUSDT",
+			symbol:   "BTCUSDT",
 			interval: "3m",
 			limit:    10,
 			wantErr:  false,
 		},
 		{
 			name:     "Valid ETHUSDT 15m K-lines",
-			symbol   "ETHUSDT",
+			symbol:   "ETHUSDT",
 			interval: "15m",
 			limit:    20,
 			wantErr:  false,
 		},
 		{
 			name:     "Invalid symbol should fail",
-			symbol   "INVALIDSYMBOL",
+			symbol:   "INVALIDSYMBOL",
 			interval: "1m",
 			limit:    5,
 			wantErr:  true,

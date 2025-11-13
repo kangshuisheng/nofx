@@ -667,11 +667,34 @@ func Format(data *Data) string {
 		}
 		sb.WriteString(fmt.Sprintf("  - RSI(14):%s\n", formatFloatSlice(rsi14s)))
 
-		// ⭐️ 新增：为“成交量共振”规则提供15分钟的成交量数据
+		// ⭐️ 新增：为"成交量突破确认"规则提供前5根K线平均成交量
+		// 计算前5根3分钟K线的平均成交量
+		if data.IntradaySeries != nil && len(data.IntradaySeries.Volume) >= 5 {
+			// 获取最近5根K线的成交量（不包括当前最新一根）
+			volumes := data.IntradaySeries.Volume
+			startIdx := len(volumes) - 6 // -6是因为要排除最新一根，往前取5根
+			if startIdx < 0 {
+				startIdx = 0
+			}
+			endIdx := len(volumes) - 1 // 排除最新一根
+
+			sum := 0.0
+			count := 0
+			for i := startIdx; i < endIdx && count < 5; i++ {
+				sum += volumes[i]
+				count++
+			}
+
+			if count > 0 {
+				avgVolume := sum / float64(count)
+				sb.WriteString(fmt.Sprintf("  - Avg_Volume_Last_5_Bars: %.2f\n", avgVolume))
+			}
+		}
+		// ⭐️ 新增：为"成交量共振"规则提供15分钟的成交量数据
 		// 注意: 我们需要从 IntradaySeries(3m) 获取成交量数据来近似15m的成交量活动
 		if data.IntradaySeries != nil && len(data.IntradaySeries.Volume) > 0 {
 			lastVolume := data.IntradaySeries.Volume[len(data.IntradaySeries.Volume)-1]
-			sb.WriteString(fmt.Sprintf("  - Volume(last 3m): %.2f\n\n", lastVolume))
+			sb.WriteString(fmt.Sprintf("  - Current_Volume: %.2f\n\n", lastVolume))
 		} else {
 			sb.WriteString("\n")
 		}
@@ -689,7 +712,7 @@ func Format(data *Data) string {
 		sb.WriteString(fmt.Sprintf("  - ATR(14) for StopLoss: %.4f\n", data.LongerTermContext.ATR14))
 
 		// 为信心评分提供成交量数据
-		sb.WriteString(fmt.Sprintf("  - Volume Ratio (Current/Avg): %.2f\n\n", data.LongerTermContext.CurrentVolume/data.LongerTermContext.AverageVolume))
+		sb.WriteString(fmt.Sprintf("  - Volume_Ratio_Current_Avg: %.2f\n\n", data.LongerTermContext.CurrentVolume/data.LongerTermContext.AverageVolume))
 	}
 	return sb.String()
 }
