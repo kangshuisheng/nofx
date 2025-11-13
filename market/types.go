@@ -1,6 +1,9 @@
 package market
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Data 市场数据结构
 type Data struct {
@@ -17,6 +20,7 @@ type Data struct {
 	MidTermSeries15m  *MidTermData15m // 15分钟数据 - 短期趋势
 	MidTermSeries1h   *MidTermData1h  // 1小时数据 - 中期趋势
 	LongerTermContext *LongerTermData // 4小时数据 - 长期趋势
+	DailyContext      *DailyData      // 日线数据 - 长期趋势和极端位置判断
 }
 
 // OIData Open Interest数据
@@ -75,6 +79,17 @@ type LongerTermData struct {
 	RSI14Values   []float64
 }
 
+// DailyData 日线数据 - 用于长期趋势判断和极端位置识别
+type DailyData struct {
+	MidPrices   []float64 // 日线收盘价序列
+	EMA20Values []float64 // EMA20序列
+	EMA50Values []float64 // EMA50序列
+	MACDValues  []float64 // MACD序列
+	RSI14Values []float64 // RSI14序列
+	ATR14Values []float64 // ATR14序列（波动率）
+	Volume      []float64 // 成交量序列
+}
+
 // Binance API 响应结构
 type ExchangeInfo struct {
 	Symbols []SymbolInfo `json:"symbols"`
@@ -105,6 +120,17 @@ type Kline struct {
 }
 
 type KlineResponse []interface{}
+
+// BinanceErrorResponse represents Binance API error response
+type BinanceErrorResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+}
+
+// Error implements error interface
+func (e *BinanceErrorResponse) Error() string {
+	return fmt.Sprintf("Binance API error (code %d): %s", e.Code, e.Msg)
+}
 
 type PriceTicker struct {
 	Symbol string `json:"symbol"`

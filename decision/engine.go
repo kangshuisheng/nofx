@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/pool"
@@ -329,25 +330,39 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("# 硬约束（风险控制）\n\n")
 	sb.WriteString("1. 风险回报比: 必须 ≥ 1:3（冒1%风险，赚3%+收益）\n")
 	sb.WriteString("2. 最多持仓: 3个币种（质量>数量）\n")
-	sb.WriteString(fmt.Sprintf("3. 单币仓位: 山寨%.0f-%.0f U | BTC/ETH %.0f-%.0f U\n",
-		accountEquity*0.55, accountEquity*1.1, accountEquity*2.2, accountEquity*4.4))
+	// 仓位价值限制：山寨币1.25倍净值，BTC/ETH 2.5倍净值（与代码验证逻辑保持一致）
+	sb.WriteString(fmt.Sprintf("3. 单币仓位: 山寨币≤%.0f USDT (1.25倍净值) | BTC/ETH≤%.0f USDT (2.5倍净值)\n",
+		accountEquity*1.25, accountEquity*2.5))
 	sb.WriteString(fmt.Sprintf("4. 杠杆限制: **山寨币最大%dx杠杆** | **BTC/ETH最大%dx杠杆** (⚠️ 严格执行，不可超过)\n", altcoinLeverage, btcEthLeverage))
 	sb.WriteString("5. 保证金: 总使用率 ≤ 90%\n")
 
-	// 6. 开仓金额：根据账户规模动态提示
-	sb.WriteString("6. 开仓金额: 山寨币≥12 USDT")
-	if accountEquity < 20.0 {
-		// 小账户特殊提示
-		sb.WriteString(" | BTC/ETH≥12 USDT (⚠️ 小账户模式，降低门槛)")
-	} else if accountEquity < 100.0 {
-		// 中型账户动态门槛
-		minBTCETH := calculateMinPositionSize("BTCUSDT", accountEquity)
-		sb.WriteString(fmt.Sprintf(" | BTC/ETH≥%.0f USDT (根据账户规模动态调整)", minBTCETH))
+	// 6. 开仓金额：根据账户规模动态提示（使用统一的配置规则）
+	minBTCETH := calculateMinPositionSize("BTCUSDT", accountEquity)
+
+	// 根据账户规模生成不同的提示语
+	var btcEthHint string
+	if accountEquity < btcEthSizeRules[1].MinEquity {
+		// 小账户模式（< 20U）
+		btcEthHint = fmt.Sprintf(" | BTC/ETH≥%.0f USDT (⚠️ 小账户模式，降低门槛)", minBTCETH)
+	} else if accountEquity < btcEthSizeRules[2].MinEquity {
+		// 中型账户（20-100U）
+		btcEthHint = fmt.Sprintf(" | BTC/ETH≥%.0f USDT (根据账户规模动态调整)", minBTCETH)
 	} else {
-		// 大账户标准门槛
-		sb.WriteString(" | BTC/ETH≥60 USDT")
+		// 大账户（≥100U）
+		btcEthHint = fmt.Sprintf(" | BTC/ETH≥%.0f USDT", minBTCETH)
 	}
+
+	sb.WriteString("6. 开仓金额: 山寨币≥12 USDT")
+	sb.WriteString(btcEthHint)
 	sb.WriteString("\n\n")
+
+	// ⚠️ 重要提醒：防止 AI 误读市场数据中的数字
+	sb.WriteString("⚠️ **重要提醒：计算 position_size_usd 的正确方法**\n\n")
+	sb.WriteString(fmt.Sprintf("- 当前账户净值：**%.2f USDT**\n", accountEquity))
+	sb.WriteString(fmt.Sprintf("- 山寨币开仓范围：**12 - %.0f USDT** (最大1.25倍净值)\n", accountEquity*1.25))
+	sb.WriteString(fmt.Sprintf("- BTC/ETH开仓范围：**%.0f - %.0f USDT** (最大2.5倍净值)\n", minBTCETH, accountEquity*2.5))
+	sb.WriteString("- ❌ **不要使用市场数据中的任何数字**（如 Open Interest 合约数、Volume、价格等）作为 position_size_usd\n")
+	sb.WriteString("- ✅ **position_size_usd 必须根据账户净值和上述范围计算**\n\n")
 
 	// 3. 输出格式 - 动态生成
 	sb.WriteString("# 输出格式 (严格遵守)\n\n")
@@ -416,9 +431,12 @@ func buildUserPrompt(ctx *Context) string {
 				}
 			}
 
-			sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价%.4f 当前价%.4f | 盈亏%+.2f%% | 盈亏金额%+.2f USDT | 最高收益率%.2f%% | 杠杆%dx | 保证金%.0f | 强平价%.4f%s\n\n",
+			// 计算仓位价值（用于 partial_close 检查）
+			positionValue := math.Abs(pos.Quantity) * pos.MarkPrice
+
+			sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价%.4f 当前价%.4f | 数量%.4f | 仓位价值%.2f USDT | 盈亏%+.2f%% | 盈亏金额%+.2f USDT | 最高收益率%.2f%% | 杠杆%dx | 保证金%.0f | 强平价%.4f%s\n\n",
 				i+1, pos.Symbol, strings.ToUpper(pos.Side),
-				pos.EntryPrice, pos.MarkPrice, pos.UnrealizedPnLPct, pos.UnrealizedPnL, pos.PeakPnLPct,
+				pos.EntryPrice, pos.MarkPrice, pos.Quantity, positionValue, pos.UnrealizedPnLPct, pos.UnrealizedPnL, pos.PeakPnLPct,
 				pos.Leverage, pos.MarginUsed, pos.LiquidationPrice, holdingDuration))
 
 			// 使用FormatMarketData输出完整市场数据
@@ -698,34 +716,89 @@ func validateDecisions(decisions []Decision, accountEquity float64, btcEthLevera
 	return nil
 }
 
+// findMatchingBracket 查找匹配的右括号
+func findMatchingBracket(s string, start int) int {
+	if start >= len(s) || s[start] != '[' {
+		return -1
+	}
+
+	depth := 0
+	for i := start; i < len(s); i++ {
+		switch s[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+
+	return -1
+}
+
+// positionSizeConfig 定义账户规模分层配置
+type positionSizeConfig struct {
+	MinEquity float64 // 账户最小净值阈值
+	MinSize   float64 // 最小开仓金额（0 表示使用线性插值）
+	MaxSize   float64 // 最大开仓金额（用于线性插值）
+}
+
+var (
+	// 配置常量
+	absoluteMinimum = 12.0 // 交易所绝对最小值 (10 USDT + 20% 安全边际)
+	standardBTCETH  = 60.0 // 标准 BTC/ETH 最小值 (因价格高和精度限制)
+
+	// BTC/ETH 动态调整规则（按账户规模分层）
+	btcEthSizeRules = []positionSizeConfig{
+		{MinEquity: 0, MinSize: absoluteMinimum, MaxSize: absoluteMinimum}, // 小账户(<20U): 12 USDT
+		{MinEquity: 20, MinSize: absoluteMinimum, MaxSize: standardBTCETH}, // 中型账户(20-100U): 线性插值
+		{MinEquity: 100, MinSize: standardBTCETH, MaxSize: standardBTCETH}, // 大账户(≥100U): 60 USDT
+	}
+
+	// 山寨币规则（始终使用绝对最小值）
+	altcoinSizeRules = []positionSizeConfig{
+		{MinEquity: 0, MinSize: absoluteMinimum, MaxSize: absoluteMinimum},
+	}
+
+	// 币种规则映射表（易于扩展，添加新币种只需在此添加一行）
+	symbolSizeRules = map[string][]positionSizeConfig{
+		"BTCUSDT": btcEthSizeRules,
+		"ETHUSDT": btcEthSizeRules,
+		// 未来可添加更多币种的特殊规则，例如:
+		// "BNBUSDT": bnbSizeRules,
+		// "SOLUSDT": solSizeRules,
+	}
+)
+
 // calculateMinPositionSize 根据账户净值和币种动态计算最小开仓金额
 func calculateMinPositionSize(symbol string, accountEquity float64) float64 {
-	const (
-		absoluteMinimum = 12.0 // 交易所绝对最小值 (10 USDT + 20% 安全边际)
-		standardBTCETH  = 60.0 // 标准 BTC/ETH 最小值 (因价格高和精度限制)
-	)
-
-	isBTCETH := symbol == "BTCUSDT" || symbol == "ETHUSDT"
-
-	// 山寨币始终使用绝对最小值
-	if !isBTCETH {
-		return absoluteMinimum
+	// 从配置映射表中获取币种规则
+	rules, exists := symbolSizeRules[symbol]
+	if !exists {
+		// 未配置的币种使用山寨币规则（默认绝对最小值）
+		rules = altcoinSizeRules
 	}
 
-	// BTC/ETH 动态调整策略
-	// 小账户(<20U): 使用绝对最小值，避免完全无法交易
-	if accountEquity < 20.0 {
-		return absoluteMinimum
+	// 根据规则表动态计算
+	for i, rule := range rules {
+		// 找到账户所属的规模区间
+		if i == len(rules)-1 || accountEquity < rules[i+1].MinEquity {
+			// 如果 MinSize == MaxSize，直接返回固定值
+			if rule.MinSize == rule.MaxSize {
+				return rule.MinSize
+			}
+			// 否则使用线性插值
+			nextRule := rules[i+1]
+			equityRange := nextRule.MinEquity - rule.MinEquity
+			sizeRange := rule.MaxSize - rule.MinSize
+			return rule.MinSize + sizeRange*(accountEquity-rule.MinEquity)/equityRange
+		}
 	}
 
-	// 中型账户(20-100U): 线性插值，平滑过渡
-	// 例: 20U账户→12U, 60U账户→36U, 100U账户→60U
-	if accountEquity < 100.0 {
-		return absoluteMinimum + (standardBTCETH-absoluteMinimum)*(accountEquity-20.0)/80.0
-	}
-
-	// 大账户(≥100U): 使用标准值
-	return standardBTCETH
+	// 默认返回绝对最小值（理论上不会执行到这里）
+	return absoluteMinimum
 }
 
 // validateDecision 验证单个决策的有效性
@@ -749,8 +822,14 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 
 	// 开仓操作必须提供完整参数
 	if d.Action == "open_long" || d.Action == "open_short" {
-		if d.StopLoss <= 0 || d.TakeProfit <= 0 {
-			return fmt.Errorf("止损和止盈必须大于0")
+		// 仓位价值限制配置：根据币种风险特性设定不同上限
+		// - 山寨币：1.25倍净值（波动性高，风险大，限制更严格）
+		// - BTC/ETH：2.5倍净值（相对稳定，流动性好，允许更大仓位）
+		maxLeverage := altcoinLeverage           // 山寨币使用配置的杠杆
+		maxPositionValue := accountEquity * 1.25 // 山寨币最多1.25倍账户净值
+		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
+			maxLeverage = btcEthLeverage           // BTC和ETH使用配置的杠杆
+			maxPositionValue = accountEquity * 2.5 // BTC/ETH最多2.5倍账户净值
 		}
 
 		// =================================================================
@@ -796,11 +875,7 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 
 		// --- 保留原有的其他辅助检查 ---
 
-		// 杠杆检查与修正
-		maxLeverage := altcoinLeverage
-		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-			maxLeverage = btcEthLeverage
-		}
+		// 杠杆检查与修正（使用上面已声明的maxLeverage变量）
 		if d.Leverage <= 0 {
 			return fmt.Errorf("杠杆必须大于0: %d", d.Leverage)
 		}
@@ -816,7 +891,20 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			return fmt.Errorf("开仓金额过小(%.2f USDT)，必须≥%.2f USDT", d.PositionSizeUSD, minPositionSize)
 		}
 
-		// 止损止盈逻辑合理性检查
+		// 验证仓位价值上限（加1%容差以避免浮点数精度问题）
+		tolerance := maxPositionValue * 0.01 // 1%容差
+		if d.PositionSizeUSD > maxPositionValue+tolerance {
+			if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
+				return fmt.Errorf("BTC/ETH单币种仓位价值不能超过%.0f USDT（2.5倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
+			} else {
+				return fmt.Errorf("山寨币单币种仓位价值不能超过%.0f USDT（1.25倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
+			}
+		}
+		if d.StopLoss <= 0 || d.TakeProfit <= 0 {
+			return fmt.Errorf("止损和止盈必须大于0")
+		}
+
+		// 验证止损止盈的合理性
 		if d.Action == "open_long" {
 			if d.StopLoss >= d.TakeProfit {
 				return fmt.Errorf("做多时止损价 (%.4f) 必须小于止盈价 (%.4f)", d.StopLoss, d.TakeProfit)

@@ -387,7 +387,7 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 						"leverage":  action.Leverage,
 					}
 				case "close_long", "close_short", "auto_close_long", "auto_close_short":
-					// 移除已平仓记录
+					// Remove closed position records
 					delete(openPositions, posKey)
 					// partial_close 不處理，保留持倉記錄
 				}
@@ -511,7 +511,7 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 							}
 
 							analysis.RecentTrades = append(analysis.RecentTrades, outcome)
-							analysis.TotalTrades++ // 🔧 只在完全平倉時計數
+							analysis.TotalTrades++ // 🔧 Only count when fully closed
 
 							// 分类交易
 							if accumulatedPnL > 0 {

@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest'
 
 /**
- * PR #678 測試: 修復 CompetitionPage 中 NaN 和缺失數據的顯示問題
+ * PR #678 Test: Fix NaN and missing data display issues in CompetitionPage
  *
- * 問題：當 total_pnl_pct 為 null/undefined/NaN 時，會顯示 "NaN%" 或 "0.00%"
- * 修復：檢查數據有效性，顯示 "—" 表示缺失數據
+ * Issue: When total_pnl_pct is null/undefined/NaN, displays "NaN%" or "0.00%"
+ * Fix: Check data validity, display "—" for missing data
  */
 
 describe('CompetitionPage - Data Validation Logic (PR #678)', () => {
   /**
-   * 測試數據有效性檢查邏輯
-   * 這是 PR #678 引入的核心邏輯
+   * Test data validity check logic
+   * Core logic introduced by PR #678
    */
   describe('hasValidData check', () => {
     it('should return true for valid numbers', () => {
@@ -236,8 +236,8 @@ describe('CompetitionPage - Data Validation Logic (PR #678)', () => {
   })
 
   /**
-   * 測試領先/落後訊息顯示邏輯
-   * 只有在數據有效時才顯示 "領先" 或 "落後" 訊息
+   * Test leading/trailing message display logic
+   * Only display "leading" or "trailing" message when data is valid
    */
   describe('leading/trailing message display', () => {
     it('should show leading message when winning with positive gap', () => {

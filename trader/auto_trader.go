@@ -309,35 +309,14 @@ func (at *AutoTrader) autoSyncBalanceIfNeeded() {
 	}
 
 	// ✅ 提取总资产（total equity = 钱包余额 + 未实现盈亏）
-	// 使用总资产而不是可用余额，避免持仓时误判余额变化
-	var actualBalance float64
-	totalWalletBalance := 0.0
-	totalUnrealizedProfit := 0.0
-
-	if wallet, ok := balanceInfo["totalWalletBalance"].(float64); ok {
-		totalWalletBalance = wallet
+	// 使用统一的工具函数解析余额信息
+	totalEquity, success := ParseTotalEquity(balanceInfo, fmt.Sprintf("[%s]", at.name))
+	if !success {
+		log.Printf("❌ [%s] 无法提取余额信息，跳过本次同步", at.name)
+		at.lastBalanceSyncTime = time.Now()
+		return
 	}
-	if unrealized, ok := balanceInfo["totalUnrealizedProfit"].(float64); ok {
-		totalUnrealizedProfit = unrealized
-	}
-
-	totalEquity := totalWalletBalance + totalUnrealizedProfit
-	if totalEquity > 0 {
-		actualBalance = totalEquity
-	} else {
-		// Fallback: 尝试其他字段
-		if availableBalance, ok := balanceInfo["availableBalance"].(float64); ok && availableBalance > 0 {
-			actualBalance = availableBalance
-			log.Printf("⚠️ [%s] 无法提取 totalEquity，使用 availableBalance: %.2f", at.name, actualBalance)
-		} else if balance, ok := balanceInfo["balance"].(float64); ok && balance > 0 {
-			actualBalance = balance
-			log.Printf("⚠️ [%s] 无法提取 totalEquity，使用 balance: %.2f", at.name, actualBalance)
-		} else {
-			log.Printf("⚠️ [%s] 无法提取任何余额字段", at.name)
-			at.lastBalanceSyncTime = time.Now()
-			return
-		}
-	}
+	actualBalance := totalEquity
 
 	oldBalance := at.initialBalance
 
@@ -369,8 +348,8 @@ func (at *AutoTrader) autoSyncBalanceIfNeeded() {
 
 	// 变化超过5%才更新
 	if math.Abs(changePercent) > 5.0 {
-		log.Printf("🔔 [%s] 检测到余额大幅变化: %.2f → %.2f USDT (%.2f%%) [钱包: %.2f + 未实现: %.2f]",
-			at.name, oldBalance, actualBalance, changePercent, totalWalletBalance, totalUnrealizedProfit)
+		log.Printf("🔔 [%s] 检测到余额大幅变化: %.2f → %.2f USDT (%.2f%%)",
+			at.name, oldBalance, actualBalance, changePercent)
 
 		// 更新内存中的 initialBalance
 		at.initialBalance = actualBalance
@@ -1204,6 +1183,37 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *decision.Decision,
 	closeQuantity := totalQuantity * (decision.ClosePercentage / 100.0)
 	actionRecord.Quantity = closeQuantity
 
+	// ✅ Layer 2: 最小仓位检查（防止产生小额剩余）
+	markPrice, ok := targetPosition["markPrice"].(float64)
+	if !ok || markPrice <= 0 {
+		return fmt.Errorf("无法解析当前价格，无法执行最小仓位检查")
+	}
+
+	currentPositionValue := totalQuantity * markPrice
+	remainingQuantity := totalQuantity - closeQuantity
+	remainingValue := remainingQuantity * markPrice
+
+	const MIN_POSITION_VALUE = 10.0 // 最小持仓价值 10 USDT（對齊交易所底线，小仓位建议直接全平）
+
+	if remainingValue > 0 && remainingValue <= MIN_POSITION_VALUE {
+		log.Printf("⚠️ 检测到 partial_close 后剩余仓位 %.2f USDT < %.0f USDT",
+			remainingValue, MIN_POSITION_VALUE)
+		log.Printf("  → 当前仓位价值: %.2f USDT, 平仓 %.1f%%, 剩余: %.2f USDT",
+			currentPositionValue, decision.ClosePercentage, remainingValue)
+		log.Printf("  → 自动修正为全部平仓，避免产生无法平仓的小额剩余")
+
+		// 🔄 自动修正为全部平仓
+		if positionSide == "LONG" {
+			decision.Action = "close_long"
+			log.Printf("  ✓ 已修正为: close_long")
+			return at.executeCloseLongWithRecord(decision, actionRecord)
+		} else {
+			decision.Action = "close_short"
+			log.Printf("  ✓ 已修正为: close_short")
+			return at.executeCloseShortWithRecord(decision, actionRecord)
+		}
+	}
+
 	// 执行平仓
 	var order map[string]interface{}
 	if positionSide == "LONG" {
@@ -1221,9 +1231,34 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *decision.Decision,
 		actionRecord.OrderID = orderID
 	}
 
-	remainingQuantity := totalQuantity - closeQuantity
 	log.Printf("  ✓ 部分平仓成功: 平仓 %.4f (%.1f%%), 剩余 %.4f",
 		closeQuantity, decision.ClosePercentage, remainingQuantity)
+
+	// ✅ Step 4: Restore TP/SL protection (prevent remaining position from being unprotected)
+	// IMPORTANT: Exchanges like Binance automatically cancel existing TP/SL orders after partial close (due to quantity mismatch)
+	// If AI provides new stop-loss/take-profit prices, reset protection for the remaining position
+	if decision.NewStopLoss > 0 {
+		log.Printf("  → Restoring stop-loss for remaining position %.4f: %.2f", remainingQuantity, decision.NewStopLoss)
+		err = at.trader.SetStopLoss(decision.Symbol, positionSide, remainingQuantity, decision.NewStopLoss)
+		if err != nil {
+			log.Printf("  ⚠️ Failed to restore stop-loss: %v (doesn't affect close result)", err)
+		}
+	}
+
+	if decision.NewTakeProfit > 0 {
+		log.Printf("  → Restoring take-profit for remaining position %.4f: %.2f", remainingQuantity, decision.NewTakeProfit)
+		err = at.trader.SetTakeProfit(decision.Symbol, positionSide, remainingQuantity, decision.NewTakeProfit)
+		if err != nil {
+			log.Printf("  ⚠️ Failed to restore take-profit: %v (doesn't affect close result)", err)
+		}
+	}
+
+	// 如果 AI 没有提供新的止盈止损，记录警告
+	if decision.NewStopLoss <= 0 && decision.NewTakeProfit <= 0 {
+		log.Printf("  ⚠️⚠️⚠️ 警告: 部分平仓后AI未提供新的止盈止损价格")
+		log.Printf("  → 剩余仓位 %.4f (价值 %.2f USDT) 目前没有止盈止损保护", remainingQuantity, remainingValue)
+		log.Printf("  → 建议: 在 partial_close 决策中包含 new_stop_loss 和 new_take_profit 字段")
+	}
 
 	return nil
 }

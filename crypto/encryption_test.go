@@ -44,7 +44,7 @@ func TestDatabaseEncryption(t *testing.T) {
 			t.Fatalf("加密失敗: %v (明文: %s)", err, plaintext)
 		}
 
-		// 驗證加密後不等於明文
+		// Verify encrypted text is not equal to plaintext
 		if encrypted == plaintext && plaintext != "" {
 			t.Fatalf("加密失敗：加密後仍為明文")
 		}
@@ -55,7 +55,7 @@ func TestDatabaseEncryption(t *testing.T) {
 			t.Fatalf("解密失敗: %v (密文: %s)", err, encrypted)
 		}
 
-		// 驗證解密後等於明文
+		// Verify decrypted text equals plaintext
 		if decrypted != plaintext {
 			t.Fatalf("解密結果不匹配: 期望 %s, 得到 %s", plaintext, decrypted)
 		}
@@ -70,7 +70,7 @@ func TestHybridEncryption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("初始化加密管理器失敗: %v", err)
 	}
-	// 模擬前端加密私鑰
+	// Simulate frontend encrypted private key
 	// plaintext := "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	// 注意：這裡需要前端的 encryptWithServerPublicKey 實現
 	// 為了測試，我們直接使用後端的加密函數（實際前端使用 Web Crypto API）

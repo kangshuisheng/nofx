@@ -456,6 +456,55 @@ type UpdateExchangeConfigRequest struct {
 	} `json:"exchanges"`
 }
 
+// queryExchangeBalance 查詢交易所實際餘額
+// 根據交易所類型創建臨時 trader 並查詢當前總資產
+func (s *Server) queryExchangeBalance(userID, exchangeID string, exchangeCfg *config.ExchangeConfig) (float64, error) {
+	// 根據交易所類型創建臨時 trader
+	var tempTrader trader.Trader
+	var err error
+
+	switch exchangeID {
+	case "binance":
+		tempTrader = trader.NewFuturesTrader(exchangeCfg.APIKey, exchangeCfg.SecretKey, userID)
+	case "hyperliquid":
+		tempTrader, err = trader.NewHyperliquidTrader(
+			exchangeCfg.APIKey, // private key
+			exchangeCfg.HyperliquidWalletAddr,
+			exchangeCfg.Testnet,
+		)
+	case "aster":
+		tempTrader, err = trader.NewAsterTrader(
+			exchangeCfg.AsterUser,
+			exchangeCfg.AsterSigner,
+			exchangeCfg.AsterPrivateKey,
+		)
+	default:
+		return 0, fmt.Errorf("不支持的交易所類型: %s", exchangeID)
+	}
+
+	if err != nil {
+		return 0, fmt.Errorf("創建臨時 trader 失敗: %w", err)
+	}
+
+	if tempTrader == nil {
+		return 0, fmt.Errorf("tempTrader 為 nil")
+	}
+
+	// 查詢實際餘額
+	balanceInfo, err := tempTrader.GetBalance()
+	if err != nil {
+		return 0, fmt.Errorf("查詢交易所余額失敗: %w", err)
+	}
+
+	// 使用統一的工具函數解析總資產
+	totalEquity, success := trader.ParseTotalEquity(balanceInfo, "✓")
+	if !success {
+		return 0, fmt.Errorf("無法從餘額信息中提取總資產")
+	}
+
+	return totalEquity, nil
+}
+
 // handleCreateTrader 创建新的AI交易员
 func (s *Server) handleCreateTrader(c *gin.Context) {
 	userID := c.GetString("user_id")
@@ -575,64 +624,13 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 				log.Printf("⚠️ 交易所 %s 未启用，使用默认值 100 USDT", req.ExchangeID)
 				actualBalance = 100.0
 			} else {
-				// 根据交易所类型创建临时 trader 查询余额
-				var tempTrader trader.Trader
-				var createErr error
-
-				switch req.ExchangeID {
-				case "binance":
-					tempTrader = trader.NewFuturesTrader(exchangeCfg.APIKey, exchangeCfg.SecretKey, userID)
-				case "hyperliquid":
-					tempTrader, createErr = trader.NewHyperliquidTrader(
-						exchangeCfg.APIKey, // private key
-						exchangeCfg.HyperliquidWalletAddr,
-						exchangeCfg.Testnet,
-					)
-				case "aster":
-					tempTrader, createErr = trader.NewAsterTrader(
-						exchangeCfg.AsterUser,
-						exchangeCfg.AsterSigner,
-						exchangeCfg.AsterPrivateKey,
-					)
-				default:
-					log.Printf("⚠️ 不支持的交易所类型: %s，使用默认值 100 USDT", req.ExchangeID)
+				// 使用輔助函數查詢交易所余額
+				balance, queryErr := s.queryExchangeBalance(userID, req.ExchangeID, exchangeCfg)
+				if queryErr != nil {
+					log.Printf("⚠️ 查詢余額失敗，使用默認值 100 USDT: %v", queryErr)
 					actualBalance = 100.0
-				}
-
-				if createErr != nil {
-					log.Printf("⚠️ 创建临时 trader 失败，使用默认值 100 USDT: %v", createErr)
-					actualBalance = 100.0
-				} else if tempTrader != nil {
-					// 查询实际余额
-					balanceInfo, balanceErr := tempTrader.GetBalance()
-					if balanceErr != nil {
-						log.Printf("⚠️ 查询交易所余额失败，使用默认值 100 USDT: %v", balanceErr)
-						actualBalance = 100.0
-					} else {
-						// ✅ 使用总资产（total equity）而不是可用余额
-						// 总资产 = 钱包余额 + 未实现盈亏，这样才能正确计算总盈亏
-						totalWalletBalance := 0.0
-						totalUnrealizedProfit := 0.0
-
-						if wallet, ok := balanceInfo["totalWalletBalance"].(float64); ok {
-							totalWalletBalance = wallet
-						}
-						if unrealized, ok := balanceInfo["totalUnrealizedProfit"].(float64); ok {
-							totalUnrealizedProfit = unrealized
-						}
-
-						// 总资产 = 钱包余额 + 未实现盈亏
-						totalEquity := totalWalletBalance + totalUnrealizedProfit
-
-						if totalEquity > 0 {
-							actualBalance = totalEquity
-							log.Printf("✓ 查询到交易所总资产余额: %.2f USDT (钱包: %.2f + 未实现: %.2f)",
-								actualBalance, totalWalletBalance, totalUnrealizedProfit)
-						} else {
-							log.Printf("⚠️ 无法从余额信息中提取总资产余额，使用默认值 100 USDT")
-							actualBalance = 100.0
-						}
-					}
+				} else {
+					actualBalance = balance
 				}
 			}
 		}
@@ -1569,7 +1567,15 @@ func (s *Server) handleLatestDecisions(c *gin.Context) {
 		return
 	}
 
-	records, err := trader.GetDecisionLogger().GetLatestRecords(5)
+	// 从 query 参数读取 limit，默认 5，最大 50
+	limit := 5
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 {
+			limit = l
+		}
+	}
+
+	records, err := trader.GetDecisionLogger().GetLatestRecords(limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": fmt.Sprintf("获取决策日志失败: %v", err),
@@ -2213,7 +2219,9 @@ func (s *Server) handleGetPromptTemplates(c *gin.Context) {
 	response := make([]map[string]interface{}, 0, len(templates))
 	for _, tmpl := range templates {
 		response = append(response, map[string]interface{}{
-			"name": tmpl.Name,
+			"name":         tmpl.Name,
+			"display_name": tmpl.DisplayName,
+			"description":  tmpl.Description,
 		})
 	}
 

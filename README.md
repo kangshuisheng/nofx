@@ -24,6 +24,8 @@
 - [🔮 Roadmap](#-roadmap---universal-market-expansion)
 - [🏗️ Technical Architecture](#️-technical-architecture)
 - [💰 Register Binance Account](#-register-binance-account-save-on-fees)
+- [🔷 Register Hyperliquid Account](#-using-hyperliquid-exchange)
+- [🔶 Register Aster DEX Account](#-using-aster-dex-exchange)
 - [🚀 Quick Start](#-quick-start)
 - [📖 AI Decision Flow](#-ai-decision-flow)
 - [🧠 AI Self-Learning](#-ai-self-learning-example)
@@ -360,12 +362,30 @@ Open your browser and visit: **http://localhost:3000**
 4. **Start Trading**: Launch your configured traders
 
 #### Manage Your System
+
+**Daily Operations:**
 ```bash
 ./start.sh logs      # View logs
 ./start.sh status    # Check status
 ./start.sh stop      # Stop services
-./start.sh restart   # Restart services
+./start.sh restart   # Quick restart (containers only)
 ```
+
+**After Code Changes:**
+```bash
+./start.sh start --build   # Rebuild and restart (required for code changes)
+```
+
+**When to use `start --build`:**
+- ✅ After modifying Go backend code (*.go files)
+- ✅ After modifying React frontend code (web/src/**/*.tsx, *.ts)
+- ✅ After changing Dockerfile or docker-compose.yml
+- ✅ After pulling latest code from git
+
+**When `restart` is enough:**
+- ✅ After changing config.json or .env (configuration only)
+- ✅ To recover from container crashes
+- ✅ For routine restarts
 
 **📖 For detailed Docker deployment guide, troubleshooting, and advanced configuration:**
 - **English**: See [docs/getting-started/docker-deploy.en.md](docs/getting-started/docker-deploy.en.md)
@@ -532,18 +552,93 @@ Open your browser and visit: **🌐 http://localhost:3000**
 
 ---
 
-#### 🔷 Alternative: Using Hyperliquid Exchange
+#### 🔷 Using Hyperliquid Exchange
 
-**NOFX also supports Hyperliquid** - a decentralized perpetual futures exchange. To use Hyperliquid instead of Binance:
+**NOFX supports Hyperliquid** - a high-performance decentralized perpetual futures exchange!
 
-**Step 1**: Get your Ethereum private key (for Hyperliquid authentication)
+**Why Choose Hyperliquid?**
+- 🚀 **High Performance**: Lightning-fast execution on L1 blockchain
+- 💰 **Low Fees**: Competitive maker/taker fees
+- 🔐 **Non-Custodial**: Your keys, your coins
+- 🌐 **No KYC**: Anonymous trading
+- 💎 **Deep Liquidity**: Institutional-grade order book
 
-1. Open **MetaMask** (or any Ethereum wallet)
-2. Export your private key
-3. **Remove the `0x` prefix** from the key
-4. Fund your wallet on [Hyperliquid](https://hyperliquid.xyz)
+---
 
-**Step 2**: ~~Configure `config.json` for Hyperliquid~~ *Configure through web interface*
+### 📝 Registration & Setup Guide
+
+**Step 1: Register Hyperliquid Account**
+
+1. **Visit Hyperliquid with Referral Link** (get benefits!):
+
+   **🎁 [Register Hyperliquid - Join AITRADING](https://app.hyperliquid.xyz/join/AITRADING)**
+
+2. **Connect Your Wallet**:
+   - Click "Connect Wallet" on the top right
+   - Choose MetaMask, WalletConnect, or other Web3 wallets
+   - Approve the connection
+
+3. **Enable Trading**:
+   - First connection will prompt you to sign a message
+   - This authorizes your wallet for trading (no gas fees)
+   - You'll see your wallet address displayed
+
+**Step 2: Fund Your Wallet**
+
+1. **Bridge Assets to Arbitrum**:
+   - Hyperliquid runs on Arbitrum L2
+   - Bridge USDC from Ethereum mainnet or other chains
+   - Or directly withdraw USDC from exchanges to Arbitrum
+
+2. **Deposit to Hyperliquid**:
+   - Click "Deposit" on Hyperliquid interface
+   - Select USDC amount to deposit
+   - Confirm the transaction (small gas fee on Arbitrum)
+   - Funds appear in your Hyperliquid account within seconds
+
+**Step 3: Set Up Agent Wallet (Recommended)**
+
+Hyperliquid supports **Agent Wallets** - secure sub-wallets specifically for trading automation!
+
+⚠️ **Why Use Agent Wallet:**
+- ✅ **More Secure**: Never expose your main wallet private key
+- ✅ **Limited Access**: Agent only has trading permissions
+- ✅ **Revocable**: Can be disabled anytime from Hyperliquid interface
+- ✅ **Separate Funds**: Keep main holdings safe
+
+**How to Create Agent Wallet:**
+
+1. **Log in to Hyperliquid** using your main wallet
+   - Visit [https://app.hyperliquid.xyz](https://app.hyperliquid.xyz)
+   - Connect with the wallet you registered (from referral link)
+
+2. **Navigate to Agent Settings**:
+   - Click on your wallet address (top right)
+   - Go to "Settings" → "API & Agents"
+   - Or visit: [https://app.hyperliquid.xyz/agents](https://app.hyperliquid.xyz/agents)
+
+3. **Create New Agent**:
+   - Click "Create Agent" or "Add Agent"
+   - System will generate a new agent wallet automatically
+   - **Save the agent wallet address** (starts with `0x`)
+   - **Save the agent private key** (shown only once!)
+
+4. **Agent Wallet Details**:
+   - Main Wallet: Your connected wallet (holds funds)
+   - Agent Wallet: The sub-wallet for trading (NOFX will use this)
+   - Private Key: Only needed for NOFX configuration
+
+5. **Fund Your Agent** (Optional):
+   - Transfer USDC from main wallet to agent wallet
+   - Or keep funds in main wallet (agent can trade from it)
+
+6. **Save Credentials for NOFX**:
+   - Main Wallet Address: `0xYourMainWalletAddress` (with `0x`)
+   - Agent Private Key: `YourAgentPrivateKeyWithout0x` (remove `0x` prefix)
+
+---
+
+~~Configure `config.json` for Hyperliquid~~ *Configure through web interface*
 
 ```json
 {
@@ -576,9 +671,9 @@ Open your browser and visit: **🌐 http://localhost:3000**
 
 ---
 
-#### 🔶 Alternative: Using Aster DEX Exchange
+#### 🔶 Using Aster DEX Exchange
 
-**NOFX also supports Aster DEX** - a Binance-compatible decentralized perpetual futures exchange!
+**NOFX supports Aster DEX** - a Binance-compatible decentralized perpetual futures exchange!
 
 **Why Choose Aster?**
 - 🎯 Binance-compatible API (easy migration)
@@ -1250,6 +1345,95 @@ sudo apt-get install libta-lib0-dev
 - Coin pool API is optional
 - If API fails, system uses default mainstream coins (BTC, ETH, etc.)
 - ~~Check API URL and auth parameter in config.json~~ *Check configuration in web interface*
+
+---
+
+## 🧪 Developer Tools & Testing
+
+For contributors and developers working on NOFX, we provide convenient development tools via Makefile.
+
+### Quick Commands
+
+```bash
+# View all available commands
+make help
+
+# Testing
+make test              # Run all tests (backend + frontend)
+make test-backend      # Go tests only
+make test-frontend     # React/Vitest tests only
+make test-coverage     # Generate HTML coverage report
+
+# Build
+make build             # Build backend binary
+make build-frontend    # Build frontend production bundle
+
+# Development
+make run               # Run backend in dev mode
+make run-frontend      # Run frontend dev server (hot reload)
+
+# Code Quality
+make fmt               # Format Go code (go fmt)
+make lint              # Run linter (requires golangci-lint)
+make clean             # Clean all build artifacts
+
+# Docker
+make docker-build      # Build Docker images
+make docker-up         # Start all containers
+make docker-down       # Stop all containers
+make docker-logs       # View container logs
+
+# Dependencies
+make deps              # Download Go dependencies
+make deps-update       # Update all Go dependencies
+make deps-frontend     # Install frontend dependencies
+```
+
+### Manual Commands (Without Makefile)
+
+If you prefer not to use Makefile or don't have `make` installed:
+
+```bash
+# Backend tests
+go test ./...                            # Run all tests
+go test -v ./...                         # Verbose output
+go test -coverprofile=coverage.out ./... # Generate coverage
+go tool cover -html=coverage.out         # View coverage in browser
+
+# Frontend tests
+cd web
+npm run test          # Run Vitest tests
+npm run test:ui       # Interactive test UI
+
+# Build
+go build -o nofx                         # Backend
+cd web && npm run build                  # Frontend
+
+# Development
+go run main.go                           # Backend
+cd web && npm run dev                    # Frontend dev server
+
+# Code formatting
+go fmt ./...                             # Format Go code
+cd web && npm run lint                   # Lint frontend code
+```
+
+### Test Coverage Guidelines
+
+When contributing code:
+- ✅ All existing tests must pass
+- ✅ New features should include tests (aim for >80% coverage)
+- ✅ Critical paths (authentication, trading logic) require 100% coverage
+- ✅ Frontend components should have basic smoke tests
+
+### Continuous Integration
+
+Pull requests automatically run:
+- Backend tests (`go test ./...`)
+- Frontend build verification
+- Code linting and formatting checks
+
+For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

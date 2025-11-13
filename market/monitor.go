@@ -27,6 +27,7 @@ type WSMonitor struct {
 	klineDataMap15m sync.Map      // 存储每个交易对的15分钟K线历史数据
 	klineDataMap1h  sync.Map      // 存储每个交易对的1小时K线历史数据
 	klineDataMap4h  sync.Map      // 存储每个交易对的K线历史数据
+	klineDataMap1d  sync.Map      // 存储每个交易对的日线K线历史数据
 	tickerDataMap   sync.Map      // 存储每个交易对的ticker数据
 	oiHistoryMap    sync.Map      // P0修复：存储OI历史数据 map[symbol][]OISnapshot
 	oiStopChan      chan struct{} // P0修复：OI监控停止信号通道
@@ -295,6 +296,8 @@ func (m *WSMonitor) getKlineDataMap(_time string) *sync.Map {
 		klineDataMap = &m.klineDataMap1h
 	case "4h":
 		klineDataMap = &m.klineDataMap4h
+	case "1d":
+		klineDataMap = &m.klineDataMap1d
 	default:
 		klineDataMap = &sync.Map{}
 	}

@@ -155,6 +155,21 @@ export const translations = {
     configureExchangesFirst: 'Please configure exchanges first',
     configureModelsAndExchangesFirst:
       'Please configure AI models and exchanges first',
+
+    // Quick Start Onboarding
+    quickStart: 'Quick Start',
+    quickStartSubtitle: 'Complete the steps below to start using AI traders',
+    quickStartStep1Title: 'Configure AI Model',
+    step1Description: 'Choose an AI model (OpenAI, DeepSeek, Qwen, Claude) to power your trading decisions',
+    step1Completed: 'Configured',
+    quickStartStep2Title: 'Connect Exchange',
+    step2Description: 'Link your exchange account (Binance, OKX, Bybit) to execute trades',
+    step2Completed: 'Configured',
+    quickStartStep3Title: 'Create AI Trader',
+    step3Description: 'Complete steps 1 and 2 to enable trader creation',
+    step3Ready: 'All set! Create your first trader now',
+    goToSettings: 'Go to Settings',
+
     modelNotConfigured: 'Selected model is not configured',
     exchangeNotConfigured: 'Selected exchange is not configured',
     confirmDeleteTrader: 'Are you sure you want to delete this trader?',
@@ -227,6 +242,9 @@ export const translations = {
     // Exchange names
     hyperliquidExchangeName: 'Hyperliquid',
     asterExchangeName: 'Aster DEX',
+
+    // API Management
+    goToAPIManagement: 'Go to API Management',
 
     // Secure input
     secureInputButton: 'Secure Input',
@@ -301,6 +319,7 @@ export const translations = {
     promptTemplateHansen: 'Hansen Strategy',
     promptTemplateNof1: 'NoF1 English Framework',
     promptTemplateTaroLong: 'Taro Long Position',
+    promptTemplateBTCRangeLadder: 'BTC Range Ladder',
     promptDescDefault: '📊 Default Stable Strategy',
     promptDescDefaultContent:
       'Maximize Sharpe ratio, balanced risk-reward, suitable for beginners and stable long-term trading',
@@ -319,6 +338,9 @@ export const translations = {
     promptDescTaroLong: '📈 Taro Long Position Strategy',
     promptDescTaroLongContent:
       'Data-driven decisions, multi-dimensional validation, continuous learning evolution, long position specialist',
+    promptDescBTCRangeLadder: '📈 BTC Multi-Timeframe Range Strategy',
+    promptDescBTCRangeLadderContent:
+      'BTC priority, multi-timeframe (4h/1h/15m) analysis, range trading, ladder TP/SL, requires 4h/1h/15m data',
 
     // Loading & Error
     loading: 'Loading...',
@@ -566,13 +588,13 @@ export const translations = {
     howToStart: 'How to Get Started with NOFX',
     fourSimpleSteps:
       'Four simple steps to start your AI automated trading journey',
-    step1Title: 'Clone GitHub Repository',
+    howToStartStep1Title: 'Clone GitHub Repository',
     step1Desc:
       'git clone https://github.com/tinkle-community/nofx and switch to dev branch to test new features.',
-    step2Title: 'Configure Environment',
+    howToStartStep2Title: 'Configure Environment',
     step2Desc:
       'Frontend setup for exchange APIs (like Binance, Hyperliquid), AI models and custom prompts.',
-    step3Title: 'Deploy & Run',
+    howToStartStep3Title: 'Deploy & Run',
     step3Desc:
       'One-click Docker deployment, start AI agents. Note: High-risk market, only test with money you can afford to lose.',
     step4Title: 'Optimize & Contribute',
@@ -787,16 +809,47 @@ export const translations = {
     faqGetHelpAnswer:
       'Check GitHub Discussions, join our Telegram Community, or open an issue on GitHub.',
 
+    // Web Crypto Environment Check
+    environmentCheck: {
+      button: 'Check Secure Environment',
+      checking: 'Checking...',
+      description:
+        'Automatically verifying whether this browser context allows Web Crypto before entering sensitive keys.',
+      secureTitle: 'Secure context detected',
+      secureDesc:
+        'Web Crypto API is available. You can continue entering secrets with encryption enabled.',
+      insecureTitle: 'Insecure context detected',
+      insecureDesc:
+        'This page is not running over HTTPS or a trusted localhost origin, so browsers block Web Crypto calls.',
+      tipsTitle: 'How to fix:',
+      tipHTTPS:
+        'Serve the dashboard over HTTPS with a valid certificate (IP origins also need TLS).',
+      tipLocalhost:
+        'During development, open the app via http://localhost or 127.0.0.1.',
+      tipIframe:
+        'Avoid embedding the app in insecure HTTP iframes or reverse proxies that strip HTTPS.',
+      unsupportedTitle: 'Browser does not expose Web Crypto',
+      unsupportedDesc:
+        'Open NOFX over HTTPS (or http://localhost during development) and avoid insecure iframes/reverse proxies so the browser can enable Web Crypto.',
+      summary: 'Current origin: {origin} • Protocol: {protocol}',
+    },
+
+    environmentSteps: {
+      checkTitle: '1. Environment check',
+      selectTitle: '2. Select exchange',
+    },
+
     // Two-Stage Key Modal
     twoStageKey: {
       title: 'Two-Stage Private Key Input',
       stage1Description:
-        'Enter the first {length} characters of your private key',
+        'Enter the first {length} hex characters of your private key',
       stage2Description:
-        'Enter the remaining {length} characters of your private key',
+        'Enter the remaining {length} hex characters of your private key',
       stage1InputLabel: 'First Part',
       stage2InputLabel: 'Second Part',
       characters: 'characters',
+      helpText: '💡 Enter {length} hex chars (without 0x) or {totalWithPrefix} chars (with 0x)',
       processing: 'Processing...',
       nextButton: 'Next',
       cancelButton: 'Cancel',
@@ -969,6 +1022,21 @@ export const translations = {
     configureModelsFirst: '请先配置AI模型',
     configureExchangesFirst: '请先配置交易所',
     configureModelsAndExchangesFirst: '请先配置AI模型和交易所',
+
+    // Quick Start Onboarding
+    quickStart: '快速开始',
+    quickStartSubtitle: '完成以下步骤开始使用 AI 交易员',
+    quickStartStep1Title: '配置 AI 模型',
+    step1Description: '选择一个 AI 模型（OpenAI、DeepSeek、Qwen、Claude）来驱动您的交易决策',
+    step1Completed: '已配置',
+    quickStartStep2Title: '连接交易所',
+    step2Description: '连接您的交易所账户（Binance、OKX、Bybit）以执行交易',
+    step2Completed: '已配置',
+    quickStartStep3Title: '创建 AI 交易员',
+    step3Description: '完成前两步后可创建交易员',
+    step3Ready: '一切就绪，立即创建您的第一个交易员',
+    goToSettings: '前往设置',
+
     modelNotConfigured: '所选模型未配置',
     exchangeNotConfigured: '所选交易所未配置',
     confirmDeleteTrader: '确定要删除这个交易员吗？',
@@ -1040,6 +1108,9 @@ export const translations = {
     hyperliquidExchangeName: 'Hyperliquid',
     asterExchangeName: 'Aster DEX',
 
+    // API Management
+    goToAPIManagement: '前往 API 管理',
+
     // Secure input
     secureInputButton: '安全输入',
     secureInputReenter: '重新安全输入',
@@ -1106,6 +1177,7 @@ export const translations = {
     promptTemplateHansen: 'Hansen 策略',
     promptTemplateNof1: 'NoF1 英文框架',
     promptTemplateTaroLong: 'Taro 长仓',
+    promptTemplateBTCRangeLadder: 'BTC区间阶梯',
     promptDescDefault: '📊 默认稳健策略',
     promptDescDefaultContent:
       '最大化夏普比率，平衡风险收益，适合新手和长期稳定交易',
@@ -1123,6 +1195,9 @@ export const translations = {
     promptDescTaroLong: '📈 Taro 长仓策略',
     promptDescTaroLongContent:
       '数据驱动决策，多维度验证，持续学习进化，长仓专用',
+    promptDescBTCRangeLadder: '📈 BTC多周期区间策略',
+    promptDescBTCRangeLadderContent:
+      'BTC优先，多周期(4h/1h/15m)分析，震荡区间交易，阶梯止盈，需4小时/1小时/15分钟数据',
 
     // Loading & Error
     loading: '加载中...',
@@ -1336,13 +1411,13 @@ export const translations = {
     // How It Works Section
     howToStart: '如何开始使用 NOFX',
     fourSimpleSteps: '四个简单步骤，开启 AI 自动交易之旅',
-    step1Title: '拉取 GitHub 仓库',
+    howToStartStep1Title: '拉取 GitHub 仓库',
     step1Desc:
       'git clone https://github.com/tinkle-community/nofx 并切换到 dev 分支测试新功能。',
-    step2Title: '配置环境',
+    howToStartStep2Title: '配置环境',
     step2Desc:
       '前端设置交易所 API（如 Binance、Hyperliquid）、AI 模型和自定义提示词。',
-    step3Title: '部署与运行',
+    howToStartStep3Title: '部署与运行',
     step3Desc:
       '一键 Docker 部署，启动 AI 代理。注意：高风险市场，仅用闲钱测试。',
     step4Title: '优化与贡献',
@@ -1552,6 +1627,33 @@ export const translations = {
     faqGetHelpAnswer:
       '查看 GitHub Discussions、加入 Telegram 社区或在 GitHub 上提出 issue。',
 
+    // Web Crypto Environment Check
+    environmentCheck: {
+      button: '一键检测环境',
+      checking: '正在检测...',
+      description: '系统将自动检测当前浏览器是否允许使用 Web Crypto。',
+      secureTitle: '环境安全，已启用 Web Crypto',
+      secureDesc: '页面处于安全上下文，可继续输入敏感信息并使用加密传输。',
+      insecureTitle: '检测到非安全环境',
+      insecureDesc:
+        '当前访问未通过 HTTPS 或可信 localhost，浏览器会阻止 Web Crypto 调用。',
+      tipsTitle: '修改建议：',
+      tipHTTPS:
+        '通过 HTTPS 访问（即使是 IP 也需证书），或部署到支持 TLS 的域名。',
+      tipLocalhost: '开发阶段请使用 http://localhost 或 127.0.0.1。',
+      tipIframe:
+        '避免把应用嵌入在不安全的 HTTP iframe 或会降级协议的反向代理中。',
+      unsupportedTitle: '浏览器未提供 Web Crypto',
+      unsupportedDesc:
+        '请通过 HTTPS 或本机 localhost 访问 NOFX，并避免嵌入不安全 iframe/反向代理，以符合浏览器的 Web Crypto 规则。',
+      summary: '当前来源：{origin} · 协议：{protocol}',
+    },
+
+    environmentSteps: {
+      checkTitle: '1. 环境检测',
+      selectTitle: '2. 选择交易所',
+    },
+
     // Two-Stage Key Modal
     twoStageKey: {
       title: '两阶段私钥输入',
@@ -1560,6 +1662,7 @@ export const translations = {
       stage1InputLabel: '第一部分',
       stage2InputLabel: '第二部分',
       characters: '位字符',
+      helpText: '💡 請輸入 {length} 位（不含 0x）或 {totalWithPrefix} 位（含 0x 前綴）',
       processing: '处理中...',
       nextButton: '下一步',
       cancelButton: '取消',

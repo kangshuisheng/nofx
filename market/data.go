@@ -27,7 +27,7 @@ var (
 
 // Get 获取指定代币的市场数据
 func Get(symbol string) (*Data, error) {
-	var klines3m, klines15m, klines1h, klines4h []Kline
+	var klines3m, klines15m, klines1h, klines4h, klines1d []Kline
 	var err error
 	// 标准化symbol
 	symbol = Normalize(symbol)
@@ -66,6 +66,13 @@ func Get(symbol string) (*Data, error) {
 	if len(klines4h) == 0 {
 		log.Printf("⚠️  WARNING: %s 缺少 4h K线数据，无法进行多周期趋势确认", symbol)
 		return nil, fmt.Errorf("%s 缺少 4h K线数据", symbol)
+	}
+
+	// 获取日线K线数据 (最近90个) - 极长期趋势和极端位置判断
+	klines1d, err = WSMonitorCli.GetCurrentKlines(symbol, "1d")
+	if err != nil {
+		log.Printf("⚠️  WARNING: %s 获取日线K线失败: %v，将继续处理但缺少日线数据", symbol, err)
+		klines1d = nil // 日线数据失败不影响整体流程
 	}
 
 	// 计算当前指标 (基于3分钟最新数据)
@@ -115,6 +122,12 @@ func Get(symbol string) (*Data, error) {
 	// 计算长期数据 (4小时)
 	longerTermData := calculateLongerTermData(klines4h)
 
+	// 计算日线数据（如果可用）
+	var dailyData *DailyData
+	if len(klines1d) > 0 {
+		dailyData = calculateDailyData(klines1d)
+	}
+
 	return &Data{
 		Symbol:            symbol,
 		CurrentPrice:      currentPrice,
@@ -129,6 +142,7 @@ func Get(symbol string) (*Data, error) {
 		MidTermSeries15m:  midTermData15m,
 		MidTermSeries1h:   midTermData1h,
 		LongerTermContext: longerTermData,
+		DailyContext:      dailyData,
 	}, nil
 }
 
@@ -432,6 +446,57 @@ func calculateLongerTermData(klines []Kline) *LongerTermData {
 	return data
 }
 
+// calculateDailyData 计算日线数据
+func calculateDailyData(klines []Kline) *DailyData {
+	data := &DailyData{
+		MidPrices:   make([]float64, 0, 90),
+		EMA20Values: make([]float64, 0, 90),
+		EMA50Values: make([]float64, 0, 90),
+		MACDValues:  make([]float64, 0, 90),
+		RSI14Values: make([]float64, 0, 90),
+		ATR14Values: make([]float64, 0, 90),
+		Volume:      make([]float64, 0, 90),
+	}
+
+	// 获取全部数据点（最多90个）
+	for i := 0; i < len(klines); i++ {
+		data.MidPrices = append(data.MidPrices, klines[i].Close)
+		data.Volume = append(data.Volume, klines[i].Volume)
+
+		// 计算每个点的EMA20
+		if i >= 19 {
+			ema20 := calculateEMA(klines[:i+1], 20)
+			data.EMA20Values = append(data.EMA20Values, ema20)
+		}
+
+		// 计算每个点的EMA50
+		if i >= 49 {
+			ema50 := calculateEMA(klines[:i+1], 50)
+			data.EMA50Values = append(data.EMA50Values, ema50)
+		}
+
+		// 计算每个点的MACD
+		if i >= 25 {
+			macd := calculateMACD(klines[:i+1])
+			data.MACDValues = append(data.MACDValues, macd)
+		}
+
+		// 计算每个点的RSI14
+		if i >= 14 {
+			rsi14 := calculateRSI(klines[:i+1], 14)
+			data.RSI14Values = append(data.RSI14Values, rsi14)
+		}
+
+		// 计算每个点的ATR14
+		if i >= 14 {
+			atr14 := calculateATR(klines[:i+1], 14)
+			data.ATR14Values = append(data.ATR14Values, atr14)
+		}
+	}
+
+	return data
+}
+
 // getOpenInterestData 获取OI数据（优化：优先使用缓存）
 func getOpenInterestData(symbol string) (*OIData, error) {
 	// ✅ 修复：统一symbol格式（确保大小写一致）
@@ -583,9 +648,9 @@ func Format(data *Data) string {
 
 	if data.OpenInterest != nil {
 		// P0修复：输出OI变化率（用于AI验证"近4小时上升>+3%"）
-		// 使用动态精度格式化 OI 数据
-		oiLatestStr := formatPriceWithDynamicPrecision(data.OpenInterest.Latest)
-		oiAverageStr := formatPriceWithDynamicPrecision(data.OpenInterest.Average)
+		// 简化版：只添加单位标注，避免 AI 误读合约数量为开仓金额
+		oiLatestStr := fmt.Sprintf("%.0f contracts", data.OpenInterest.Latest)
+		oiAverageStr := fmt.Sprintf("%.0f contracts", data.OpenInterest.Average)
 
 		// P0修复：根據實際時間段動態顯示
 		var changeLabel string
@@ -603,7 +668,7 @@ func Format(data *Data) string {
 				data.OpenInterest.Change4h, data.OpenInterest.ActualPeriod)
 		}
 
-		sb.WriteString(fmt.Sprintf("Open Interest: Latest: %s Average: %s %s\n\n",
+		sb.WriteString(fmt.Sprintf("Open Interest: Latest: %s | Average: %s | %s\n\n",
 			oiLatestStr, oiAverageStr, changeLabel))
 	}
 
@@ -633,7 +698,7 @@ func Format(data *Data) string {
 		}
 
 		if len(data.IntradaySeries.Volume) > 0 {
-			sb.WriteString(fmt.Sprintf("Volume: %s\n\n", formatFloatSlice(data.IntradaySeries.Volume)))
+			sb.WriteString(fmt.Sprintf("3m Trading Volume (USDT, reference only): %s\n\n", formatFloatSlice(data.IntradaySeries.Volume)))
 		}
 
 		sb.WriteString(fmt.Sprintf("3m ATR (14‑period): %.3f\n\n", data.IntradaySeries.ATR14))
@@ -705,6 +770,38 @@ func Format(data *Data) string {
 
 		if len(data.LongerTermContext.RSI14Values) > 0 {
 			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.LongerTermContext.RSI14Values)))
+		}
+	}
+
+	if data.DailyContext != nil {
+		sb.WriteString("Daily series (1‑day intervals, oldest → latest):\n\n")
+
+		if len(data.DailyContext.MidPrices) > 0 {
+			sb.WriteString(fmt.Sprintf("Daily close prices: %s\n\n", formatFloatSlice(data.DailyContext.MidPrices)))
+		}
+
+		if len(data.DailyContext.EMA20Values) > 0 {
+			sb.WriteString(fmt.Sprintf("EMA indicators (20‑period): %s\n\n", formatFloatSlice(data.DailyContext.EMA20Values)))
+		}
+
+		if len(data.DailyContext.EMA50Values) > 0 {
+			sb.WriteString(fmt.Sprintf("EMA indicators (50‑period): %s\n\n", formatFloatSlice(data.DailyContext.EMA50Values)))
+		}
+
+		if len(data.DailyContext.MACDValues) > 0 {
+			sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.DailyContext.MACDValues)))
+		}
+
+		if len(data.DailyContext.RSI14Values) > 0 {
+			sb.WriteString(fmt.Sprintf("RSI indicators (14‑Period): %s\n\n", formatFloatSlice(data.DailyContext.RSI14Values)))
+		}
+
+		if len(data.DailyContext.ATR14Values) > 0 {
+			sb.WriteString(fmt.Sprintf("ATR indicators (14‑period): %s\n\n", formatFloatSlice(data.DailyContext.ATR14Values)))
+		}
+
+		if len(data.DailyContext.Volume) > 0 {
+			sb.WriteString(fmt.Sprintf("Daily trading volume (USDT): %s\n\n", formatFloatSlice(data.DailyContext.Volume)))
 		}
 	}
 
