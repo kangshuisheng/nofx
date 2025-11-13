@@ -233,8 +233,8 @@ func TestTraderListResponse_SystemPromptTemplate(t *testing.T) {
 		ID:                   "trader-001",
 		UserID:               "user-1",
 		Name:                 "My Trader",
-		AIModelID:            "gpt-4",
-		ExchangeID:           "binance",
+		AIModelID:            1, // 使用整数 ID（多配置支持后的新格式）
+		ExchangeID:           1, // 使用整数 ID（多配置支持后的新格式）
 		InitialBalance:       5000,
 		SystemPromptTemplate: "nof1",
 		IsRunning:            true,

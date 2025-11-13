@@ -1361,8 +1361,8 @@ func (d *Database) GetTraderConfig(userID, traderID string) (*TraderRecord, *AIM
 			COALESCE(e.aster_private_key, '') as aster_private_key,
 			e.created_at, e.updated_at
 		FROM traders t
-		JOIN ai_models a ON t.ai_model_id = a.model_id AND t.user_id = a.user_id
-		JOIN exchanges e ON t.exchange_id = e.exchange_id AND t.user_id = e.user_id
+		JOIN ai_models a ON t.ai_model_id = a.id
+		JOIN exchanges e ON t.exchange_id = e.id
 		WHERE t.id = ? AND t.user_id = ?
 	`, traderID, userID).Scan(
 		&trader.ID, &trader.UserID, &trader.Name, &trader.AIModelID, &trader.ExchangeID,

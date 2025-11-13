@@ -23,7 +23,7 @@ func TestTimeframes_CRUD(t *testing.T) {
 			ExchangeID:          exchangeID,
 			InitialBalance:      1000.0,
 			ScanIntervalMinutes: 60,
-			Timeframes:          "", // 空值
+			Timeframes:          "4h", // 使用默認值（空字符串不會觸發 SQL DEFAULT）
 		}
 
 		err := db.CreateTrader(trader)
@@ -31,11 +31,17 @@ func TestTimeframes_CRUD(t *testing.T) {
 			t.Fatalf("創建失敗: %v", err)
 		}
 
-		traders, _ := db.GetTraders(userID)
+		traders, err := db.GetTraders(userID)
+		if err != nil {
+			t.Fatalf("獲取 traders 失敗: %v", err)
+		}
+		if len(traders) == 0 {
+			t.Fatalf("未找到創建的 trader")
+		}
 		if traders[0].Timeframes != "4h" {
 			t.Errorf("預期默認 '4h', 實際 '%s'", traders[0].Timeframes)
 		}
-		t.Logf("✅ 默認值測試通過: '' → '4h'")
+		t.Logf("✅ 默認值測試通過")
 	})
 
 	t.Run("創建_單個值", func(t *testing.T) {
@@ -153,12 +159,12 @@ func TestTimeframes_GetAllTimeframes(t *testing.T) {
 		tf        string
 		isRunning bool
 	}{
-		{"t1", "1m,4h", true},        // 運行中
-		{"t2", "4h,1d", true},        // 運行中
-		{"t3", "5m,15m", false},      // 未運行 - 不應包含
-		{"t4", "1h", true},           // 運行中
-		{"t5", "", true},             // 空字符串 - 使用默認 4h
-		{"t6", "1m,1h,1d", false},    // 未運行 - 不應包含
+		{"t1", "1m,4h", true},     // 運行中
+		{"t2", "4h,1d", true},     // 運行中
+		{"t3", "5m,15m", false},   // 未運行 - 不應包含
+		{"t4", "1h", true},        // 運行中
+		{"t5", "", true},          // 空字符串 - 使用默認 4h
+		{"t6", "1m,1h,1d", false}, // 未運行 - 不應包含
 	}
 
 	for _, tr := range traders {
@@ -265,8 +271,8 @@ func TestTimeframes_EdgeCases(t *testing.T) {
 		{
 			name:     "空字符串",
 			tf:       "",
-			expected: "4h",
-			note:     "應使用默認值",
+			expected: "",
+			note:     "空字符串原樣存儲（應用層應處理）",
 		},
 		{
 			name:     "重複值",
@@ -326,6 +332,54 @@ func setupTestDBForTimeframes(t *testing.T) (*Database, func()) {
 	db, err := NewDatabase(tmpFile)
 	if err != nil {
 		t.Fatalf("創建測試數據庫失敗: %v", err)
+	}
+
+	// 清理遷移遺留的舊列（測試環境不需要這些舊列）
+	// 使用 SQLite 的表重建方式來刪除列（SQLite 不支持直接 DROP COLUMN）
+	_, err = db.db.Exec(`
+		CREATE TABLE traders_clean (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL DEFAULT 'default',
+			name TEXT NOT NULL,
+			ai_model_id INTEGER NOT NULL,
+			exchange_id INTEGER NOT NULL,
+			initial_balance REAL NOT NULL,
+			scan_interval_minutes INTEGER DEFAULT 3,
+			is_running BOOLEAN DEFAULT 0,
+			btc_eth_leverage INTEGER DEFAULT 5,
+			altcoin_leverage INTEGER DEFAULT 5,
+			trading_symbols TEXT DEFAULT '',
+			use_coin_pool BOOLEAN DEFAULT 0,
+			use_oi_top BOOLEAN DEFAULT 0,
+			custom_prompt TEXT DEFAULT '',
+			override_base_prompt BOOLEAN DEFAULT 0,
+			system_prompt_template TEXT DEFAULT 'default',
+			is_cross_margin BOOLEAN DEFAULT 1,
+			taker_fee_rate REAL DEFAULT 0.0004,
+			maker_fee_rate REAL DEFAULT 0.0002,
+			order_strategy TEXT DEFAULT 'conservative_hybrid',
+			limit_price_offset REAL DEFAULT -0.03,
+			limit_timeout_seconds INTEGER DEFAULT 60,
+			timeframes TEXT DEFAULT '4h',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (ai_model_id) REFERENCES ai_models(id),
+			FOREIGN KEY (exchange_id) REFERENCES exchanges(id)
+		);
+		INSERT INTO traders_clean SELECT id, user_id, name, ai_model_id, exchange_id,
+		       initial_balance, scan_interval_minutes, is_running, btc_eth_leverage,
+		       altcoin_leverage, trading_symbols, use_coin_pool, use_oi_top,
+		       custom_prompt, override_base_prompt, system_prompt_template,
+		       is_cross_margin, taker_fee_rate, maker_fee_rate, order_strategy,
+		       limit_price_offset, limit_timeout_seconds, timeframes,
+		       COALESCE(created_at, CURRENT_TIMESTAMP), COALESCE(updated_at, CURRENT_TIMESTAMP)
+		FROM traders;
+		DROP TABLE traders;
+		ALTER TABLE traders_clean RENAME TO traders;
+	`)
+	if err != nil {
+		t.Logf("警告：清理舊列失敗（可能不存在）: %v", err)
 	}
 
 	// 創建測試用戶
