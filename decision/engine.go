@@ -314,7 +314,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 		log.Printf("⚠️  提示词模板 '%s' 不存在，使用 default: %v", templateName, err)
 		template, err = GetPromptTemplate("default")
 		if err != nil {
-			// 如果连 default 都不存在，使用内置的简化版本
+			// 如果连 default 都不存在，使用内置简化版本
 			log.Printf("❌ 无法加载任何提示词模板，使用内置简化版本")
 			sb.WriteString("你是专业的加密货币交易AI。请根据市场数据做出交易决策。\n\n")
 		} else {
@@ -857,11 +857,11 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			potentialLossUSD = quantity * (d.StopLoss - entryPrice)
 		}
 
-		// 3. 严格执行 2% 最大亏损规则
-		maxAllowedLoss := accountEquity * 0.02
+		// 3. 严格执行 1.5% 最大亏损规则
+		maxAllowedLoss := accountEquity * 0.015 // 账户净值的1.5%
 		if potentialLossUSD > maxAllowedLoss {
 			return fmt.Errorf(
-				"风险预算超限 (%.2f USDT > %.2f USDT)。仓位价值 %.2f USDT @ %.4f 止损于 %.4f，已超出最大允许亏损(账户净值的2%%)",
+				"风险预算超限 (%.2f USDT > %.2f USDT)。仓位价值 %.2f USDT @ %.4f 止损于 %.4f，已超出最大允许亏损(账户净值的1.5%%)",
 				potentialLossUSD,
 				maxAllowedLoss,
 				d.PositionSizeUSD,
