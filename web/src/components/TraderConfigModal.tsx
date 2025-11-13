@@ -121,6 +121,9 @@ export function TraderConfigModal({
         taker_fee_rate: 0.0004, // 默认 Binance Taker 费率 (0.04%)
         maker_fee_rate: 0.0002, // 默认 Binance Maker 费率 (0.02%)
         timeframes: '4h',       // 默认只勾选 4 小时线
+        order_strategy: 'conservative_hybrid', // 默认使用保守混合策略
+        limit_price_offset: -0.03, // 默认 -0.03%
+        limit_timeout_seconds: 60, // 默认 60秒超时
       })
     }
     // 确保旧数据也有默认的 timeframes 和 system_prompt_template
@@ -135,6 +138,15 @@ export function TraderConfigModal({
       setFormData((prev) => ({
         ...prev,
         system_prompt_template: 'default',
+      }))
+    }
+    // 确保旧数据也有默认的订单策略配置
+    if (traderData && traderData.order_strategy === undefined) {
+      setFormData((prev) => ({
+        ...prev,
+        order_strategy: 'conservative_hybrid',
+        limit_price_offset: -0.03,
+        limit_timeout_seconds: 60,
       }))
     }
   }, [traderData, isEditMode, availableModels, availableExchanges])
