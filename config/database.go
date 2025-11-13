@@ -89,6 +89,11 @@ func NewDatabase(dbPath string) (*Database, error) {
 		return nil, fmt.Errorf("创建表失败: %w", err)
 	}
 
+	// Automatically cleanup legacy _old columns for smooth upgrades
+	if err := database.cleanupLegacyColumns(); err != nil {
+		return nil, fmt.Errorf("清理遗留列失败: %w", err)
+	}
+
 	if err := database.initDefaultData(); err != nil {
 		return nil, fmt.Errorf("初始化默认数据失败: %w", err)
 	}
@@ -1663,4 +1668,110 @@ func (d *Database) decryptSensitiveData(encrypted string) string {
 	}
 
 	return decrypted
+}
+
+// cleanupLegacyColumns removes legacy _old columns from database (automatic migration)
+// This function automatically executes during database initialization to ensure
+// existing users can upgrade smoothly without manual intervention
+func (d *Database) cleanupLegacyColumns() error {
+	// Check if traders table has legacy _old columns
+	var hasOldColumns bool
+	rows, err := d.db.Query("PRAGMA table_info(traders)")
+	if err != nil {
+		return fmt.Errorf("failed to check table structure: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, dfltValue, pk interface{}
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("failed to read column info: %w", err)
+		}
+		if name == "ai_model_id_old" || name == "exchange_id_old" {
+			hasOldColumns = true
+			break
+		}
+	}
+
+	// If no _old columns exist, skip cleanup
+	if !hasOldColumns {
+		return nil
+	}
+
+	log.Printf("🔄 Detected legacy _old columns, starting automatic cleanup...")
+
+	// Begin transaction
+	tx, err := d.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Create new traders table without _old columns
+	_, err = tx.Exec(`
+		CREATE TABLE traders_new (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL DEFAULT 'default',
+			name TEXT NOT NULL,
+			ai_model_id TEXT NOT NULL,
+			exchange_id TEXT NOT NULL,
+			initial_balance REAL NOT NULL,
+			scan_interval_minutes INTEGER DEFAULT 3,
+			is_running BOOLEAN DEFAULT 0,
+			btc_eth_leverage INTEGER DEFAULT 5,
+			altcoin_leverage INTEGER DEFAULT 5,
+			trading_symbols TEXT DEFAULT '',
+			use_coin_pool BOOLEAN DEFAULT 0,
+			use_oi_top BOOLEAN DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (ai_model_id) REFERENCES ai_models(id),
+			FOREIGN KEY (exchange_id) REFERENCES exchanges(id)
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create new table: %w", err)
+	}
+
+	// Migrate data (only copy valid columns)
+	_, err = tx.Exec(`
+		INSERT INTO traders_new (
+			id, user_id, name, ai_model_id, exchange_id,
+			initial_balance, scan_interval_minutes, is_running,
+			btc_eth_leverage, altcoin_leverage, trading_symbols,
+			use_coin_pool, use_oi_top, created_at, updated_at
+		)
+		SELECT
+			id, user_id, name, ai_model_id, exchange_id,
+			initial_balance, scan_interval_minutes, is_running,
+			btc_eth_leverage, altcoin_leverage, trading_symbols,
+			use_coin_pool, use_oi_top, created_at, updated_at
+		FROM traders
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to migrate data: %w", err)
+	}
+
+	// Drop old table
+	_, err = tx.Exec("DROP TABLE traders")
+	if err != nil {
+		return fmt.Errorf("failed to drop old table: %w", err)
+	}
+
+	// Rename new table
+	_, err = tx.Exec("ALTER TABLE traders_new RENAME TO traders")
+	if err != nil {
+		return fmt.Errorf("failed to rename table: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	log.Printf("✅ Successfully cleaned up legacy _old columns")
+	return nil
 }
