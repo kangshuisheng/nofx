@@ -873,8 +873,6 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		// END OF CRITICAL SAFETY FIX
 		// =================================================================
 
-		// --- 保留原有的其他辅助检查 ---
-
 		// 杠杆检查与修正（使用上面已声明的maxLeverage变量）
 		if d.Leverage <= 0 {
 			return fmt.Errorf("杠杆必须大于0: %d", d.Leverage)
