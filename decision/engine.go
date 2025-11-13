@@ -331,7 +331,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("1. 风险回报比: 必须 ≥ 1:3（冒1%风险，赚3%+收益）\n")
 	sb.WriteString("2. 最多持仓: 3个币种（质量>数量）\n")
 	// 仓位价值限制：山寨币1.15倍净值，BTC/ETH 2.25倍净值（与代码验证逻辑保持一致）
-	sb.WriteString(fmt.Sprintf("3. 单币仓位: 山寨币≤%.0f USDT (1.15倍净值) | BTC/ETH≤%.0f USDT (2.25倍净值)\n",
+	sb.WriteString(fmt.Sprintf("3. 单币仓位: 山寨币≤%.0f USDT (0.75倍净值) | BTC/ETH≤%.0f USDT (1.5倍净值)\n",
 		accountEquity*0.75, accountEquity*1.5))
 	sb.WriteString(fmt.Sprintf("4. 杠杆限制: **山寨币最大%dx杠杆** | **BTC/ETH最大%dx杠杆** (⚠️ 严格执行，不可超过)\n", altcoinLeverage, btcEthLeverage))
 	sb.WriteString("5. 保证金: 总使用率 ≤ 90%\n\n")
@@ -857,11 +857,11 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			potentialLossUSD = quantity * (d.StopLoss - entryPrice)
 		}
 
-		// 3. 严格执行 2% 最大亏损规则
-		maxAllowedLoss := accountEquity * 0.02 // 账户净值的2%
+		// 3. 严格执行 1.5% 最大亏损规则
+		maxAllowedLoss := accountEquity * 0.015 // 账户净值的1.5%
 		if potentialLossUSD > maxAllowedLoss {
 			return fmt.Errorf(
-				"风险预算超限 (%.2f USDT > %.2f USDT)。仓位价值 %.2f USDT @ %.4f 止损于 %.4f，已超出最大允许亏损(账户净值的2%%)",
+				"风险预算超限 (%.2f USDT > %.2f USDT)。仓位价值 %.2f USDT @ %.4f 止损于 %.4f，已超出最大允许亏损(账户净值的1.5%%)",
 				potentialLossUSD,
 				maxAllowedLoss,
 				d.PositionSizeUSD,
@@ -893,9 +893,9 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		tolerance := maxPositionValue * 0.01 // 1%容差
 		if d.PositionSizeUSD > maxPositionValue+tolerance {
 			if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-				return fmt.Errorf("BTC/ETH单币种仓位价值不能超过%.0f USDT（2.5倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
+				return fmt.Errorf("BTC/ETH单币种仓位价值不能超过%.0f USDT（1.5倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
 			} else {
-				return fmt.Errorf("山寨币单币种仓位价值不能超过%.0f USDT（1.25倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
+				return fmt.Errorf("山寨币单币种仓位价值不能超过%.0f USDT（0.75倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
 			}
 		}
 		if d.StopLoss <= 0 || d.TakeProfit <= 0 {
