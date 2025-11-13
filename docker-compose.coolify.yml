@@ -13,6 +13,10 @@ services:
       - TZ=Asia/Shanghai
       - AI_MAX_TOKENS=4000
       - NOFX_ADMIN_PASSWORD=${NOFX_ADMIN_PASSWORD:-admin123}
+      - NOFX_ADMIN_MODE=${NOFX_ADMIN_MODE:-true}
+      - NOFX_API_PORT=${NOFX_API_PORT:-8080}
+      - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY}
+      - JWT_SECRET=${JWT_SECRET}
     volumes:
       - nofx-data:/app/data
       - nofx-decision-logs:/app/decision_logs
