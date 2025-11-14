@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"nofx/logger"
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/pool"
@@ -97,7 +98,7 @@ type Context struct {
 	CandidateCoins  []CandidateCoin         `json:"candidate_coins"`
 	MarketDataMap   map[string]*market.Data `json:"-"` // 不序列化，但内部使用
 	OITopDataMap    map[string]*OITopData   `json:"-"` // OI Top数据映射
-	Performance     interface{}             `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
+	Performance     interface{}             `json:"-"` // 历史表现分析（logger.PerformanceAnalysis，包含 RecentTrades）
 	BTCETHLeverage  int                     `json:"-"` // BTC/ETH杠杆倍数（从配置读取）
 	AltcoinLeverage int                     `json:"-"` // 山寨币杠杆倍数（从配置读取）
 	TakerFeeRate    float64                 `json:"-"` // Taker fee rate (from config, default 0.0004)
@@ -532,6 +533,60 @@ func buildUserPrompt(ctx *Context) string {
 		if jsonData, err := json.Marshal(ctx.Performance); err == nil {
 			if err := json.Unmarshal(jsonData, &perfData); err == nil {
 				sb.WriteString(fmt.Sprintf("## 📊 夏普比率: %.2f\n\n", perfData.SharpeRatio))
+			}
+		}
+	}
+
+	// 历史交易记录（用于 AI 学习）- 使用 Performance.RecentTrades 以显示完整的盈亏数据
+	if ctx.Performance != nil {
+		// 提取 RecentTrades
+		type PerformanceData struct {
+			RecentTrades []logger.TradeOutcome `json:"recent_trades"`
+		}
+		var perfData PerformanceData
+		if jsonData, err := json.Marshal(ctx.Performance); err == nil {
+			if err := json.Unmarshal(jsonData, &perfData); err == nil && len(perfData.RecentTrades) > 0 {
+				sb.WriteString("## 📜 近期交易记录（最近10笔）\n\n")
+
+				for i, trade := range perfData.RecentTrades {
+					// 判断盈亏（成功/失败）
+					resultIcon := "✅"
+					if trade.PnL < 0 {
+						resultIcon = "❌"
+					}
+
+					// 格式化时间范围
+					openTimeStr := trade.OpenTime.Format("01-02 15:04")
+					closeTimeStr := trade.CloseTime.Format("15:04")
+
+					// 方向大写
+					direction := strings.ToUpper(trade.Side)
+
+					// 止损标记
+					stopLossTag := ""
+					if trade.WasStopLoss {
+						stopLossTag = " 🛡️ 止损"
+					}
+
+					// 格式化盈亏百分比（添加符号）
+					pnlPctStr := fmt.Sprintf("%+.2f%%", trade.PnLPct)
+
+					// 格式化盈亏金额（添加符号）
+					pnlStr := fmt.Sprintf("%+.2f", trade.PnL)
+
+					// 第一行：时间、币种、方向、杠杆
+					sb.WriteString(fmt.Sprintf("%s %d. [%s→%s] %s %s (%dx杠杆)%s\n",
+						resultIcon, i+1, openTimeStr, closeTimeStr,
+						trade.Symbol, direction, trade.Leverage, stopLossTag))
+
+					// 第二行：开倉价 → 平倉价 (盈亏百分比)
+					sb.WriteString(fmt.Sprintf("   开仓: @ %.2f → 平仓: @ %.2f (%s)\n",
+						trade.OpenPrice, trade.ClosePrice, pnlPctStr))
+
+					// 第三行：盈亏金额 | 持仓时长
+					sb.WriteString(fmt.Sprintf("   盈亏: %s USDT | 持仓: %s\n\n",
+						pnlStr, trade.Duration))
+				}
 			}
 		}
 	}

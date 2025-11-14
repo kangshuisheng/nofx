@@ -250,7 +250,16 @@ func main() {
 	}
 	auth.SetJWTSecret(jwtSecret)
 
-	// 管理员模式下需要管理员密码，缺失则退出
+	// 获取管理员模式配置（用於自動啟動功能）
+	// 默認為 true，除非顯式設置為 "false"
+	adminModeStr, _ := database.GetSystemConfig("admin_mode")
+	adminMode := adminModeStr != "false"
+
+	if adminMode {
+		log.Printf("ℹ️  Admin mode: enabled (服務重啟時自動恢復運行中的 traders)")
+	} else {
+		log.Printf("ℹ️  Admin mode: disabled (手動啟動模式)")
+	}
 
 	log.Printf("✓ 配置数据库初始化成功")
 	fmt.Println()
@@ -385,8 +394,12 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// TODO: 启动数据库中配置为运行状态的交易员
-	// traderManager.StartAll()
+	// Admin模式下自动启动标记为运行状态的交易员
+	if adminMode {
+		if err := traderManager.StartRunningTraders(database); err != nil {
+			log.Printf("⚠️  自动启动交易员失败: %v", err)
+		}
+	}
 
 	// 等待退出信号
 	<-sigChan

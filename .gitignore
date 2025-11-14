@@ -16,6 +16,8 @@ nofx_test
 # Go 相关
 *.test
 *.out
+test_output.txt
+coverage.txt
 
 # 操作系统
 .DS_Store
