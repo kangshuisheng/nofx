@@ -3,10 +3,12 @@ package trader
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
@@ -294,6 +296,291 @@ func TestNewAsterTrader(t *testing.T) {
 					assert.NotNil(t, trader.privateKey)
 				}
 			}
+		})
+	}
+}
+
+// ============================================================
+// 三、重试机制测试（使用 Mock HTTP Server）
+// ============================================================
+
+// TestCancelAllOrdersWithRetry_Success_FirstAttempt 测试第一次就成功（无需重试）
+func TestCancelAllOrdersWithRetry_Success_FirstAttempt(t *testing.T) {
+	callCount := 0
+
+	// 创建 mock server：第一次就成功
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
+			callCount++
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"code": 200,
+				"msg":  "success",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockServer.Close()
+
+	// 创建 trader（临时使用测试私钥）
+	trader, _ := NewAsterTrader(
+		"0x1234567890123456789012345678901234567890",
+		"0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	)
+	trader.baseURL = mockServer.URL
+
+	// 执行测试
+	err := trader.CancelAllOrdersWithRetry("BTCUSDT", 3)
+
+	// 验证：成功且只调用1次
+	assert.NoError(t, err)
+	assert.Equal(t, 1, callCount, "第一次成功时不应重试")
+}
+
+// TestCancelAllOrdersWithRetry_Success_SecondAttempt 测试第二次才成功
+func TestCancelAllOrdersWithRetry_Success_SecondAttempt(t *testing.T) {
+	callCount := 0
+
+	// Mock：第一次失败，第二次成功
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
+			callCount++
+			if callCount == 1 {
+				// 第一次失败
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"code": -1001,
+					"msg":  "Internal server error",
+				})
+				return
+			}
+			// 第二次成功
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"code": 200,
+				"msg":  "success",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockServer.Close()
+
+	trader, _ := NewAsterTrader(
+		"0x1234567890123456789012345678901234567890",
+		"0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	)
+	trader.baseURL = mockServer.URL
+
+	// 执行测试（记录开始时间）
+	startTime := time.Now()
+	err := trader.CancelAllOrdersWithRetry("BTCUSDT", 3)
+	duration := time.Since(startTime)
+
+	// 验证：成功、调用2次、延迟约1秒
+	assert.NoError(t, err)
+	assert.Equal(t, 2, callCount, "第二次成功时应该调用2次")
+	assert.GreaterOrEqual(t, duration, 1*time.Second, "第一次失败应延迟1秒后重试")
+	assert.Less(t, duration, 2*time.Second, "不应超过2秒（1秒延迟+容错）")
+}
+
+// TestCancelAllOrdersWithRetry_Success_ThirdAttempt 测试第三次才成功
+func TestCancelAllOrdersWithRetry_Success_ThirdAttempt(t *testing.T) {
+	callCount := 0
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
+			callCount++
+			if callCount <= 2 {
+				// 前两次失败
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"code": -1001,
+					"msg":  fmt.Sprintf("attempt %d failed", callCount),
+				})
+				return
+			}
+			// 第三次成功
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"code": 200,
+				"msg":  "success",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockServer.Close()
+
+	trader, _ := NewAsterTrader(
+		"0x1234567890123456789012345678901234567890",
+		"0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	)
+	trader.baseURL = mockServer.URL
+
+	startTime := time.Now()
+	err := trader.CancelAllOrdersWithRetry("BTCUSDT", 3)
+	duration := time.Since(startTime)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 3, callCount, "第三次成功时应该调用3次")
+	assert.GreaterOrEqual(t, duration, 3*time.Second, "两次重试应延迟1s+2s=3s")
+	assert.Less(t, duration, 4*time.Second, "不应超过4秒（3秒延迟+容错）")
+}
+
+// TestCancelAllOrdersWithRetry_AllFailed 测试所有重试都失败
+func TestCancelAllOrdersWithRetry_AllFailed(t *testing.T) {
+	callCount := 0
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
+			callCount++
+			// 所有调用都失败
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"code": -1003,
+				"msg":  "persistent network failure",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockServer.Close()
+
+	trader, _ := NewAsterTrader(
+		"0x1234567890123456789012345678901234567890",
+		"0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	)
+	trader.baseURL = mockServer.URL
+
+	startTime := time.Now()
+	err := trader.CancelAllOrdersWithRetry("BTCUSDT", 3)
+	duration := time.Since(startTime)
+
+	assert.Error(t, err)
+	assert.Equal(t, 3, callCount, "应该重试3次")
+	assert.Contains(t, err.Error(), "重試 3 次後仍失敗", "错误信息应包含重试次数")
+	assert.GreaterOrEqual(t, duration, 3*time.Second, "3次失败应延迟1s+2s=3s")
+	assert.Less(t, duration, 4*time.Second, "不应超过4秒（3秒延迟+容错）")
+}
+
+// TestCancelAllOrdersWithRetry_RetryIntervals 测试重试间隔递增
+func TestCancelAllOrdersWithRetry_RetryIntervals(t *testing.T) {
+	var timestamps []time.Time
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
+			timestamps = append(timestamps, time.Now())
+			// 所有调用都失败
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"code": -1001,
+				"msg":  "always fail",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockServer.Close()
+
+	trader, _ := NewAsterTrader(
+		"0x1234567890123456789012345678901234567890",
+		"0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	)
+	trader.baseURL = mockServer.URL
+
+	_ = trader.CancelAllOrdersWithRetry("BTCUSDT", 3)
+
+	assert.Len(t, timestamps, 3, "应该调用3次")
+
+	if len(timestamps) == 3 {
+		interval1 := timestamps[1].Sub(timestamps[0])
+		assert.GreaterOrEqual(t, interval1, 1*time.Second, "第1次重试应延迟1秒")
+		assert.Less(t, interval1, 1500*time.Millisecond, "第1次重试延迟应接近1秒")
+
+		interval2 := timestamps[2].Sub(timestamps[1])
+		assert.GreaterOrEqual(t, interval2, 2*time.Second, "第2次重试应延迟2秒")
+		assert.Less(t, interval2, 2500*time.Millisecond, "第2次重试延迟应接近2秒")
+	}
+}
+
+// TestCancelAllOrdersWithRetry_MaxRetries 测试自定义最大重试次数
+func TestCancelAllOrdersWithRetry_MaxRetries(t *testing.T) {
+	tests := []struct {
+		name          string
+		maxRetries    int
+		expectedCalls int
+		expectedDelay time.Duration
+		maxDelay      time.Duration
+	}{
+		{
+			name:          "重试1次（总共2次调用）",
+			maxRetries:    2,
+			expectedCalls: 2,
+			expectedDelay: 1 * time.Second,
+			maxDelay:      2 * time.Second,
+		},
+		{
+			name:          "重试4次（总共5次调用）",
+			maxRetries:    5,
+			expectedCalls: 5,
+			expectedDelay: 10 * time.Second,
+			maxDelay:      11 * time.Second,
+		},
+		{
+			name:          "无重试（仅1次调用）",
+			maxRetries:    1,
+			expectedCalls: 1,
+			expectedDelay: 0 * time.Second,
+			maxDelay:      500 * time.Millisecond,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callCount := 0
+
+			mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				path := r.URL.Path
+				if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
+					callCount++
+					w.WriteHeader(http.StatusInternalServerError)
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"code": -1001,
+						"msg":  "always fail",
+					})
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer mockServer.Close()
+
+			trader, _ := NewAsterTrader(
+				"0x1234567890123456789012345678901234567890",
+				"0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+				"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			)
+			trader.baseURL = mockServer.URL
+
+			startTime := time.Now()
+			err := trader.CancelAllOrdersWithRetry("ETHUSDT", tt.maxRetries)
+			duration := time.Since(startTime)
+
+			assert.Error(t, err)
+			assert.Equal(t, tt.expectedCalls, callCount, "调用次数应该等于maxRetries")
+			assert.GreaterOrEqual(t, duration, tt.expectedDelay, "延迟应该符合预期")
+			assert.Less(t, duration, tt.maxDelay, "延迟不应超过最大值")
 		})
 	}
 }

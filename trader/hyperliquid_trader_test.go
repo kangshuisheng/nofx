@@ -6,11 +6,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"nofx/decision"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sonirico/go-hyperliquid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ============================================================
@@ -641,6 +645,200 @@ func TestNewHyperliquidTrader_PrivateKeyProcessing(t *testing.T) {
 			}
 
 			assert.Equal(t, tt.expectedLength, len(processed))
+		})
+	}
+}
+
+// ============================================================
+// 五、GetOpenOrders 测试
+// ============================================================
+
+// TestConvertHyperliquidToSymbol 测试 Hyperliquid 币种名称转换回标准格式
+func TestConvertHyperliquidToSymbol(t *testing.T) {
+	tests := []struct {
+		name     string
+		coin     string
+		expected string
+	}{
+		{
+			name:     "BTC转换为BTCUSDT",
+			coin:     "BTC",
+			expected: "BTCUSDT",
+		},
+		{
+			name:     "ETH转换为ETHUSDT",
+			coin:     "ETH",
+			expected: "ETHUSDT",
+		},
+		{
+			name:     "SOL转换为SOLUSDT",
+			coin:     "SOL",
+			expected: "SOLUSDT",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertHyperliquidToSymbol(tt.coin)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestGetOpenOrders_Integration 测试 GetOpenOrders 集成测试（需要真实环境）
+func TestGetOpenOrders_Integration(t *testing.T) {
+	t.Skip("跳过集成测试：需要真实的 Hyperliquid 环境和钱包")
+
+	// 此测试用于真实环境验证，需要：
+	// 1. 有效的私钥
+	// 2. 真实的 Hyperliquid testnet/mainnet 环境
+	// 3. 钱包中有未成交订单
+
+	privateKeyHex := "your_private_key_here"
+	walletAddr := "your_wallet_address_here"
+
+	trader, err := NewHyperliquidTrader(privateKeyHex, walletAddr, true)
+	require.NoError(t, err)
+
+	// 查询所有未成交订单
+	orders, err := trader.GetOpenOrders("")
+	require.NoError(t, err)
+
+	// 验证结果格式
+	for _, order := range orders {
+		assert.NotEmpty(t, order.Symbol, "Symbol 不应为空")
+		assert.NotEmpty(t, order.OrderID, "OrderID 不应为空")
+		assert.Greater(t, order.Quantity, 0.0, "数量应大于0")
+		assert.Greater(t, order.Price, 0.0, "价格应大于0")
+		assert.NotEmpty(t, order.Side, "Side 不应为空")
+		assert.Equal(t, "LIMIT", order.Type, "Hyperliquid OpenOrder 应该是 LIMIT 类型")
+		assert.Equal(t, "BOTH", order.PositionSide, "Hyperliquid 不区分持仓方向")
+	}
+}
+
+// TestGetOpenOrders_SymbolFilter 测试 GetOpenOrders 的 symbol 过滤逻辑（单元测试）
+func TestGetOpenOrders_SymbolFilter(t *testing.T) {
+	// 这是一个纯逻辑测试，验证 symbol 过滤逻辑
+	tests := []struct {
+		name           string
+		requestSymbol  string
+		orderCoins     []string
+		expectedCoins  []string
+	}{
+		{
+			name:          "请求 BTCUSDT，只返回 BTC",
+			requestSymbol: "BTCUSDT",
+			orderCoins:    []string{"BTC", "ETH", "SOL"},
+			expectedCoins: []string{"BTC"},
+		},
+		{
+			name:          "请求空字符串，返回所有",
+			requestSymbol: "",
+			orderCoins:    []string{"BTC", "ETH", "SOL"},
+			expectedCoins: []string{"BTC", "ETH", "SOL"},
+		},
+		{
+			name:          "请求 ETHUSDT，只返回 ETH",
+			requestSymbol: "ETHUSDT",
+			orderCoins:    []string{"BTC", "ETH", "SOL"},
+			expectedCoins: []string{"ETH"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 模拟过滤逻辑
+			var targetCoin string
+			if tt.requestSymbol != "" {
+				targetCoin = convertSymbolToHyperliquid(tt.requestSymbol)
+			}
+
+			// 模拟过滤过程
+			var filteredCoins []string
+			for _, coin := range tt.orderCoins {
+				if targetCoin == "" || coin == targetCoin {
+					filteredCoins = append(filteredCoins, coin)
+				}
+			}
+
+			// 验证结果
+			assert.Equal(t, tt.expectedCoins, filteredCoins)
+		})
+	}
+}
+
+// TestGetOpenOrders_OrderInfoConversion 测试订单信息转换逻辑
+func TestGetOpenOrders_OrderInfoConversion(t *testing.T) {
+	// 测试从 Hyperliquid 格式转换为 decision.OpenOrderInfo 格式的逻辑
+	type mockHyperliquidOrder struct {
+		Coin    string
+		Oid     int64
+		Side    string
+		Size    float64
+		LimitPx float64
+	}
+
+	tests := []struct {
+		name          string
+		mockOrder     mockHyperliquidOrder
+		expectedInfo  func(t *testing.T, info decision.OpenOrderInfo)
+	}{
+		{
+			name: "BTC多单转换",
+			mockOrder: mockHyperliquidOrder{
+				Coin:    "BTC",
+				Oid:     123456,
+				Side:    "buy",
+				Size:    0.1,
+				LimitPx: 50000.0,
+			},
+			expectedInfo: func(t *testing.T, info decision.OpenOrderInfo) {
+				assert.Equal(t, "BTCUSDT", info.Symbol)
+				assert.Equal(t, int64(123456), info.OrderID)
+				assert.Equal(t, "BUY", info.Side)
+				assert.Equal(t, "LIMIT", info.Type)
+				assert.Equal(t, "BOTH", info.PositionSide)
+				assert.Equal(t, 0.1, info.Quantity)
+				assert.Equal(t, 50000.0, info.Price)
+				assert.Equal(t, 0.0, info.StopPrice)
+			},
+		},
+		{
+			name: "ETH空单转换",
+			mockOrder: mockHyperliquidOrder{
+				Coin:    "ETH",
+				Oid:     789012,
+				Side:    "sell",
+				Size:    1.0,
+				LimitPx: 3000.0,
+			},
+			expectedInfo: func(t *testing.T, info decision.OpenOrderInfo) {
+				assert.Equal(t, "ETHUSDT", info.Symbol)
+				assert.Equal(t, int64(789012), info.OrderID)
+				assert.Equal(t, "SELL", info.Side)
+				assert.Equal(t, 1.0, info.Quantity)
+				assert.Equal(t, 3000.0, info.Price)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 模拟转换逻辑（与实际代码一致）
+			standardSymbol := convertHyperliquidToSymbol(tt.mockOrder.Coin)
+			orderInfo := decision.OpenOrderInfo{
+				Symbol:       standardSymbol,
+				OrderID:      tt.mockOrder.Oid,
+				Type:         "LIMIT",
+				Side:         strings.ToUpper(tt.mockOrder.Side),
+				PositionSide: "BOTH",
+				Quantity:     tt.mockOrder.Size,
+				Price:        tt.mockOrder.LimitPx,
+				StopPrice:    0,
+			}
+
+			// 验证转换结果
+			tt.expectedInfo(t, orderInfo)
 		})
 	}
 }

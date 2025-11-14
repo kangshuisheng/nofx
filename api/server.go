@@ -176,6 +176,7 @@ func (s *Server) setupRoutes() {
 			authGroup.POST("/login", s.handleLogin)
 			authGroup.POST("/verify-otp", s.handleVerifyOTP)
 			authGroup.POST("/complete-registration", s.handleCompleteRegistration)
+			authGroup.POST("/refresh-token", s.handleRefreshToken)
 		}
 
 		// 需要认证的路由
@@ -209,6 +210,12 @@ func (s *Server) setupRoutes() {
 			protected.GET("/user/signal-sources", s.handleGetUserSignalSource)
 			protected.POST("/user/signal-sources", s.handleSaveUserSignalSource)
 
+
+		// 提示词模板管理（需要认证）
+		protected.POST("/prompt-templates", s.handleCreatePromptTemplate)
+		protected.PUT("/prompt-templates/:name", s.handleUpdatePromptTemplate)
+		protected.DELETE("/prompt-templates/:name", s.handleDeletePromptTemplate)
+		protected.POST("/prompt-templates/reload", s.handleReloadPromptTemplates)
 			// 指定trader的数据（使用query参数 ?trader_id=xxx）
 			protected.GET("/status", s.handleStatus)
 			protected.GET("/account", s.handleAccount)
@@ -2397,6 +2404,37 @@ func (s *Server) handleVerifyOTP(c *gin.Context) {
 	})
 }
 
+// handleRefreshToken 刷新访问令牌（使用 Refresh Token 获取新的 Token Pair）
+func (s *Server) handleRefreshToken(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 refresh_token 参数"})
+		return
+	}
+
+	// 调用 auth.RefreshAccessToken 刷新令牌（自动进行 Token Rotation）
+	tokenPair, err := auth.RefreshAccessToken(req.RefreshToken)
+	if err != nil {
+		log.Printf("❌ [AUTH] Refresh Token 刷新失败: %v", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Refresh Token 无效或已过期"})
+		return
+	}
+
+	log.Printf("✓ [AUTH] Token 刷新成功")
+
+	c.JSON(http.StatusOK, gin.H{
+		"access_token":       tokenPair.AccessToken,
+		"refresh_token":      tokenPair.RefreshToken,
+		"expires_in":         tokenPair.ExpiresIn,
+		"refresh_expires_in": tokenPair.RefreshExpiresIn,
+		"token_type":         "Bearer",
+		"message":            "Token 刷新成功",
+	})
+}
+
 // handleResetPassword 重置密码（通过邮箱 + OTP 验证）
 func (s *Server) handleResetPassword(c *gin.Context) {
 	var req struct {
@@ -2798,4 +2836,106 @@ func (s *Server) reloadPromptTemplatesWithLog(templateName string) {
 	} else {
 		log.Printf("✓ 已重新加载系统提示词模板 [当前使用: %s]", templateName)
 	}
+}
+
+// handleCreatePromptTemplate 创建新的提示词模板
+func (s *Server) handleCreatePromptTemplate(c *gin.Context) {
+	var req struct {
+		Name    string `json:"name" binding:"required"`
+		Content string `json:"content" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误: " + err.Error()})
+		return
+	}
+
+	// 检查模板是否已存在
+	if decision.TemplateExists(req.Name) {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("模板已存在: %s", req.Name)})
+		return
+	}
+
+	// 保存模板
+	if err := decision.SavePromptTemplate(req.Name, req.Content); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("创建模板失败: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "模板创建成功",
+		"name":    req.Name,
+	})
+}
+
+// handleUpdatePromptTemplate 更新提示词模板
+func (s *Server) handleUpdatePromptTemplate(c *gin.Context) {
+	templateName := c.Param("name")
+
+	var req struct {
+		Content string `json:"content" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误: " + err.Error()})
+		return
+	}
+
+	// 检查模板是否存在
+	if !decision.TemplateExists(templateName) {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("模板不存在: %s", templateName)})
+		return
+	}
+
+	// 更新模板
+	if err := decision.SavePromptTemplate(templateName, req.Content); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新模板失败: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "模板更新成功",
+		"name":    templateName,
+	})
+}
+
+// handleDeletePromptTemplate 删除提示词模板
+func (s *Server) handleDeletePromptTemplate(c *gin.Context) {
+	templateName := c.Param("name")
+
+	// 删除模板
+	if err := decision.DeletePromptTemplate(templateName); err != nil {
+		if strings.Contains(err.Error(), "不能删除系统模板") {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		} else if strings.Contains(err.Error(), "模板不存在") {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("删除模板失败: %v", err)})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "模板删除成功",
+	})
+}
+
+// handleReloadPromptTemplates 重新加载所有提示词模板
+func (s *Server) handleReloadPromptTemplates(c *gin.Context) {
+	if err := decision.ReloadPromptTemplates(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("重新加载失败: %v", err),
+		})
+		return
+	}
+
+	templates := decision.GetAllPromptTemplates()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "重新加载成功",
+		"count":   len(templates),
+	})
 }

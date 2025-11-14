@@ -210,7 +210,63 @@ func NewBinanceFuturesTestSuite(t *testing.T) *BinanceFuturesTestSuite {
 
 		// Mock ListOpenOrders - /fapi/v1/openOrders
 		case path == "/fapi/v1/openOrders":
-			respBody = []map[string]interface{}{}
+			// 根據 symbol 參數返回不同的測試數據
+			symbol := r.URL.Query().Get("symbol")
+			if symbol == "BTCUSDT" {
+				respBody = []map[string]interface{}{
+					{
+						"orderId":      int64(111111),
+						"symbol":       "BTCUSDT",
+						"status":       "NEW",
+						"type":         "LIMIT",
+						"side":         "BUY",
+						"positionSide": "LONG",
+						"price":        "45000.00",
+						"origQty":      "0.01",
+						"stopPrice":    "0",
+					},
+					{
+						"orderId":      int64(222222),
+						"symbol":       "BTCUSDT",
+						"status":       "NEW",
+						"type":         "STOP_MARKET",
+						"side":         "SELL",
+						"positionSide": "LONG",
+						"price":        "0",
+						"origQty":      "0.01",
+						"stopPrice":    "44000.00",
+					},
+				}
+			} else if symbol == "" {
+				// 查詢所有幣種
+				respBody = []map[string]interface{}{
+					{
+						"orderId":      int64(111111),
+						"symbol":       "BTCUSDT",
+						"status":       "NEW",
+						"type":         "LIMIT",
+						"side":         "BUY",
+						"positionSide": "LONG",
+						"price":        "45000.00",
+						"origQty":      "0.01",
+						"stopPrice":    "0",
+					},
+					{
+						"orderId":      int64(333333),
+						"symbol":       "ETHUSDT",
+						"status":       "NEW",
+						"type":         "LIMIT",
+						"side":         "SELL",
+						"positionSide": "SHORT",
+						"price":        "2900.00",
+						"origQty":      "0.1",
+						"stopPrice":    "0",
+					},
+				}
+			} else {
+				// 其他幣種返回空
+				respBody = []map[string]interface{}{}
+			}
 
 		// Mock CancelAllOrders - /fapi/v1/allOpenOrders (DELETE)
 		case path == "/fapi/v1/allOpenOrders" && r.Method == "DELETE":
@@ -416,5 +472,317 @@ func TestGetBrOrderID(t *testing.T) {
 		// 检查唯一性
 		assert.False(t, ids[id], "订单ID应该唯一")
 		ids[id] = true
+	}
+}
+
+// ============================================================
+// 四、缓存管理测试
+// ============================================================
+
+// TestInvalidateBalanceCache 测试清除余额缓存
+func TestInvalidateBalanceCache(t *testing.T) {
+	suite := NewBinanceFuturesTestSuite(t)
+	defer suite.Cleanup()
+
+	trader := suite.Trader.(*FuturesTrader)
+	trader.cacheDuration = 1 * time.Hour // 启用长时间缓存以便测试
+
+	// 1. 第一次调用 GetBalance 填充缓存
+	balance1, err := trader.GetBalance()
+	assert.NoError(t, err)
+	assert.NotNil(t, balance1)
+
+	// 验证缓存已被填充
+	assert.NotNil(t, trader.cachedBalance, "缓存应该被填充")
+	assert.False(t, trader.balanceCacheTime.IsZero(), "缓存时间应该被设置")
+
+	// 2. 清除缓存
+	trader.InvalidateBalanceCache()
+
+	// 3. 验证缓存已被清除
+	assert.Nil(t, trader.cachedBalance, "缓存应该被清除")
+	assert.True(t, trader.balanceCacheTime.IsZero(), "缓存时间应该被重置为零值")
+
+	// 4. 再次调用 GetBalance 应该重新从 API 获取（而非缓存）
+	balance2, err := trader.GetBalance()
+	assert.NoError(t, err)
+	assert.NotNil(t, balance2)
+	assert.NotNil(t, trader.cachedBalance, "缓存应该重新填充")
+}
+
+// TestInvalidatePositionsCache 测试清除持仓缓存
+func TestInvalidatePositionsCache(t *testing.T) {
+	suite := NewBinanceFuturesTestSuite(t)
+	defer suite.Cleanup()
+
+	trader := suite.Trader.(*FuturesTrader)
+	trader.cacheDuration = 1 * time.Hour // 启用长时间缓存以便测试
+
+	// 1. 第一次调用 GetPositions 填充缓存
+	positions1, err := trader.GetPositions()
+	assert.NoError(t, err)
+	assert.NotNil(t, positions1)
+
+	// 验证缓存已被填充
+	assert.NotNil(t, trader.cachedPositions, "缓存应该被填充")
+	assert.False(t, trader.positionsCacheTime.IsZero(), "缓存时间应该被设置")
+
+	// 2. 清除缓存
+	trader.InvalidatePositionsCache()
+
+	// 3. 验证缓存已被清除
+	assert.Nil(t, trader.cachedPositions, "缓存应该被清除")
+	assert.True(t, trader.positionsCacheTime.IsZero(), "缓存时间应该被重置为零值")
+
+	// 4. 再次调用 GetPositions 应该重新从 API 获取（而非缓存）
+	positions2, err := trader.GetPositions()
+	assert.NoError(t, err)
+	assert.NotNil(t, positions2)
+	assert.NotNil(t, trader.cachedPositions, "缓存应该重新填充")
+}
+
+// TestInvalidateAllCaches 测试清除所有缓存
+func TestInvalidateAllCaches(t *testing.T) {
+	suite := NewBinanceFuturesTestSuite(t)
+	defer suite.Cleanup()
+
+	trader := suite.Trader.(*FuturesTrader)
+	trader.cacheDuration = 1 * time.Hour // 启用长时间缓存以便测试
+
+	// 1. 填充所有缓存
+	_, err := trader.GetBalance()
+	assert.NoError(t, err)
+	_, err = trader.GetPositions()
+	assert.NoError(t, err)
+
+	// 验证两个缓存都被填充
+	assert.NotNil(t, trader.cachedBalance, "余额缓存应该被填充")
+	assert.NotNil(t, trader.cachedPositions, "持仓缓存应该被填充")
+
+	// 2. 清除所有缓存
+	trader.InvalidateAllCaches()
+
+	// 3. 验证所有缓存都被清除
+	assert.Nil(t, trader.cachedBalance, "余额缓存应该被清除")
+	assert.True(t, trader.balanceCacheTime.IsZero(), "余额缓存时间应该被重置")
+	assert.Nil(t, trader.cachedPositions, "持仓缓存应该被清除")
+	assert.True(t, trader.positionsCacheTime.IsZero(), "持仓缓存时间应该被重置")
+}
+
+// TestTradeOperationsInvalidateCache 测试交易操作自动清除缓存
+func TestTradeOperationsInvalidateCache(t *testing.T) {
+	suite := NewBinanceFuturesTestSuite(t)
+	defer suite.Cleanup()
+
+	trader := suite.Trader.(*FuturesTrader)
+	trader.cacheDuration = 1 * time.Hour // 启用长时间缓存以便测试
+
+	// 子测试1：OpenLong 后缓存被清除
+	t.Run("OpenLong_invalidates_cache", func(t *testing.T) {
+		// 填充缓存
+		_, _ = trader.GetBalance()
+		_, _ = trader.GetPositions()
+		assert.NotNil(t, trader.cachedBalance, "开仓前余额缓存应该存在")
+		assert.NotNil(t, trader.cachedPositions, "开仓前持仓缓存应该存在")
+
+		// 执行开多仓
+		_, err := trader.OpenLong("BTCUSDT", 0.01, 10)
+		assert.NoError(t, err)
+
+		// 验证缓存被清除
+		assert.Nil(t, trader.cachedBalance, "开多仓后余额缓存应该被清除")
+		assert.Nil(t, trader.cachedPositions, "开多仓后持仓缓存应该被清除")
+	})
+
+	// 子测试2：OpenShort 后缓存被清除
+	t.Run("OpenShort_invalidates_cache", func(t *testing.T) {
+		// 重新填充缓存
+		_, _ = trader.GetBalance()
+		_, _ = trader.GetPositions()
+		assert.NotNil(t, trader.cachedBalance)
+		assert.NotNil(t, trader.cachedPositions)
+
+		// 执行开空仓
+		_, err := trader.OpenShort("ETHUSDT", 0.004, 5)
+		assert.NoError(t, err)
+
+		// 验证缓存被清除
+		assert.Nil(t, trader.cachedBalance, "开空仓后余额缓存应该被清除")
+		assert.Nil(t, trader.cachedPositions, "开空仓后持仓缓存应该被清除")
+	})
+
+	// 子测试3：CloseLong 后缓存被清除
+	t.Run("CloseLong_invalidates_cache", func(t *testing.T) {
+		// 重新填充缓存
+		_, _ = trader.GetBalance()
+		_, _ = trader.GetPositions()
+		assert.NotNil(t, trader.cachedBalance)
+
+		// 执行平多仓
+		_, err := trader.CloseLong("BTCUSDT", 0.01)
+		assert.NoError(t, err)
+
+		// 验证缓存被清除
+		assert.Nil(t, trader.cachedBalance, "平多仓后余额缓存应该被清除")
+		assert.Nil(t, trader.cachedPositions, "平多仓后持仓缓存应该被清除")
+	})
+
+	// 子测试4：CloseShort 后缓存被清除
+	t.Run("CloseShort_invalidates_cache", func(t *testing.T) {
+		// 重新填充缓存
+		_, _ = trader.GetBalance()
+		_, _ = trader.GetPositions()
+
+		// 执行平空仓
+		_, err := trader.CloseShort("ETHUSDT", 0.004)
+		assert.NoError(t, err)
+
+		// 验证缓存被清除
+		assert.Nil(t, trader.cachedBalance, "平空仓后余额缓存应该被清除")
+		assert.Nil(t, trader.cachedPositions, "平空仓后持仓缓存应该被清除")
+	})
+
+	// 子测试5：SetStopLoss 后持仓缓存被清除
+	t.Run("SetStopLoss_invalidates_positions_cache", func(t *testing.T) {
+		// 重新填充缓存
+		_, _ = trader.GetPositions()
+		assert.NotNil(t, trader.cachedPositions)
+
+		// 设置止损
+		err := trader.SetStopLoss("BTCUSDT", "LONG", 0.01, 45000.0)
+		assert.NoError(t, err)
+
+		// 验证持仓缓存被清除（止损单会影响持仓信息）
+		assert.Nil(t, trader.cachedPositions, "设置止损后持仓缓存应该被清除")
+	})
+
+	// 子测试6：SetTakeProfit 后持仓缓存被清除
+	t.Run("SetTakeProfit_invalidates_positions_cache", func(t *testing.T) {
+		// 重新填充缓存
+		_, _ = trader.GetPositions()
+		assert.NotNil(t, trader.cachedPositions)
+
+		// 设置止盈
+		err := trader.SetTakeProfit("BTCUSDT", "LONG", 0.01, 55000.0)
+		assert.NoError(t, err)
+
+		// 验证持仓缓存被清除
+		assert.Nil(t, trader.cachedPositions, "设置止盈后持仓缓存应该被清除")
+	})
+}
+
+// ============================================================
+// 五、GetOpenOrders 测试
+// ============================================================
+
+// TestGetOpenOrders_SpecificSymbol 测试查询特定币种的未成交订单
+func TestGetOpenOrders_SpecificSymbol(t *testing.T) {
+	suite := NewBinanceFuturesTestSuite(t)
+	defer suite.Cleanup()
+
+	trader := suite.Trader.(*FuturesTrader)
+
+	// 查询 BTCUSDT 的未成交订单
+	orders, err := trader.GetOpenOrders("BTCUSDT")
+
+	// 验证
+	assert.NoError(t, err)
+	assert.Len(t, orders, 2, "应该返回2个订单")
+
+	// 验证第一个订单（限价单）
+	assert.Equal(t, "BTCUSDT", orders[0].Symbol)
+	assert.Equal(t, int64(111111), orders[0].OrderID)
+	assert.Equal(t, "LIMIT", orders[0].Type)
+	assert.Equal(t, "BUY", orders[0].Side)
+	assert.Equal(t, "LONG", orders[0].PositionSide)
+	assert.Equal(t, 45000.0, orders[0].Price)
+	assert.Equal(t, 0.01, orders[0].Quantity)
+	assert.Equal(t, 0.0, orders[0].StopPrice)
+
+	// 验证第二个订单（止损单）
+	assert.Equal(t, "BTCUSDT", orders[1].Symbol)
+	assert.Equal(t, int64(222222), orders[1].OrderID)
+	assert.Equal(t, "STOP_MARKET", orders[1].Type)
+	assert.Equal(t, "SELL", orders[1].Side)
+	assert.Equal(t, 44000.0, orders[1].StopPrice)
+}
+
+// TestGetOpenOrders_AllSymbols 测试查询所有币种的未成交订单
+func TestGetOpenOrders_AllSymbols(t *testing.T) {
+	suite := NewBinanceFuturesTestSuite(t)
+	defer suite.Cleanup()
+
+	trader := suite.Trader.(*FuturesTrader)
+
+	// 查询所有未成交订单（symbol 为空字符串）
+	orders, err := trader.GetOpenOrders("")
+
+	// 验证
+	assert.NoError(t, err)
+	assert.Len(t, orders, 2, "应该返回2个订单（BTCUSDT和ETHUSDT）")
+
+	// 验证包含不同币种
+	symbols := make(map[string]bool)
+	for _, order := range orders {
+		symbols[order.Symbol] = true
+	}
+	assert.True(t, symbols["BTCUSDT"], "应该包含BTCUSDT订单")
+	assert.True(t, symbols["ETHUSDT"], "应该包含ETHUSDT订单")
+}
+
+// TestGetOpenOrders_EmptyResult 测试查询无订单的币种
+func TestGetOpenOrders_EmptyResult(t *testing.T) {
+	suite := NewBinanceFuturesTestSuite(t)
+	defer suite.Cleanup()
+
+	trader := suite.Trader.(*FuturesTrader)
+
+	// 查询没有订单的币种
+	orders, err := trader.GetOpenOrders("XRPUSDT")
+
+	// 验证
+	assert.NoError(t, err)
+	assert.Empty(t, orders, "应该返回空数组")
+}
+
+// TestGetOpenOrders_DifferentOrderTypes 测试不同类型的订单
+func TestGetOpenOrders_DifferentOrderTypes(t *testing.T) {
+	suite := NewBinanceFuturesTestSuite(t)
+	defer suite.Cleanup()
+
+	trader := suite.Trader.(*FuturesTrader)
+
+	orders, err := trader.GetOpenOrders("BTCUSDT")
+	assert.NoError(t, err)
+
+	// 验证包含不同类型的订单
+	orderTypes := make(map[string]bool)
+	for _, order := range orders {
+		orderTypes[order.Type] = true
+	}
+
+	assert.True(t, orderTypes["LIMIT"], "应该包含限价单")
+	assert.True(t, orderTypes["STOP_MARKET"], "应该包含止损单")
+}
+
+// TestGetOpenOrders_ParseFloatValues 测试价格和数量解析
+func TestGetOpenOrders_ParseFloatValues(t *testing.T) {
+	suite := NewBinanceFuturesTestSuite(t)
+	defer suite.Cleanup()
+
+	trader := suite.Trader.(*FuturesTrader)
+
+	orders, err := trader.GetOpenOrders("BTCUSDT")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, orders)
+
+	// 验证所有价格和数量都被正确解析为浮点数
+	for _, order := range orders {
+		// 数量应该大于0
+		assert.Greater(t, order.Quantity, 0.0, "数量应该大于0")
+
+		// 价格或止损价至少有一个大于0
+		hasValidPrice := order.Price > 0 || order.StopPrice > 0
+		assert.True(t, hasValidPrice, "价格或止损价至少有一个应该大于0")
 	}
 }

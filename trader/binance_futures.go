@@ -122,6 +122,30 @@ func (t *FuturesTrader) setDualSidePosition() error {
 	return nil
 }
 
+// InvalidateBalanceCache 清除余额缓存（交易后调用以确保数据实时性）
+func (t *FuturesTrader) InvalidateBalanceCache() {
+	t.balanceCacheMutex.Lock()
+	t.cachedBalance = nil
+	t.balanceCacheTime = time.Time{} // 重置时间为零值
+	t.balanceCacheMutex.Unlock()
+	log.Printf("🔄 已清除余额缓存（交易后自动刷新）")
+}
+
+// InvalidatePositionsCache 清除持仓缓存（交易后调用以确保数据实时性）
+func (t *FuturesTrader) InvalidatePositionsCache() {
+	t.positionsCacheMutex.Lock()
+	t.cachedPositions = nil
+	t.positionsCacheTime = time.Time{} // 重置时间为零值
+	t.positionsCacheMutex.Unlock()
+	log.Printf("🔄 已清除持仓缓存（交易后自动刷新）")
+}
+
+// InvalidateAllCaches 清除所有缓存（重大交易操作后调用）
+func (t *FuturesTrader) InvalidateAllCaches() {
+	t.InvalidateBalanceCache()
+	t.InvalidatePositionsCache()
+}
+
 // syncBinanceServerTime 同步币安服务器时间，确保请求时间戳合法
 func syncBinanceServerTime(client *futures.Client) {
 	serverTime, err := client.NewServerTimeService().Do(context.Background())
@@ -598,6 +622,8 @@ func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) 
 				} else {
 					log.Printf("✓ 开多仓成功（限价单成交）: %s 数量: %s", symbol, quantityStr)
 				}
+				// 交易成功后清除缓存
+				t.InvalidateAllCaches()
 				return result, nil
 			}
 
@@ -612,6 +638,9 @@ func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) 
 
 	log.Printf("✓ 开多仓成功: %s 数量: %s 类型: %s", symbol, quantityStr, order.Type)
 	log.Printf("  订单ID: %d 状态: %s", order.OrderID, order.Status)
+
+	// 交易成功后清除缓存
+	t.InvalidateAllCaches()
 
 	result := make(map[string]interface{})
 	result["orderId"] = order.OrderID
@@ -729,6 +758,8 @@ func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int)
 				} else {
 					log.Printf("✓ 开空仓成功（限价单成交）: %s 数量: %s", symbol, quantityStr)
 				}
+				// 交易成功后清除缓存
+				t.InvalidateAllCaches()
 				return result, nil
 			}
 
@@ -743,6 +774,9 @@ func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int)
 
 	log.Printf("✓ 开空仓成功: %s 数量: %s 类型: %s", symbol, quantityStr, order.Type)
 	log.Printf("  订单ID: %d 状态: %s", order.OrderID, order.Status)
+
+	// 交易成功后清除缓存
+	t.InvalidateAllCaches()
 
 	result := make(map[string]interface{})
 	result["orderId"] = order.OrderID
@@ -799,6 +833,9 @@ func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]i
 		log.Printf("  ⚠ 取消挂单失败: %v", err)
 	}
 
+	// 交易成功后清除缓存
+	t.InvalidateAllCaches()
+
 	result := make(map[string]interface{})
 	result["orderId"] = order.OrderID
 	result["symbol"] = order.Symbol
@@ -853,6 +890,9 @@ func (t *FuturesTrader) CloseShort(symbol string, quantity float64) (map[string]
 	if err := t.CancelAllOrders(symbol); err != nil {
 		log.Printf("  ⚠ 取消挂单失败: %v", err)
 	}
+
+	// 交易成功后清除缓存
+	t.InvalidateAllCaches()
 
 	result := make(map[string]interface{})
 	result["orderId"] = order.OrderID
@@ -1083,6 +1123,9 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 		return fmt.Errorf("设置止损失败: %w", err)
 	}
 
+	// 设置止损后清除持仓缓存（掛單會影響持倉信息）
+	t.InvalidatePositionsCache()
+
 	log.Printf("  止损价设置: %.4f", stopPrice)
 	return nil
 }
@@ -1120,6 +1163,9 @@ func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quanti
 	if err != nil {
 		return fmt.Errorf("设置止盈失败: %w", err)
 	}
+
+	// 设置止盈后清除持仓缓存（掛單會影響持倉信息）
+	t.InvalidatePositionsCache()
 
 	log.Printf("  止盈价设置: %.4f", takeProfitPrice)
 	return nil
@@ -1232,11 +1278,55 @@ func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string,
 }
 
 // GetOpenOrders retrieves open orders for AI decision context
-// TODO: Implement Binance Futures /fapi/v1/openOrders API call
 func (t *FuturesTrader) GetOpenOrders(symbol string) ([]decision.OpenOrderInfo, error) {
-	// Return empty list for now to avoid blocking main flow
-	// TODO: Implement full Binance Futures open orders API integration
-	return []decision.OpenOrderInfo{}, nil
+	// 使用 Binance SDK 查詢未成交訂單
+	service := t.client.NewListOpenOrdersService()
+	if symbol != "" {
+		service = service.Symbol(symbol)
+	}
+
+	orders, err := service.Do(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("獲取未成交訂單失敗: %w", err)
+	}
+
+	// 轉換為 decision.OpenOrderInfo 格式
+	result := make([]decision.OpenOrderInfo, 0, len(orders))
+	for _, order := range orders {
+		// 解析價格和數量（跳過無效數據）
+		price, err := strconv.ParseFloat(order.Price, 64)
+		if err != nil {
+			log.Printf("⚠️ 解析訂單價格失敗 (OrderID: %d): %v", order.OrderID, err)
+			continue
+		}
+
+		stopPrice, err := strconv.ParseFloat(order.StopPrice, 64)
+		if err != nil {
+			log.Printf("⚠️ 解析止損價失敗 (OrderID: %d): %v", order.OrderID, err)
+			stopPrice = 0 // 止損價可選，設置為0
+		}
+
+		quantity, err := strconv.ParseFloat(order.OrigQuantity, 64)
+		if err != nil {
+			log.Printf("⚠️ 解析訂單數量失敗 (OrderID: %d): %v", order.OrderID, err)
+			continue
+		}
+
+		orderInfo := decision.OpenOrderInfo{
+			Symbol:       order.Symbol,
+			OrderID:      order.OrderID,
+			Type:         string(order.Type),
+			Side:         string(order.Side),
+			PositionSide: string(order.PositionSide),
+			Quantity:     quantity,
+			Price:        price,
+			StopPrice:    stopPrice,
+		}
+		result = append(result, orderInfo)
+	}
+
+	log.Printf("✓ 查詢到 %d 個未成交訂單", len(result))
+	return result, nil
 }
 
 // 辅助函数
