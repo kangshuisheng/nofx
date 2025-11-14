@@ -704,7 +704,7 @@ func Format(data *Data) string {
 	if data.LongerTermContext != nil {
 		sb.WriteString("- 4H (Trend & Risk):\n")
 
-		// ⭐️ 优化：输出 EMA20 和 EMA50 的具体数值，供“趋势健康度”规则使用
+		// 输出 EMA20 和 EMA50 的具体数值，供“趋势健康度”规则使用
 		sb.WriteString(fmt.Sprintf("  - EMAs: EMA20(%.3f) vs EMA50(%.3f)\n",
 			data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
 
