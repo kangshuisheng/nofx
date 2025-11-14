@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"nofx/config"
 	"nofx/decision"
 	"nofx/logger"
 	"nofx/market"
@@ -1873,4 +1874,76 @@ func (at *AutoTrader) updatePositionSnapshot(currentPositions []decision.Positio
 		key := pos.Symbol + "_" + pos.Side
 		at.lastPositions[key] = pos
 	}
+}
+
+// ReloadAIModelConfig 重新加载AI模型配置（热更新）
+// 这个方法允许在运行时更新AI模型配置，无需重启trader
+func (at *AutoTrader) ReloadAIModelConfig(modelConfig *config.AIModelConfig) error {
+	if modelConfig == nil {
+		return fmt.Errorf("模型配置为空")
+	}
+
+	log.Printf("🔄 [%s] 重新加载AI模型配置...", at.name)
+
+	// 更新AI模型相关配置
+	at.config.CustomModelName = modelConfig.CustomModelName
+	at.config.CustomAPIURL = modelConfig.CustomAPIURL
+
+	// 根据不同的AI provider更新对应的API Key
+	switch modelConfig.Provider {
+	case "deepseek":
+		at.config.DeepSeekKey = modelConfig.APIKey
+		at.config.CustomAPIKey = modelConfig.APIKey
+		log.Printf("✓ [%s] DeepSeek配置已更新: Model=%s, BaseURL=%s",
+			at.name, at.config.CustomModelName, at.config.CustomAPIURL)
+	case "qwen":
+		at.config.QwenKey = modelConfig.APIKey
+		log.Printf("✓ [%s] Qwen配置已更新: Model=%s",
+			at.name, at.config.CustomModelName)
+	case "custom":
+		at.config.CustomAPIKey = modelConfig.APIKey
+		log.Printf("✓ [%s] 自定义AI配置已更新: URL=%s, Model=%s",
+			at.name, at.config.CustomAPIURL, at.config.CustomModelName)
+	default:
+		return fmt.Errorf("不支持的AI provider: %s", modelConfig.Provider)
+	}
+
+	// 重新初始化MCP客户端以应用新配置
+	if err := at.reinitializeMCPClient(); err != nil {
+		return fmt.Errorf("重新初始化MCP客户端失败: %w", err)
+	}
+
+	log.Printf("✅ [%s] AI模型配置热更新完成", at.name)
+	return nil
+}
+
+// reinitializeMCPClient 重新初始化MCP客户端
+func (at *AutoTrader) reinitializeMCPClient() error {
+	// 根据当前配置确定使用的 API Key
+	var apiKey string
+	switch at.config.AIModel {
+	case "qwen":
+		apiKey = at.config.QwenKey
+	case "deepseek":
+		apiKey = at.config.DeepSeekKey
+	case "custom":
+		apiKey = at.config.CustomAPIKey
+	default:
+		// 如果有自定义配置，使用自定义 key
+		if at.config.CustomAPIKey != "" {
+			apiKey = at.config.CustomAPIKey
+		} else if at.config.DeepSeekKey != "" {
+			apiKey = at.config.DeepSeekKey
+		} else {
+			apiKey = at.config.QwenKey
+		}
+	}
+
+	// 使用统一的 SetAPIKey 方法重新初始化
+	at.mcpClient.SetAPIKey(apiKey, at.config.CustomAPIURL, at.config.CustomModelName)
+
+	log.Printf("🔧 [MCP] AI模型配置已重新初始化: Model=%s, Provider=%s, CustomURL=%s",
+		at.config.CustomModelName, at.config.AIModel, at.config.CustomAPIURL)
+
+	return nil
 }

@@ -18,7 +18,7 @@ func TestReloadAIModelConfig(t *testing.T) {
 		InitialBalance:  1000.0,
 	}
 
-	trader, err := NewAutoTrader(initialConfig)
+	trader, err := NewAutoTrader(initialConfig, nil, "test_user")
 	if err != nil {
 		t.Fatalf("创建AutoTrader失败: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestReloadAIModelConfig_EmptyModelName(t *testing.T) {
 		InitialBalance:  1000.0,
 	}
 
-	trader, err := NewAutoTrader(initialConfig)
+	trader, err := NewAutoTrader(initialConfig, nil, "test_user")
 	if err != nil {
 		t.Fatalf("创建AutoTrader失败: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestReloadAIModelConfig_QwenModel(t *testing.T) {
 		InitialBalance:  1000.0,
 	}
 
-	trader, err := NewAutoTrader(initialConfig)
+	trader, err := NewAutoTrader(initialConfig, nil, "test_user")
 	if err != nil {
 		t.Fatalf("创建AutoTrader失败: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestReloadAIModelConfig_PreservesOtherConfig(t *testing.T) {
 		DefaultCoins:     []string{"BTC", "ETH"},
 	}
 
-	trader, err := NewAutoTrader(initialConfig)
+	trader, err := NewAutoTrader(initialConfig, nil, "test_user")
 	if err != nil {
 		t.Fatalf("创建AutoTrader失败: %v", err)
 	}
