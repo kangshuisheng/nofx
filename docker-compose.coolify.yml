@@ -9,6 +9,10 @@ services:
       dockerfile: ./docker/Dockerfile.backend
     container_name: nofx-backend
     restart: unless-stopped
+    dns:
+      - 223.5.5.5    # 阿里云DNS
+      - 119.29.29.29  # 腾讯云DNS
+      - 8.8.8.8      # Google DNS备用
     environment:
       - TZ=Asia/Shanghai
       - AI_MAX_TOKENS=4000
