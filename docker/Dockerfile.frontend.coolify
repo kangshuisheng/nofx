@@ -10,15 +10,6 @@ ARG NGINX_VERSION=alpine
 FROM node:${NODE_VERSION} AS builder
 WORKDIR /build
 
-# Install system dependencies
-RUN apk add --no-cache git
-
-# Configure npm for better reliability
-RUN npm config set registry https://registry.npmjs.org/
-RUN npm config set fetch-retry-mintimeout 20000
-RUN npm config set fetch-retry-maxtimeout 120000
-RUN npm config set network-timeout 300000
-
 # Set build arguments for Vite
 ARG VITE_API_BASE_URL=/api
 ARG VITE_MCP_API_BASE_URL
@@ -31,18 +22,10 @@ ENV VITE_MCP_API_BASE_URL=${VITE_MCP_API_BASE_URL}
 ENV VITE_SENTRY_DSN=${VITE_SENTRY_DSN}
 ENV VITE_SENTRY_AUTH_TOKEN=${VITE_SENTRY_AUTH_TOKEN}
 
-# Copy package files first for better caching
 COPY web/package*.json ./
+RUN npm ci
 
-# Install dependencies with retry logic
-RUN echo "Installing npm dependencies..." && \
-    npm ci --verbose --no-audit --no-fund && \
-    echo "Dependencies installed successfully"
-
-# Copy source code
 COPY web/ ./
-
-# Build the application
 RUN echo "Building with VITE_API_BASE_URL=${VITE_API_BASE_URL}" && \
     npm run build && \
     echo "Build completed. Contents of dist:" && \
