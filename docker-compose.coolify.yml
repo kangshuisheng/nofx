@@ -9,10 +9,6 @@ services:
       dockerfile: ./docker/Dockerfile.backend
     container_name: nofx-backend
     restart: unless-stopped
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-      - 127.0.0.11
     environment:
       - TZ=Asia/Shanghai
       - AI_MAX_TOKENS=4000
