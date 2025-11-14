@@ -9,6 +9,10 @@ services:
       dockerfile: ./docker/Dockerfile.backend
     container_name: nofx-backend
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+      - 208.67.222.222
     environment:
       - TZ=Asia/Shanghai
       - AI_MAX_TOKENS=4000
@@ -41,6 +45,10 @@ services:
       dockerfile: ./docker/Dockerfile.frontend.coolify
     container_name: nofx-frontend
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+      - 208.67.222.222
     ports:
       - "80"
     expose:
