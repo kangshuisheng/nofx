@@ -152,6 +152,28 @@ func loadBetaCodesToDatabase(database *config.Database) error {
 	return nil
 }
 
+// validateSecurityConfig 验证安全配置
+func validateSecurityConfig() error {
+	// 检查 DATA_ENCRYPTION_KEY 环境变量
+	dataKey := strings.TrimSpace(os.Getenv("DATA_ENCRYPTION_KEY"))
+	if dataKey == "" {
+		return fmt.Errorf("DATA_ENCRYPTION_KEY 环境变量未设置")
+	}
+
+	// 检查密钥长度（base64 编码的 32 字节至少需要 44 个字符）
+	if len(dataKey) < 32 {
+		return fmt.Errorf("DATA_ENCRYPTION_KEY 长度不足 (当前: %d, 最少: 32)", len(dataKey))
+	}
+
+	// 检查是否使用了示例密钥
+	if strings.Contains(dataKey, "PLEASE_GENERATE") || strings.Contains(dataKey, "EXAMPLE") {
+		return fmt.Errorf("检测到示例密钥，请生成真实密钥")
+	}
+
+	log.Printf("✅ 安全配置检查通过")
+	return nil
+}
+
 func main() {
 	fmt.Println("╔════════════════════════════════════════════════════════════╗")
 	fmt.Println("║    🤖 AI多模型交易系统 - 支持 DeepSeek & Qwen            ║")
@@ -161,6 +183,11 @@ func main() {
 	// Load environment variables from .env file if present (for local/dev runs)
 	// In Docker Compose, variables are injected by the runtime and this is harmless.
 	_ = godotenv.Load()
+
+	// 🔐 安全检查：验证必需的环境变量
+	if err := validateSecurityConfig(); err != nil {
+		log.Fatalf("❌ 安全配置检查失败: %v\n\n💡 请运行以下命令修复:\n   ./scripts/setup-env.sh\n", err)
+	}
 
 	// 初始化数据库配置
 	dbPath := "data/config.db"

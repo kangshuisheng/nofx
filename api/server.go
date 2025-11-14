@@ -14,13 +14,16 @@ import (
 	"nofx/decision"
 	"nofx/hook"
 	"nofx/manager"
+	"nofx/middleware"
 	"nofx/trader"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"golang.org/x/time/rate"
 )
 
 // Server HTTP API服务器
@@ -40,8 +43,38 @@ func NewServer(traderManager *manager.TraderManager, database *config.Database, 
 
 	router := gin.Default()
 
-	// 启用CORS
-	router.Use(corsMiddleware())
+	// 配置允许的 CORS 来源
+	allowedOrigins := []string{
+		"http://localhost:3000",
+		"http://localhost:5173",
+	}
+	if frontendURL := os.Getenv("FRONTEND_URL"); frontendURL != "" {
+		allowedOrigins = append(allowedOrigins, frontendURL)
+	}
+	if corsOrigins := os.Getenv("CORS_ALLOWED_ORIGINS"); corsOrigins != "" {
+		additionalOrigins := strings.Split(corsOrigins, ",")
+		for _, origin := range additionalOrigins {
+			origin = strings.TrimSpace(origin)
+			if origin != "" {
+				allowedOrigins = append(allowedOrigins, origin)
+			}
+		}
+	}
+
+	// 启用 CORS（白名单模式）
+	router.Use(corsMiddleware(allowedOrigins))
+
+	// 启用全局速率限制 (每秒 10 个请求)
+	globalLimiter := middleware.NewIPRateLimiter(rate.Limit(10), 10)
+	router.Use(middleware.RateLimitMiddleware(globalLimiter))
+
+	// 启用 CSRF 保护（Double Submit Cookie 模式）
+	csrfConfig := middleware.DefaultCSRFConfig()
+	// 生产环境应启用 HTTPS-only Cookie
+	if os.Getenv("ENVIRONMENT") == "production" {
+		csrfConfig.CookieSecure = true
+	}
+	router.Use(middleware.CSRFMiddleware(csrfConfig))
 
 	// 创建加密处理器
 	cryptoHandler := NewCryptoHandler(cryptoService)
@@ -60,12 +93,33 @@ func NewServer(traderManager *manager.TraderManager, database *config.Database, 
 	return s
 }
 
-// corsMiddleware CORS中间件
-func corsMiddleware() gin.HandlerFunc {
+// corsMiddleware CORS中间件（白名单模式）
+func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := c.GetHeader("Origin")
+
+		// 检查来源是否在白名单中
+		allowed := false
+		for _, allowedOrigin := range allowedOrigins {
+			if origin == allowedOrigin {
+				allowed = true
+				break
+			}
+		}
+
+		if allowed {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+			c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		} else if origin != "" {
+			// 如果有 Origin 但不在白名单中，记录并拒绝
+			log.Printf("⚠️ [CORS] 拒绝来源: %s (允许的来源: %v)", origin, allowedOrigins)
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "Origin not allowed",
+			})
+			return
+		}
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusOK)
@@ -100,6 +154,9 @@ func (s *Server) setupRoutes() {
 		api.GET("/crypto/public-key", s.cryptoHandler.HandleGetPublicKey)
 		api.POST("/crypto/decrypt", s.cryptoHandler.HandleDecryptSensitiveData)
 
+		// CSRF Token 获取（无需认证）
+		api.GET("/csrf-token", s.handleGetCSRFToken)
+
 		// 系统提示词模板管理（无需认证）
 		api.GET("/prompt-templates", s.handleGetPromptTemplates)
 		api.GET("/prompt-templates/:name", s.handleGetPromptTemplate)
@@ -112,11 +169,14 @@ func (s *Server) setupRoutes() {
 		api.POST("/equity-history-batch", s.handleEquityHistoryBatch)
 		api.GET("/traders/:id/public-config", s.handleGetPublicTraderConfig)
 
-		// 认证相关路由（无需认证）
-		api.POST("/register", s.handleRegister)
-		api.POST("/login", s.handleLogin)
-		api.POST("/verify-otp", s.handleVerifyOTP)
-		api.POST("/complete-registration", s.handleCompleteRegistration)
+		// 认证相关路由（应用严格速率限制，防止暴力破解）
+		authGroup := api.Group("/", middleware.AuthRateLimitMiddleware())
+		{
+			authGroup.POST("/register", s.handleRegister)
+			authGroup.POST("/login", s.handleLogin)
+			authGroup.POST("/verify-otp", s.handleVerifyOTP)
+			authGroup.POST("/complete-registration", s.handleCompleteRegistration)
+		}
 
 		// 需要认证的路由
 		protected := api.Group("/", s.authMiddleware())
@@ -165,6 +225,19 @@ func (s *Server) setupRoutes() {
 func (s *Server) handleHealth(c *gin.Context) {
 	// 简单的健康检查，立即返回
 	c.String(http.StatusOK, "OK")
+}
+
+// handleGetCSRFToken 获取 CSRF Token
+// 前端调用此接口获取 CSRF Token，用于后续 POST/PUT/DELETE 请求
+func (s *Server) handleGetCSRFToken(c *gin.Context) {
+	csrfConfig := middleware.DefaultCSRFConfig()
+	token := middleware.GetCSRFToken(c, csrfConfig)
+
+	c.JSON(http.StatusOK, gin.H{
+		"csrf_token": token,
+		"header_name": csrfConfig.HeaderName,
+		"note": "Please include this token in the X-CSRF-Token header for POST/PUT/DELETE requests",
+	})
 }
 
 // handleGetSystemConfig 获取系统配置（客户端需要知道的配置）
