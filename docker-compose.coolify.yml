@@ -21,6 +21,10 @@ services:
       - NOFX_API_PORT=${NOFX_API_PORT:-8080}
       - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY}
       - JWT_SECRET=${JWT_SECRET}
+      # Aster API配置
+      - ASTER_USER=${ASTER_USER}
+      - ASTER_SIGNER=${ASTER_SIGNER}
+      - ASTER_PRIVATE_KEY=${ASTER_PRIVATE_KEY}
     volumes:
       - nofx-data:/app/data
       - nofx-decision-logs:/app/decision_logs
