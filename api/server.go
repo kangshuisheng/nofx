@@ -797,15 +797,17 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	log.Printf("✅ [DEBUG] 找到 %d 个 AI 模型配置", len(aiModels))
 
 	var aiModelIntID int
+	var aiModelFound bool
 	for _, model := range aiModels {
 		log.Printf("🔍 [DEBUG] 检查 AI 模型: ID=%d, ModelID=%s (寻找: %s)", model.ID, model.ModelID, req.AIModelID)
 		if model.ModelID == req.AIModelID {
 			aiModelIntID = model.ID
+			aiModelFound = true
 			log.Printf("✅ [DEBUG] 找到匹配的 AI 模型: ID=%d", aiModelIntID)
 			break
 		}
 	}
-	if aiModelIntID == 0 {
+	if !aiModelFound {
 		log.Printf("❌ [DEBUG] 未找到 AI 模型 '%s'，可用的模型：", req.AIModelID)
 		for _, model := range aiModels {
 			log.Printf("   - ModelID=%s", model.ModelID)
@@ -824,15 +826,17 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	log.Printf("✅ [DEBUG] 找到 %d 个交易所配置", len(exchanges))
 
 	var exchangeIntID int
+	var exchangeFound bool
 	for _, exchange := range exchanges {
 		log.Printf("🔍 [DEBUG] 检查交易所: ID=%d, ExchangeID=%s (寻找: %s)", exchange.ID, exchange.ExchangeID, req.ExchangeID)
 		if exchange.ExchangeID == req.ExchangeID {
 			exchangeIntID = exchange.ID
+			exchangeFound = true
 			log.Printf("✅ [DEBUG] 找到匹配的交易所: ID=%d", exchangeIntID)
 			break
 		}
 	}
-	if exchangeIntID == 0 {
+	if !exchangeFound {
 		log.Printf("❌ [DEBUG] 未找到交易所 '%s'，可用的交易所：", req.ExchangeID)
 		for _, exchange := range exchanges {
 			log.Printf("   - ExchangeID=%s", exchange.ExchangeID)
@@ -1065,13 +1069,15 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	}
 
 	var aiModelIntID int
+	var aiModelFound bool
 	for _, model := range aiModels {
 		if model.ModelID == req.AIModelID {
 			aiModelIntID = model.ID
+			aiModelFound = true
 			break
 		}
 	}
-	if aiModelIntID == 0 {
+	if !aiModelFound {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("AI模型 %s 不存在", req.AIModelID)})
 		return
 	}
@@ -1083,13 +1089,15 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	}
 
 	var exchangeIntID int
+	var exchangeFound bool
 	for _, exchange := range exchanges {
 		if exchange.ExchangeID == req.ExchangeID {
 			exchangeIntID = exchange.ID
+			exchangeFound = true
 			break
 		}
 	}
-	if exchangeIntID == 0 {
+	if !exchangeFound {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("交易所 %s 不存在", req.ExchangeID)})
 		return
 	}
