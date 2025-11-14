@@ -384,6 +384,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("- 开仓时必填: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning\n")
 	sb.WriteString("- 更新止损时必填: new_stop_loss (必须大于0)\n")
 	sb.WriteString("- 更新止盈时必填: new_take_profit (必须大于0)\n")
+	sb.WriteString("- **部分平仓时必填**: `close_percentage` (值必须在 1 到 100 之间，例如 50)\n")
 	sb.WriteString("- **重要**: 不支持 partial_close_long 或 partial_close_short，请使用 partial_close\n\n")
 
 	return sb.String()
