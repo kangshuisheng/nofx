@@ -343,7 +343,7 @@ func TestNewFuturesTrader(t *testing.T) {
 	defer mockServer.Close()
 
 	// 测试成功创建
-	trader := NewFuturesTrader("test_api_key", "test_secret_key", "test_user")
+	trader := NewFuturesTrader("test_api_key", "test_secret_key", "test_user", "market_only", -0.03, 60)
 
 	// 修改 client 使用 mock server
 	trader.client.BaseURL = mockServer.URL

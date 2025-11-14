@@ -41,13 +41,16 @@ type PositionInfo struct {
 	PeakPnLPct       float64 `json:"peak_pnl_pct"` // 历史最高收益率（百分比）
 	LiquidationPrice float64 `json:"liquidation_price"`
 	MarginUsed       float64 `json:"margin_used"`
-	UpdateTime       int64   `json:"update_time"` // 持仓更新时间戳（毫秒）
+	UpdateTime       int64   `json:"update_time"`           // 持仓更新时间戳（毫秒）
+	StopLoss         float64 `json:"stop_loss,omitempty"`   // 止损价格（用于推断平仓原因）
+	TakeProfit       float64 `json:"take_profit,omitempty"` // 止盈价格（用于推断平仓原因）
 }
 
 // AccountInfo 账户信息
 type AccountInfo struct {
 	TotalEquity      float64 `json:"total_equity"`      // 账户净值
 	AvailableBalance float64 `json:"available_balance"` // 可用余额
+	UnrealizedPnL    float64 `json:"unrealized_pnl"`    // 未实现盈亏
 	TotalPnL         float64 `json:"total_pnl"`         // 总盈亏
 	TotalPnLPct      float64 `json:"total_pnl_pct"`     // 总盈亏百分比
 	MarginUsed       float64 `json:"margin_used"`       // 已用保证金
@@ -379,7 +382,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("]\n```\n")
 	sb.WriteString("</decision>\n\n")
 	sb.WriteString("## 字段说明\n\n")
-	sb.WriteString("- `action`: **只能使用以下9种之一** - open_long | open_short | close_long | close_short | update_stop_loss | update_take_profit | partial_close | hold | wait\n")
+	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | update_stop_loss | update_take_profit | partial_close | hold | wait\n")
 	sb.WriteString("- `confidence`: 0-100（开仓建议≥75）\n")
 	sb.WriteString("- 开仓时必填: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning\n")
 	sb.WriteString("- 更新止损时必填: new_stop_loss (必须大于0)\n")
@@ -656,33 +659,58 @@ func fixMissingQuotes(jsonStr string) string {
 	return jsonStr
 }
 
-// validateJSONFormat 验证 JSON 格式，检测常见错误
+// validateJSONFormat validates JSON format and detects common errors
 func validateJSONFormat(jsonStr string) error {
 	trimmed := strings.TrimSpace(jsonStr)
 
-	// 允许 [ 和 { 之间存在任意空白（含零宽）
+	// Allow any whitespace (including zero-width) between [ and {
 	if !reArrayHead.MatchString(trimmed) {
-		// 检查是否是纯数字/范围数组（常见错误）
+		// Check if it's a pure number/range array (common error)
 		if strings.HasPrefix(trimmed, "[") && !strings.Contains(trimmed[:min(20, len(trimmed))], "{") {
-			return fmt.Errorf("不是有效的决策数组（必须包含对象 {}），实际内容: %s", trimmed[:min(50, len(trimmed))])
+			return fmt.Errorf("not a valid decision array (must contain objects {}), actual content: %s", trimmed[:min(50, len(trimmed))])
 		}
-		return fmt.Errorf("JSON 必须以 [{ 开头（允许空白），实际: %s", trimmed[:min(20, len(trimmed))])
+		return fmt.Errorf("JSON must start with [{ (whitespace allowed), actual: %s", trimmed[:min(20, len(trimmed))])
 	}
 
-	// 检查是否包含范围符号 ~（LLM 常见错误）
+	// Check for range symbol ~ (common LLM error)
 	if strings.Contains(jsonStr, "~") {
-		return fmt.Errorf("JSON 中不可包含范围符号 ~，所有数字必须是精确的单一值")
+		return fmt.Errorf("JSON cannot contain range symbol ~, all numbers must be precise single values")
 	}
 
-	// 检查是否包含千位分隔符（如 98,000）
-	// 使用简单的模式匹配：数字+逗号+3位数字
+	// Check for thousands separators (like 98,000) but skip string values
+	// Parse through JSON and only check numeric contexts
+	if err := checkThousandsSeparatorsOutsideStrings(jsonStr); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// checkThousandsSeparatorsOutsideStrings checks for thousands separators in JSON numbers
+// but ignores commas inside string values
+func checkThousandsSeparatorsOutsideStrings(jsonStr string) error {
+	inString := false
+	escaped := false
+
 	for i := 0; i < len(jsonStr)-4; i++ {
+		// Track string boundaries
+		if jsonStr[i] == '"' && !escaped {
+			inString = !inString
+		}
+		escaped = (jsonStr[i] == '\\' && !escaped)
+
+		// Skip if we're inside a string value
+		if inString {
+			continue
+		}
+
+		// Check for pattern: digit, comma, 3 digits
 		if jsonStr[i] >= '0' && jsonStr[i] <= '9' &&
 			jsonStr[i+1] == ',' &&
 			jsonStr[i+2] >= '0' && jsonStr[i+2] <= '9' &&
 			jsonStr[i+3] >= '0' && jsonStr[i+3] <= '9' &&
 			jsonStr[i+4] >= '0' && jsonStr[i+4] <= '9' {
-			return fmt.Errorf("JSON 数字不可包含千位分隔符逗号，发现: %s", jsonStr[i:min(i+10, len(jsonStr))])
+			return fmt.Errorf("JSON numbers cannot contain thousands separator commas, found: %s", jsonStr[i:min(i+10, len(jsonStr))])
 		}
 	}
 

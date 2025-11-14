@@ -8,8 +8,6 @@
 
 **Languages:** [English](README.md) | [中文](docs/i18n/zh-CN/README.md) | [Українська](docs/i18n/uk/README.md) | [Русский](docs/i18n/ru/README.md) | [日本語](docs/i18n/ja/README.md)
 
-**Official Twitter:** [@nofx_ai](https://x.com/nofx_ai)
-
 **📚 Documentation:** [Docs Home](docs/README.md) | [Getting Started](docs/getting-started/README.md) | [Prompt Writing Guide](docs/prompt-guide.md) ([中文](docs/prompt-guide.zh-CN.md)) | [Changelog](CHANGELOG.md) | [Contributing](CONTRIBUTING.md) | [Security](SECURITY.md)
 
 ---
@@ -31,7 +29,6 @@
 - [🧠 AI Self-Learning](#-ai-self-learning-example)
 - [📊 Web Interface Features](#-web-interface-features)
 - [🎛️ API Endpoints](#️-api-endpoints)
-- [🔐 Admin Mode (Single-User)](#-admin-mode-single-user) 
 - [⚠️ Important Risk Warnings](#️-important-risk-warnings)
 - [🛠️ Common Issues](#️-common-issues)
 - [📈 Performance Tips](#-performance-optimization-tips)
@@ -56,15 +53,12 @@
 ### 👥 Core Team
 
 - **Tinkle** - [@Web3Tinkle](https://x.com/Web3Tinkle)
-- **Zack** - [@0x_ZackH](https://x.com/0x_ZackH)
 
 ### 💼 Seed Funding Round Open
 
-We are currently raising our **seed round**. 
+We are currently raising our **seed round**.
 
-**For investment inquiries**, please DM **Tinkle** or **Zack** via Twitter.
-
-**For partnerships and collaborations**, please DM our official Twitter [@nofx_ai](https://x.com/nofx_ai).
+**For investment inquiries**, please DM **Tinkle** via Twitter.
 
 ---
 
@@ -245,48 +239,6 @@ NOFX is built with a modern, modular architecture:
 
 ---
 
-## 🔐 Admin Mode (Single-User)
-
-For self-hosted or single-tenant setups, NOFX supports a strict admin-only mode that disables public features and requires an admin password for all access.
-
-### How it works
-- All API endpoints require a valid JWT when `admin_mode=true`, except:
-  - `GET /api/health`
-  - `GET /api/config`
-  - `POST /api/admin-login`
-- Logout invalidates the current token via an in-memory blacklist (sufficient for single instance; use Redis for multi-instance – see Notes).
-
-### Quick setup
-1) Set flags in `config.json`:
-```jsonc
-{
-  // ... other config
-  "admin_mode": true,
-  "jwt_secret": "YOUR_JWT_SCR" 
-}
-```
-
-2) Provide required environment variables:
-- `NOFX_ADMIN_PASSWORD` — plaintext admin password (only used at startup to derive a bcrypt hash)
-
-Docker Compose example (already wired):
-```yaml
-services:
-  nofx:
-    environment:
-      - NOFX_ADMIN_PASSWORD=${NOFX_ADMIN_PASSWORD}
-```
-
-1) Login flow (admin mode):
-- Open the web UI → you’ll be redirected to the login page
-- Enter admin password → the server returns a JWT
-- The UI stores the token and authenticates subsequent API calls
-
-### Notes
-- Token lifetime: 24h. On logout, tokens are blacklisted in-memory until expiry. For multi-instance deployments, use a shared store (e.g., Redis) to sync the blacklist.
-
----
-
 ## 💰 Register Binance Account (Save on Fees!)
 
 Before using this system, you need a Binance Futures account. **Use our referral link to save on trading fees:**
@@ -362,30 +314,12 @@ Open your browser and visit: **http://localhost:3000**
 4. **Start Trading**: Launch your configured traders
 
 #### Manage Your System
-
-**Daily Operations:**
 ```bash
 ./start.sh logs      # View logs
 ./start.sh status    # Check status
 ./start.sh stop      # Stop services
-./start.sh restart   # Quick restart (containers only)
+./start.sh restart   # Restart services
 ```
-
-**After Code Changes:**
-```bash
-./start.sh start --build   # Rebuild and restart (required for code changes)
-```
-
-**When to use `start --build`:**
-- ✅ After modifying Go backend code (*.go files)
-- ✅ After modifying React frontend code (web/src/**/*.tsx, *.ts)
-- ✅ After changing Dockerfile or docker-compose.yml
-- ✅ After pulling latest code from git
-
-**When `restart` is enough:**
-- ✅ After changing config.json or .env (configuration only)
-- ✅ To recover from container crashes
-- ✅ For routine restarts
 
 **📖 For detailed Docker deployment guide, troubleshooting, and advanced configuration:**
 - **English**: See [docs/getting-started/docker-deploy.en.md](docs/getting-started/docker-deploy.en.md)
@@ -1345,95 +1279,6 @@ sudo apt-get install libta-lib0-dev
 - Coin pool API is optional
 - If API fails, system uses default mainstream coins (BTC, ETH, etc.)
 - ~~Check API URL and auth parameter in config.json~~ *Check configuration in web interface*
-
----
-
-## 🧪 Developer Tools & Testing
-
-For contributors and developers working on NOFX, we provide convenient development tools via Makefile.
-
-### Quick Commands
-
-```bash
-# View all available commands
-make help
-
-# Testing
-make test              # Run all tests (backend + frontend)
-make test-backend      # Go tests only
-make test-frontend     # React/Vitest tests only
-make test-coverage     # Generate HTML coverage report
-
-# Build
-make build             # Build backend binary
-make build-frontend    # Build frontend production bundle
-
-# Development
-make run               # Run backend in dev mode
-make run-frontend      # Run frontend dev server (hot reload)
-
-# Code Quality
-make fmt               # Format Go code (go fmt)
-make lint              # Run linter (requires golangci-lint)
-make clean             # Clean all build artifacts
-
-# Docker
-make docker-build      # Build Docker images
-make docker-up         # Start all containers
-make docker-down       # Stop all containers
-make docker-logs       # View container logs
-
-# Dependencies
-make deps              # Download Go dependencies
-make deps-update       # Update all Go dependencies
-make deps-frontend     # Install frontend dependencies
-```
-
-### Manual Commands (Without Makefile)
-
-If you prefer not to use Makefile or don't have `make` installed:
-
-```bash
-# Backend tests
-go test ./...                            # Run all tests
-go test -v ./...                         # Verbose output
-go test -coverprofile=coverage.out ./... # Generate coverage
-go tool cover -html=coverage.out         # View coverage in browser
-
-# Frontend tests
-cd web
-npm run test          # Run Vitest tests
-npm run test:ui       # Interactive test UI
-
-# Build
-go build -o nofx                         # Backend
-cd web && npm run build                  # Frontend
-
-# Development
-go run main.go                           # Backend
-cd web && npm run dev                    # Frontend dev server
-
-# Code formatting
-go fmt ./...                             # Format Go code
-cd web && npm run lint                   # Lint frontend code
-```
-
-### Test Coverage Guidelines
-
-When contributing code:
-- ✅ All existing tests must pass
-- ✅ New features should include tests (aim for >80% coverage)
-- ✅ Critical paths (authentication, trading logic) require 100% coverage
-- ✅ Frontend components should have basic smoke tests
-
-### Continuous Integration
-
-Pull requests automatically run:
-- Backend tests (`go test ./...`)
-- Frontend build verification
-- Code linting and formatting checks
-
-For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

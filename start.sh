@@ -216,6 +216,49 @@ check_database() {
     else
         # 文件存在
         print_success "数据库文件存在"
+
+        # 检查是否需要数据库迁移（z-dev-v2 多配置架构升级）
+        if command -v sqlite3 &> /dev/null && [ -s "config.db" ]; then
+            print_info "检查数据库 schema 版本..."
+
+            # 检查是否存在旧的列（ai_model_id_old, exchange_id_old）
+            local has_old_columns=$(sqlite3 config.db "PRAGMA table_info(traders);" 2>/dev/null | grep -c "_old" || echo "0")
+
+            if [ "$has_old_columns" -gt 0 ]; then
+                print_warning "⚠️  检测到数据库 schema 需要迁移！"
+                print_warning "   发现 $has_old_columns 个旧列（ai_model_id_old, exchange_id_old）"
+                print_warning "   这会导致创建交易员失败（500 错误）"
+                echo ""
+                print_info "🔧 自动修复选项："
+                print_info "   运行: ./scripts/fix_traders_table_migration.sh config.db"
+                echo ""
+                print_warning "❌ 如果不修复，创建交易员将失败！"
+                echo ""
+
+                # 询问是否自动修复
+                if [ -f "scripts/fix_traders_table_migration.sh" ]; then
+                    read -p "$(echo -e ${YELLOW})是否自动修复数据库? (y/n): $(echo -e ${NC})" -n 1 -r
+                    echo
+                    if [[ $REPLY =~ ^[Yy]$ ]]; then
+                        print_info "正在运行数据库修复脚本..."
+                        if bash scripts/fix_traders_table_migration.sh config.db; then
+                            print_success "✅ 数据库修复成功！"
+                        else
+                            print_error "❌ 数据库修复失败，请查看错误信息"
+                            exit 1
+                        fi
+                    else
+                        print_warning "跳过自动修复，请手动运行修复脚本"
+                        print_info "继续启动可能会导致创建交易员失败"
+                    fi
+                else
+                    print_error "修复脚本不存在: scripts/fix_traders_table_migration.sh"
+                    print_info "请从最新版本拉取此文件"
+                fi
+            else
+                print_success "✅ 数据库 schema 版本正确"
+            fi
+        fi
     fi
 }
 

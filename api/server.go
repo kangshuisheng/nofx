@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"nofx/auth"
@@ -132,7 +133,6 @@ func (s *Server) setupRoutes() {
 			protected.POST("/traders/:id/start", s.handleStartTrader)
 			protected.POST("/traders/:id/stop", s.handleStopTrader)
 			protected.PUT("/traders/:id/prompt", s.handleUpdateTraderPrompt)
-			protected.POST("/traders/:id/sync-balance", s.handleSyncBalance)
 
 			// AI模型配置
 			protected.GET("/models", s.handleGetModelConfigs)
@@ -197,11 +197,18 @@ func (s *Server) handleGetSystemConfig(c *gin.Context) {
 	betaModeStr, _ := s.database.GetSystemConfig("beta_mode")
 	betaMode := betaModeStr == "true"
 
+	regEnabledStr, err := s.database.GetSystemConfig("registration_enabled")
+	registrationEnabled := true
+	if err == nil {
+		registrationEnabled = strings.ToLower(regEnabledStr) != "false"
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"beta_mode":        betaMode,
-		"default_coins":    defaultCoins,
-		"btc_eth_leverage": btcEthLeverage,
-		"altcoin_leverage": altcoinLeverage,
+		"beta_mode":            betaMode,
+		"default_coins":        defaultCoins,
+		"btc_eth_leverage":     btcEthLeverage,
+		"altcoin_leverage":     altcoinLeverage,
+		"registration_enabled": registrationEnabled,
 	})
 }
 
@@ -389,8 +396,12 @@ type CreateTraderRequest struct {
 	IsCrossMargin        *bool   `json:"is_cross_margin"`        // 指针类型，nil表示使用默认值true
 	UseCoinPool          bool    `json:"use_coin_pool"`
 	UseOITop             bool    `json:"use_oi_top"`
-	TakerFeeRate         float64 `json:"taker_fee_rate"` // Taker fee rate, default 0.0004 (0.04%)
-	MakerFeeRate         float64 `json:"maker_fee_rate"` // Maker fee rate, default 0.0002 (0.02%)
+	TakerFeeRate         float64 `json:"taker_fee_rate"`        // Taker fee rate, default 0.0004 (0.04%)
+	MakerFeeRate         float64 `json:"maker_fee_rate"`        // Maker fee rate, default 0.0002 (0.02%)
+	OrderStrategy        string  `json:"order_strategy"`        // Order strategy: market_only, conservative_hybrid, limit_only
+	LimitPriceOffset     float64 `json:"limit_price_offset"`    // Limit price offset percentage, default -0.03 (-0.03%)
+	LimitTimeoutSeconds  int     `json:"limit_timeout_seconds"` // Limit order timeout in seconds, default 60
+	Timeframes           string  `json:"timeframes"`            // 时间线选择 (逗号分隔，例如: "1m,4h,1d")
 }
 
 type ModelConfig struct {
@@ -465,7 +476,8 @@ func (s *Server) queryExchangeBalance(userID, exchangeID string, exchangeCfg *co
 
 	switch exchangeID {
 	case "binance":
-		tempTrader = trader.NewFuturesTrader(exchangeCfg.APIKey, exchangeCfg.SecretKey, userID)
+		// 使用默认订单策略（查询余额不需要实际下单）
+		tempTrader = trader.NewFuturesTrader(exchangeCfg.APIKey, exchangeCfg.SecretKey, userID, "market_only", -0.03, 60)
 	case "hyperliquid":
 		tempTrader, err = trader.NewHyperliquidTrader(
 			exchangeCfg.APIKey, // private key
@@ -611,7 +623,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 			// 查找匹配的交易所配置
 			var exchangeCfg *config.ExchangeConfig
 			for _, ex := range exchanges {
-				if ex.ID == req.ExchangeID {
+				if ex.ExchangeID == req.ExchangeID {
 					exchangeCfg = ex
 					break
 				}
@@ -624,6 +636,8 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 				log.Printf("⚠️ 交易所 %s 未启用，使用默认值 100 USDT", req.ExchangeID)
 				actualBalance = 100.0
 			} else {
+				// 🔧 计算Total Equity = Wallet Balance + Unrealized Profit
+				// 这是账户的真实净值，用作Initial Balance的基准
 				// 使用輔助函數查詢交易所余額
 				balance, queryErr := s.queryExchangeBalance(userID, req.ExchangeID, exchangeCfg)
 				if queryErr != nil {
@@ -631,6 +645,8 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 					actualBalance = 100.0
 				} else {
 					actualBalance = balance
+					log.Printf("✅ 查询到交易所实际净值: %.2f USDT (用户输入: %.2f)",
+						actualBalance, req.InitialBalance)
 				}
 			}
 		}
@@ -663,13 +679,93 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	log.Printf("✓ 费率配置: Taker=%.4f (%.2f%%), Maker=%.4f (%.2f%%)",
 		takerFeeRate, takerFeeRate*100, makerFeeRate, makerFeeRate*100)
 
+	// 设置时间线默认值
+	timeframes := req.Timeframes
+	if timeframes == "" {
+		timeframes = "4h" // 默认只勾选4小时线
+	}
+
+	// 设置订单策略默认值
+	orderStrategy := req.OrderStrategy
+	if orderStrategy == "" {
+		orderStrategy = "conservative_hybrid" // 默认使用保守混合策略
+	}
+
+	// 设置限价偏移默认值
+	limitPriceOffset := req.LimitPriceOffset
+	if limitPriceOffset == 0 {
+		limitPriceOffset = -0.03 // 默认 -0.03%
+	}
+
+	// 设置限价超时默认值
+	limitTimeoutSeconds := req.LimitTimeoutSeconds
+	if limitTimeoutSeconds == 0 {
+		limitTimeoutSeconds = 60 // 默认 60 秒
+	}
+
+	// 查询 AI Model 和 Exchange 的自增 ID
+	log.Printf("🔍 [DEBUG] 步骤7: 查询用户 %s 的 AI 模型配置 (请求的 AI 模型: %s)...", userID, req.AIModelID)
+	aiModels, err := s.database.GetAIModels(userID)
+	if err != nil {
+		log.Printf("❌ [DEBUG] 查询 AI 模型失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取AI模型配置失败"})
+		return
+	}
+	log.Printf("✅ [DEBUG] 找到 %d 个 AI 模型配置", len(aiModels))
+
+	var aiModelIntID int
+	for _, model := range aiModels {
+		log.Printf("🔍 [DEBUG] 检查 AI 模型: ID=%d, ModelID=%s (寻找: %s)", model.ID, model.ModelID, req.AIModelID)
+		if model.ModelID == req.AIModelID {
+			aiModelIntID = model.ID
+			log.Printf("✅ [DEBUG] 找到匹配的 AI 模型: ID=%d", aiModelIntID)
+			break
+		}
+	}
+	if aiModelIntID == 0 {
+		log.Printf("❌ [DEBUG] 未找到 AI 模型 '%s'，可用的模型：", req.AIModelID)
+		for _, model := range aiModels {
+			log.Printf("   - ModelID=%s", model.ModelID)
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("AI模型 %s 不存在", req.AIModelID)})
+		return
+	}
+
+	log.Printf("🔍 [DEBUG] 步骤8: 查询用户 %s 的交易所配置 (请求的交易所: %s)...", userID, req.ExchangeID)
+	exchanges, err := s.database.GetExchanges(userID)
+	if err != nil {
+		log.Printf("❌ [DEBUG] 查询交易所失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取交易所配置失败"})
+		return
+	}
+	log.Printf("✅ [DEBUG] 找到 %d 个交易所配置", len(exchanges))
+
+	var exchangeIntID int
+	for _, exchange := range exchanges {
+		log.Printf("🔍 [DEBUG] 检查交易所: ID=%d, ExchangeID=%s (寻找: %s)", exchange.ID, exchange.ExchangeID, req.ExchangeID)
+		if exchange.ExchangeID == req.ExchangeID {
+			exchangeIntID = exchange.ID
+			log.Printf("✅ [DEBUG] 找到匹配的交易所: ID=%d", exchangeIntID)
+			break
+		}
+	}
+	if exchangeIntID == 0 {
+		log.Printf("❌ [DEBUG] 未找到交易所 '%s'，可用的交易所：", req.ExchangeID)
+		for _, exchange := range exchanges {
+			log.Printf("   - ExchangeID=%s", exchange.ExchangeID)
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("交易所 %s 不存在", req.ExchangeID)})
+		return
+	}
+
 	// 创建交易员配置（数据库实体）
+	log.Printf("🔍 [DEBUG] 步骤9: 构建交易员配置对象...")
 	trader := &config.TraderRecord{
 		ID:                   traderID,
 		UserID:               userID,
 		Name:                 req.Name,
-		AIModelID:            req.AIModelID,
-		ExchangeID:           req.ExchangeID,
+		AIModelID:            aiModelIntID,  // 使用查询到的自增 ID
+		ExchangeID:           exchangeIntID, // 使用查询到的自增 ID
 		InitialBalance:       actualBalance, // 使用实际查询的余额
 		BTCETHLeverage:       btcEthLeverage,
 		AltcoinLeverage:      altcoinLeverage,
@@ -681,17 +777,25 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		SystemPromptTemplate: systemPromptTemplate,
 		IsCrossMargin:        isCrossMargin,
 		ScanIntervalMinutes:  scanIntervalMinutes,
-		TakerFeeRate:         takerFeeRate, // 添加 Taker 费率
-		MakerFeeRate:         makerFeeRate, // 添加 Maker 费率
+		TakerFeeRate:         takerFeeRate,        // 添加 Taker 费率
+		MakerFeeRate:         makerFeeRate,        // 添加 Maker 费率
+		OrderStrategy:        orderStrategy,       // 添加订单策略
+		LimitPriceOffset:     limitPriceOffset,    // 添加限价偏移
+		LimitTimeoutSeconds:  limitTimeoutSeconds, // 添加限价超时
+		Timeframes:           timeframes,          // 添加时间线选择
 		IsRunning:            false,
 	}
+	log.Printf("✅ [DEBUG] 交易员配置对象已构建: ID=%s, AIModelID=%d, ExchangeID=%d", traderID, aiModelIntID, exchangeIntID)
 
 	// 保存到数据库
+	log.Printf("🔍 [DEBUG] 步骤10: 保存交易员到数据库...")
 	err = s.database.CreateTrader(trader)
 	if err != nil {
+		log.Printf("❌ [DEBUG] 数据库 CreateTrader 失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("创建交易员失败: %v", err)})
 		return
 	}
+	log.Printf("✅ [DEBUG] 交易员已成功保存到数据库")
 
 	// 立即将新交易员加载到TraderManager中
 	err = s.traderManager.LoadTraderByID(s.database, userID, traderID)
@@ -724,8 +828,12 @@ type UpdateTraderRequest struct {
 	OverrideBasePrompt   bool    `json:"override_base_prompt"`
 	SystemPromptTemplate string  `json:"system_prompt_template"`
 	IsCrossMargin        *bool   `json:"is_cross_margin"`
-	TakerFeeRate         float64 `json:"taker_fee_rate"` // Taker fee rate
-	MakerFeeRate         float64 `json:"maker_fee_rate"` // Maker fee rate
+	TakerFeeRate         float64 `json:"taker_fee_rate"`        // Taker fee rate
+	MakerFeeRate         float64 `json:"maker_fee_rate"`        // Maker fee rate
+	OrderStrategy        string  `json:"order_strategy"`        // Order strategy
+	LimitPriceOffset     float64 `json:"limit_price_offset"`    // Limit price offset
+	LimitTimeoutSeconds  int     `json:"limit_timeout_seconds"` // Limit timeout in seconds
+	Timeframes           string  `json:"timeframes"`            // Timeframes selection
 }
 
 // handleUpdateTrader 更新交易员配置
@@ -826,13 +934,90 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 			existingTrader.MakerFeeRate, makerFeeRate)
 	}
 
+	// 设置订单策略，允许更新
+	orderStrategy := req.OrderStrategy
+	if orderStrategy == "" {
+		if existingTrader.OrderStrategy != "" {
+			orderStrategy = existingTrader.OrderStrategy // 保持原值
+		} else {
+			orderStrategy = "conservative_hybrid" // 使用默认值
+		}
+	}
+
+	// 设置限价偏移，允许更新
+	limitPriceOffset := req.LimitPriceOffset
+	if limitPriceOffset == 0 {
+		if existingTrader.LimitPriceOffset != 0 {
+			limitPriceOffset = existingTrader.LimitPriceOffset // 保持原值
+		} else {
+			limitPriceOffset = -0.03 // 使用默认值
+		}
+	}
+
+	// 设置限价超时，允许更新
+	limitTimeoutSeconds := req.LimitTimeoutSeconds
+	if limitTimeoutSeconds == 0 {
+		if existingTrader.LimitTimeoutSeconds > 0 {
+			limitTimeoutSeconds = existingTrader.LimitTimeoutSeconds // 保持原值
+		} else {
+			limitTimeoutSeconds = 60 // 使用默认值
+		}
+	}
+
+	// 设置时间线选择，允许更新
+	timeframes := req.Timeframes
+	if timeframes == "" {
+		if existingTrader.Timeframes != "" {
+			timeframes = existingTrader.Timeframes // 保持原值
+		} else {
+			timeframes = "4h" // 使用默认值
+		}
+	}
+
+	// 查询 AI Model 和 Exchange 的自增 ID
+	aiModels, err := s.database.GetAIModels(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取AI模型配置失败"})
+		return
+	}
+
+	var aiModelIntID int
+	for _, model := range aiModels {
+		if model.ModelID == req.AIModelID {
+			aiModelIntID = model.ID
+			break
+		}
+	}
+	if aiModelIntID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("AI模型 %s 不存在", req.AIModelID)})
+		return
+	}
+
+	exchanges, err := s.database.GetExchanges(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取交易所配置失败"})
+		return
+	}
+
+	var exchangeIntID int
+	for _, exchange := range exchanges {
+		if exchange.ExchangeID == req.ExchangeID {
+			exchangeIntID = exchange.ID
+			break
+		}
+	}
+	if exchangeIntID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("交易所 %s 不存在", req.ExchangeID)})
+		return
+	}
+
 	// 更新交易员配置
 	trader := &config.TraderRecord{
 		ID:                   traderID,
 		UserID:               userID,
 		Name:                 req.Name,
-		AIModelID:            req.AIModelID,
-		ExchangeID:           req.ExchangeID,
+		AIModelID:            aiModelIntID,  // 使用查询到的自增 ID
+		ExchangeID:           exchangeIntID, // 使用查询到的自增 ID
 		InitialBalance:       req.InitialBalance,
 		BTCETHLeverage:       btcEthLeverage,
 		AltcoinLeverage:      altcoinLeverage,
@@ -844,6 +1029,10 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		ScanIntervalMinutes:  scanIntervalMinutes,
 		TakerFeeRate:         takerFeeRate,             // 添加 Taker 费率
 		MakerFeeRate:         makerFeeRate,             // 添加 Maker 费率
+		OrderStrategy:        orderStrategy,            // 添加订单策略
+		LimitPriceOffset:     limitPriceOffset,         // 添加限价偏移
+		LimitTimeoutSeconds:  limitTimeoutSeconds,      // 添加限价超时
+		Timeframes:           timeframes,               // 添加时间线选择
 		IsRunning:            existingTrader.IsRunning, // 保持原值
 	}
 
@@ -853,6 +1042,21 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新交易员失败: %v", err)})
 		return
 	}
+
+	// 如果请求中包含initial_balance且与现有值不同，单独更新它
+	// UpdateTrader不会更新initial_balance，需要使用专门的方法
+	if req.InitialBalance > 0 && math.Abs(req.InitialBalance-existingTrader.InitialBalance) > 0.1 {
+		err = s.database.UpdateTraderInitialBalance(userID, traderID, req.InitialBalance)
+		if err != nil {
+			log.Printf("⚠️ 更新初始余额失败: %v", err)
+			// 不返回错误，因为主要配置已更新成功
+		} else {
+			log.Printf("✓ 初始余额已更新: %.2f -> %.2f", existingTrader.InitialBalance, req.InitialBalance)
+		}
+	}
+
+	// 🔄 从内存中移除旧的trader实例，以便重新加载最新配置
+	_ = s.traderManager.RemoveTrader(traderID) // 忽略錯誤，trader可能不在內存中
 
 	// 重新加载交易员到内存
 	err = s.traderManager.LoadTraderByID(s.database, userID, traderID)
@@ -1035,9 +1239,10 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 	var tempTrader trader.Trader
 	var createErr error
 
-	switch traderConfig.ExchangeID {
+	switch exchangeCfg.ExchangeID {
 	case "binance":
-		tempTrader = trader.NewFuturesTrader(exchangeCfg.APIKey, exchangeCfg.SecretKey, userID)
+		// 使用默认订单策略（查询余额不需要实际下单）
+		tempTrader = trader.NewFuturesTrader(exchangeCfg.APIKey, exchangeCfg.SecretKey, userID, "market_only", -0.03, 60)
 	case "hyperliquid":
 		tempTrader, createErr = trader.NewHyperliquidTrader(
 			exchangeCfg.APIKey,
@@ -1147,7 +1352,7 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 	safeModels := make([]SafeModelConfig, len(models))
 	for i, model := range models {
 		safeModels[i] = SafeModelConfig{
-			ID:              model.ID,
+			ID:              model.ModelID, // 返回 model_id（例如 "deepseek"）而不是自增 ID
 			Name:            model.Name,
 			Provider:        model.Provider,
 			Enabled:         model.Enabled,
@@ -1242,7 +1447,7 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 	safeExchanges := make([]SafeExchangeConfig, len(exchanges))
 	for i, exchange := range exchanges {
 		safeExchanges[i] = SafeExchangeConfig{
-			ID:                    exchange.ID,
+			ID:                    exchange.ExchangeID, // 返回 exchange_id（例如 "binance"）
 			Name:                  exchange.Name,
 			Type:                  exchange.Type,
 			Enabled:               exchange.Enabled,
@@ -1374,6 +1579,30 @@ func (s *Server) handleTraderList(c *gin.Context) {
 		return
 	}
 
+	// 获取用户的所有 AI 模型和交易所配置，用于将整数 ID 映射到字符串 ID
+	aiModels, err := s.database.GetAIModels(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取AI模型配置失败"})
+		return
+	}
+
+	exchanges, err := s.database.GetExchanges(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取交易所配置失败"})
+		return
+	}
+
+	// 创建映射：整数 ID -> 字符串 ModelID/ExchangeID
+	aiModelMap := make(map[int]string)
+	for _, model := range aiModels {
+		aiModelMap[model.ID] = model.ModelID
+	}
+
+	exchangeMap := make(map[int]string)
+	for _, exchange := range exchanges {
+		exchangeMap[exchange.ID] = exchange.ExchangeID
+	}
+
 	result := make([]map[string]interface{}, 0, len(traders))
 	for _, trader := range traders {
 		// 获取实时运行状态
@@ -1385,13 +1614,24 @@ func (s *Server) handleTraderList(c *gin.Context) {
 			}
 		}
 
-		// 返回完整的 AIModelID（如 "admin_deepseek"），不要截断
-		// 前端需要完整 ID 来验证模型是否存在（与 handleGetTraderConfig 保持一致）
+		// 返回 AI 模型的 ModelID（如 "deepseek", "qwen-chat"），而不是整数 ID
+		// 前端需要使用 .includes() 方法来检查模型类型
+		aiModelID := aiModelMap[trader.AIModelID]
+		if aiModelID == "" {
+			aiModelID = "unknown" // 如果找不到，返回默认值
+		}
+
+		// 返回交易所的 ExchangeID（如 "binance", "hyperliquid"），而不是整数 ID
+		exchangeID := exchangeMap[trader.ExchangeID]
+		if exchangeID == "" {
+			exchangeID = "unknown" // 如果找不到，返回默认值
+		}
+
 		result = append(result, map[string]interface{}{
 			"trader_id":              trader.ID,
 			"trader_name":            trader.Name,
-			"ai_model":               trader.AIModelID, // 使用完整 ID
-			"exchange_id":            trader.ExchangeID,
+			"ai_model":               aiModelID,
+			"exchange_id":            exchangeID,
 			"is_running":             isRunning,
 			"initial_balance":        trader.InitialBalance,
 			"system_prompt_template": trader.SystemPromptTemplate,
@@ -1411,7 +1651,7 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		return
 	}
 
-	traderConfig, _, _, err := s.database.GetTraderConfig(userID, traderID)
+	traderConfig, aiModel, exchange, err := s.database.GetTraderConfig(userID, traderID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("获取交易员配置失败: %v", err)})
 		return
@@ -1426,14 +1666,18 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		}
 	}
 
-	// 返回完整的模型ID，不做转换，保持与前端模型列表一致
-	aiModelID := traderConfig.AIModelID
+	// 返回 AI 模型的 ModelID（如 "deepseek", "qwen-chat"），而不是整数 ID
+	// 前端需要使用 .includes() 方法来检查模型类型
+	aiModelID := aiModel.ModelID
+
+	// 返回交易所的 ExchangeID（如 "binance", "hyperliquid"），而不是整数 ID
+	exchangeID := exchange.ExchangeID
 
 	result := map[string]interface{}{
 		"trader_id":              traderConfig.ID,
 		"trader_name":            traderConfig.Name,
 		"ai_model":               aiModelID,
-		"exchange_id":            traderConfig.ExchangeID,
+		"exchange_id":            exchangeID,
 		"initial_balance":        traderConfig.InitialBalance,
 		"scan_interval_minutes":  traderConfig.ScanIntervalMinutes,
 		"btc_eth_leverage":       traderConfig.BTCETHLeverage,
@@ -1674,22 +1918,16 @@ func (s *Server) handleEquityHistory(c *gin.Context) {
 		CycleNumber      int     `json:"cycle_number"`
 	}
 
-	// 从AutoTrader获取初始余额（用于计算盈亏百分比）
-	initialBalance := 0.0
+	// 从AutoTrader获取当前初始余额（用作旧数据的fallback）
+	base := 0.0
 	if status := trader.GetStatus(); status != nil {
 		if ib, ok := status["initial_balance"].(float64); ok && ib > 0 {
-			initialBalance = ib
+			base = ib
 		}
 	}
 
-	// 如果无法从status获取，且有历史记录，则从第一条记录获取
-	if initialBalance == 0 && len(records) > 0 {
-		// 第一条记录的equity作为初始余额
-		initialBalance = records[0].AccountState.TotalBalance
-	}
-
 	// 如果还是无法获取，返回错误
-	if initialBalance == 0 {
+	if base == 0 {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "无法获取初始余额",
 		})
@@ -1699,14 +1937,24 @@ func (s *Server) handleEquityHistory(c *gin.Context) {
 	var history []EquityPoint
 	for _, record := range records {
 		// TotalBalance字段实际存储的是TotalEquity
-		totalEquity := record.AccountState.TotalBalance
+		// totalEquity := record.AccountState.TotalBalance
 		// TotalUnrealizedProfit字段实际存储的是TotalPnL（相对初始余额）
-		totalPnL := record.AccountState.TotalUnrealizedProfit
+		// totalPnL := record.AccountState.TotalUnrealizedProfit
+		walletBalance := record.AccountState.TotalBalance
+		unrealizedPnL := record.AccountState.TotalUnrealizedProfit
+		totalEquity := walletBalance + unrealizedPnL
 
+		// 🔄 使用历史记录中保存的initial_balance（如果有）
+		// 这样可以保持历史PNL%的准确性，即使用户后来更新了initial_balance
+		if record.AccountState.InitialBalance > 0 {
+			base = record.AccountState.InitialBalance
+		}
+
+		totalPnL := totalEquity - base
 		// 计算盈亏百分比
 		totalPnLPct := 0.0
-		if initialBalance > 0 {
-			totalPnLPct = (totalPnL / initialBalance) * 100
+		if base > 0 {
+			totalPnLPct = (totalPnL / base) * 100
 		}
 
 		history = append(history, EquityPoint{
@@ -1823,6 +2071,14 @@ func (s *Server) handleLogout(c *gin.Context) {
 
 // handleRegister 处理用户注册请求
 func (s *Server) handleRegister(c *gin.Context) {
+	regEnabled := true
+	if regStr, err := s.database.GetSystemConfig("registration_enabled"); err == nil {
+		regEnabled = strings.ToLower(regStr) != "false"
+	}
+	if !regEnabled {
+		c.JSON(http.StatusForbidden, gin.H{"error": "注册已关闭"})
+		return
+	}
 
 	var req struct {
 		Email    string `json:"email" binding:"required,email"`
@@ -2145,7 +2401,7 @@ func (s *Server) handleGetSupportedExchanges(c *gin.Context) {
 	safeExchanges := make([]SafeExchangeConfig, len(exchanges))
 	for i, exchange := range exchanges {
 		safeExchanges[i] = SafeExchangeConfig{
-			ID:                    exchange.ID,
+			ID:                    exchange.ExchangeID, // 返回 exchange_id（例如 "binance"）
 			Name:                  exchange.Name,
 			Type:                  exchange.Type,
 			Enabled:               exchange.Enabled,
@@ -2276,16 +2532,17 @@ func (s *Server) handlePublicTraderList(c *gin.Context) {
 	result := make([]map[string]interface{}, 0, len(traders))
 	for _, trader := range traders {
 		result = append(result, map[string]interface{}{
-			"trader_id":       trader["trader_id"],
-			"trader_name":     trader["trader_name"],
-			"ai_model":        trader["ai_model"],
-			"exchange":        trader["exchange"],
-			"is_running":      trader["is_running"],
-			"total_equity":    trader["total_equity"],
-			"total_pnl":       trader["total_pnl"],
-			"total_pnl_pct":   trader["total_pnl_pct"],
-			"position_count":  trader["position_count"],
-			"margin_used_pct": trader["margin_used_pct"],
+			"trader_id":              trader["trader_id"],
+			"trader_name":            trader["trader_name"],
+			"ai_model":               trader["ai_model"],
+			"exchange":               trader["exchange"],
+			"is_running":             trader["is_running"],
+			"total_equity":           trader["total_equity"],
+			"total_pnl":              trader["total_pnl"],
+			"total_pnl_pct":          trader["total_pnl_pct"],
+			"position_count":         trader["position_count"],
+			"margin_used_pct":        trader["margin_used_pct"],
+			"system_prompt_template": trader["system_prompt_template"],
 		})
 	}
 

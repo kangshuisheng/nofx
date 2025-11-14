@@ -168,6 +168,7 @@ export const translations = {
     quickStartStep3Title: 'Create AI Trader',
     step3Description: 'Complete steps 1 and 2 to enable trader creation',
     step3Ready: 'All set! Create your first trader now',
+    step3Completed: 'Created',
     goToSettings: 'Go to Settings',
 
     modelNotConfigured: 'Selected model is not configured',
@@ -186,7 +187,7 @@ export const translations = {
     configureAIModels: 'Configure AI Models',
     configureExchanges: 'Configure Exchanges',
     aiScanInterval: 'AI Scan Decision Interval (minutes)',
-    scanIntervalRecommend: 'Recommended: 3-10 minutes',
+    scanIntervalRecommend: 'Minimum: 1 minute, Recommended: 3-10 minutes',
     useTestnet: 'Use Testnet',
     enabled: 'Enabled',
     save: 'Save',
@@ -203,41 +204,43 @@ export const translations = {
 
     // Exchange Configuration
     secretKey: 'Secret Key',
-    privateKey: 'Private Key',
+    privateKey: 'API Wallet Private Key',
     walletAddress: 'Wallet Address',
-    user: 'User',
-    signer: 'Signer',
+    user: 'Main Wallet Address',
+    signer: 'API Wallet Address',
     passphrase: 'Passphrase',
-    enterPrivateKey: 'Enter Private Key',
+    enterPrivateKey: 'Enter API Wallet Private Key',
     enterWalletAddress: 'Enter Wallet Address',
-    enterUser: 'Enter User',
-    enterSigner: 'Enter Signer Address',
+    enterUser: 'Enter Main Wallet Address',
+    enterSigner: 'Enter API Wallet Address',
     enterSecretKey: 'Enter Secret Key',
     enterPassphrase: 'Enter Passphrase (Required for OKX)',
     hyperliquidPrivateKeyDesc:
-      'Hyperliquid uses private key for trading authentication',
+      'Hyperliquid uses API key for trading authentication',
     hyperliquidWalletAddressDesc:
-      'Wallet address corresponding to the private key',
+      'Wallet address corresponding to the API key',
     // Hyperliquid Agent Wallet (New Security Model)
-    hyperliquidAgentWalletTitle: 'Hyperliquid Agent Wallet Configuration',
+    hyperliquidAgentWalletTitle: 'Hyperliquid API Wallet Configuration',
     hyperliquidAgentWalletDesc:
-      'Use Agent Wallet for secure trading: Agent wallet signs transactions (balance ~0), Main wallet holds funds (never expose private key)',
-    hyperliquidAgentPrivateKey: 'Agent Private Key',
-    enterHyperliquidAgentPrivateKey: 'Enter Agent wallet private key',
+      'Use API Wallet for secure trading: API wallet signs transactions (balance ~0), Main wallet holds funds (never expose private key)',
+    hyperliquidAgentPrivateKey: 'API Wallet Private Key',
+    enterHyperliquidAgentPrivateKey: 'Enter API Wallet Private Key',
     hyperliquidAgentPrivateKeyDesc:
-      'Agent wallet private key for signing transactions (keep balance near 0 for security)',
+      '🔑 API Wallet Private Key - Private key for signing transactions (keep balance near 0, address auto-derived from key)',
     hyperliquidMainWalletAddress: 'Main Wallet Address',
-    enterHyperliquidMainWalletAddress: 'Enter Main wallet address',
+    enterHyperliquidMainWalletAddress: 'Enter Main Wallet Address',
     hyperliquidMainWalletAddressDesc:
-      'Main wallet address that holds your trading funds (never expose its private key)',
+      '💼 Main Wallet Address - Wallet address that holds your trading funds (never expose its private key, corresponds to Aster Main Wallet)',
     asterUserDesc:
-      'Main wallet address - The EVM wallet address you use to log in to Aster (Note: Only EVM wallets are supported, Solana wallets are not supported)',
+      '💼 Main Wallet Address - EVM wallet address that holds your trading funds (used for logging into Aster platform, corresponds to Hyperliquid Main Wallet. Note: Only EVM wallets supported, Solana not supported)',
     asterSignerDesc:
-      'API wallet address - Generate from https://www.asterdex.com/en/api-wallet',
+      '⚡ API Wallet Address - API wallet address used for signing transactions. Generate a dedicated API wallet at https://www.asterdex.com/en/api-wallet (recommended to keep balance near 0)',
     asterPrivateKeyDesc:
-      'API wallet private key - Get from https://www.asterdex.com/en/api-wallet (only used locally for signing, never transmitted)',
+      '🔑 API Wallet Private Key - Private key corresponding to the API Wallet Address above. Get it from https://www.asterdex.com/en/api-wallet. Used locally for signing only, never transmitted to server',
     asterUsdtWarning:
       'Important: Aster only tracks USDT balance. Please ensure you use USDT as margin currency to avoid P&L calculation errors caused by price fluctuations of other assets (BNB, ETH, etc.)',
+    hyperliquidUsdcWarning:
+      'Important: Hyperliquid runs on Arbitrum chain and uses USDC as margin.\n• First, hold USDC in your Arbitrum wallet\n• Use Bridge/Deposit on Hyperliquid website to deposit USDC into the contract before trading\n• Deposit/Withdraw: https://app.hyperliquid.xyz/',
 
     // Exchange names
     hyperliquidExchangeName: 'Hyperliquid',
@@ -519,6 +522,9 @@ export const translations = {
     exitLogin: 'Sign Out',
     signIn: 'Sign In',
     signUp: 'Sign Up',
+    registrationClosed: 'Registration Closed',
+    registrationClosedMessage:
+      'User registration is currently disabled. Please contact the administrator for access.',
 
     // Hero Section
     githubStarsInDays: '2.5K+ GitHub Stars in 3 days',
@@ -1035,6 +1041,7 @@ export const translations = {
     quickStartStep3Title: '创建 AI 交易员',
     step3Description: '完成前两步后可创建交易员',
     step3Ready: '一切就绪，立即创建您的第一个交易员',
+    step3Completed: '已创建',
     goToSettings: '前往设置',
 
     modelNotConfigured: '所选模型未配置',
@@ -1053,7 +1060,7 @@ export const translations = {
     configureAIModels: '配置AI模型',
     configureExchanges: '配置交易所',
     aiScanInterval: 'AI 扫描决策间隔 (分钟)',
-    scanIntervalRecommend: '建议: 3-10分钟',
+    scanIntervalRecommend: '最低1分钟，建议: 3-10分钟',
     useTestnet: '使用测试网',
     enabled: '启用',
     save: '保存',
@@ -1069,40 +1076,42 @@ export const translations = {
     useCustomAPI: '使用自定义API端点',
 
     // Exchange Configuration
-    secretKey: '密钥',
-    privateKey: '私钥',
+    secretKey: 'Secret密钥',
+    privateKey: 'API钱包密钥',
     walletAddress: '钱包地址',
-    user: '用户名',
-    signer: '签名者',
+    user: '主钱包地址',
+    signer: 'API钱包地址',
     passphrase: '口令',
-    enterSecretKey: '输入密钥',
-    enterPrivateKey: '输入私钥',
+    enterSecretKey: '输入 Secret 密钥',
+    enterPrivateKey: '输入API钱包密钥',
     enterWalletAddress: '输入钱包地址',
-    enterUser: '输入用户名',
-    enterSigner: '输入签名者地址',
+    enterUser: '输入主钱包地址',
+    enterSigner: '输入API钱包地址',
     enterPassphrase: '输入Passphrase (OKX必填)',
-    hyperliquidPrivateKeyDesc: 'Hyperliquid 使用私钥进行交易认证',
-    hyperliquidWalletAddressDesc: '与私钥对应的钱包地址',
+    hyperliquidPrivateKeyDesc: 'Hyperliquid 使用密钥进行交易认证',
+    hyperliquidWalletAddressDesc: '与密钥对应的钱包地址',
     // Hyperliquid 代理钱包 (新安全模型)
-    hyperliquidAgentWalletTitle: 'Hyperliquid 代理钱包配置',
+    hyperliquidAgentWalletTitle: 'Hyperliquid API钱包配置',
     hyperliquidAgentWalletDesc:
-      '使用代理钱包安全交易：代理钱包用于签名（餘額~0），主钱包持有资金（永不暴露私钥）',
-    hyperliquidAgentPrivateKey: '代理私钥',
-    enterHyperliquidAgentPrivateKey: '输入代理钱包私钥',
+      '使用API钱包安全交易：API钱包用于签名（余额~0），主钱包持有资金（永不暴露密钥）',
+    hyperliquidAgentPrivateKey: 'API钱包密钥',
+    enterHyperliquidAgentPrivateKey: '输入API钱包密钥',
     hyperliquidAgentPrivateKeyDesc:
-      '代理钱包私钥，用于签名交易（为了安全应保持余额接近0）',
+      '🔑 API钱包密钥 - 用于签名交易的钱包私钥（建议余额接近0，地址自动从私钥推导）',
     hyperliquidMainWalletAddress: '主钱包地址',
     enterHyperliquidMainWalletAddress: '输入主钱包地址',
     hyperliquidMainWalletAddressDesc:
-      '持有交易资金的主钱包地址（永不暴露其私钥）',
+      '💼 主钱包地址 - 持有交易资金的钱包地址（永不暴露其密钥，对应Aster的主钱包地址）',
     asterUserDesc:
-      '主钱包地址 - 您用于登录 Aster 的 EVM 钱包地址（注意：仅支持 EVM 钱包，不支持 Solana 钱包）',
+      '💼 主钱包地址 - 持有交易资金的 EVM 钱包地址（用于登录 Aster 平台，对应 Hyperliquid 的主钱包地址。注意：仅支持 EVM 钱包，不支持 Solana）',
     asterSignerDesc:
-      'API 钱包地址 - 从 https://www.asterdex.com/zh-CN/api-wallet 生成',
+      '⚡ API钱包地址 - 用于签署交易的API钱包地址。请前往 https://www.asterdex.com/zh-CN/api-wallet 生成专用的 API 钱包（建议保持余额接近 0）',
     asterPrivateKeyDesc:
-      'API 钱包私钥 - 从 https://www.asterdex.com/zh-CN/api-wallet 获取（仅在本地用于签名，不会被传输）',
+      '🔑 API钱包密钥 - 上方API钱包地址对应的私钥。从 https://www.asterdex.com/zh-CN/api-wallet 获取。仅在本地用于签名，永不传输到服务器',
     asterUsdtWarning:
       '重要提示：Aster 仅统计 USDT 余额。请确保您使用 USDT 作为保证金币种，避免其他资产（BNB、ETH等）的价格波动导致盈亏统计错误',
+    hyperliquidUsdcWarning:
+      '重要提示：Hyperliquid 运行在 Arbitrum 链上，使用 USDC 作为保证金。\n• 首先在 Arbitrum 钱包持有 USDC\n• 通过 Hyperliquid 官网 Bridge/Deposit 将 USDC 存入合约后才能交易\n• 存取款：https://app.hyperliquid.xyz/',
 
     // Exchange names
     hyperliquidExchangeName: 'Hyperliquid',
@@ -1119,19 +1128,19 @@ export const translations = {
       '已通过安全双阶段输入设置。若需修改，请点击"重新安全输入"。',
 
     // Two Stage Key Modal
-    twoStageModalTitle: '安全私钥输入',
-    twoStageModalDescription: '使用双阶段流程安全输入长度为 {length} 的私钥。',
+    twoStageModalTitle: '安全密钥输入',
+    twoStageModalDescription: '使用双阶段流程安全输入长度为 {length} 的密钥。',
     twoStageStage1Title: '步骤一 · 输入前半段',
     twoStageStage1Placeholder: '前 32 位字符（若有 0x 前缀请保留）',
     twoStageStage1Hint:
       '继续后会将扰动字符串复制到剪贴板，用于迷惑剪贴板监控。',
-    twoStageStage1Error: '请先输入第一段私钥。',
+    twoStageStage1Error: '请先输入第一段密钥。',
     twoStageNext: '下一步',
     twoStageProcessing: '处理中…',
     twoStageCancel: '取消',
     twoStageStage2Title: '步骤二 · 输入剩余部分',
-    twoStageStage2Placeholder: '剩余的私钥字符',
-    twoStageStage2Hint: '将扰动字符串粘贴到任意位置后，再完成私钥输入。',
+    twoStageStage2Placeholder: '剩余的密钥字符',
+    twoStageStage2Hint: '将扰动字符串粘贴到任意位置后，再完成密钥输入。',
     twoStageClipboardSuccess:
       '扰动字符串已复制。请在完成前在任意文本处粘贴一次以迷惑剪贴板记录。',
     twoStageClipboardReminder:
@@ -1140,7 +1149,7 @@ export const translations = {
     twoStageBack: '返回',
     twoStageSubmit: '确认',
     twoStageInvalidFormat:
-      '私钥格式不正确，应为 {length} 位十六进制字符（可选 0x 前缀）。',
+      '密钥格式不正确，应为 {length} 位十六进制字符（可选 0x 前缀）。',
     testnetDescription: '启用后将连接到交易所测试环境,用于模拟交易',
     securityWarning: '安全提示',
     saveConfiguration: '保存配置',
@@ -1352,6 +1361,8 @@ export const translations = {
     exitLogin: '退出登录',
     signIn: '登录',
     signUp: '注册',
+    registrationClosed: '注册已关闭',
+    registrationClosedMessage: '平台当前不开放新用户注册，如需访问请联系管理员获取账号。',
 
     // Hero Section
     githubStarsInDays: '3 天内 2.5K+ GitHub Stars',
@@ -1386,7 +1397,7 @@ export const translations = {
     multiAgentFeatures4: '跨市场策略移植',
     secureReliableTrading: '安全可靠交易',
     secureDesc: '企业级安全保障，完全掌控你的资金和交易策略。',
-    secureFeatures1: '本地私钥管理',
+    secureFeatures1: '本地密钥管理',
     secureFeatures2: 'API 权限精细控制',
     secureFeatures3: '实时风险监控',
     secureFeatures4: '交易日志审计',
@@ -1509,7 +1520,7 @@ export const translations = {
 
     faqGetApiKeys: '如何获取 API 密钥？',
     faqGetApiKeysAnswer:
-      '币安：账户 → API 管理 → 创建 API → 启用合约。Hyperliquid：访问 Hyperliquid App → API 设置。Aster DEX：配置主钱包地址（User）、API 钱包地址（Signer）和私钥（Private Key）。',
+      '币安：账户 → API 管理 → 创建 API → 启用合约。Hyperliquid：访问 Hyperliquid App → API 设置。Aster DEX：配置主钱包地址（User）、API 钱包地址（Signer）和密钥（Private Key）。',
 
     faqUseSubaccount: '应该使用子账户吗？',
     faqUseSubaccountAnswer:
@@ -1656,13 +1667,13 @@ export const translations = {
 
     // Two-Stage Key Modal
     twoStageKey: {
-      title: '两阶段私钥输入',
-      stage1Description: '请输入私钥的前 {length} 位字符',
-      stage2Description: '请输入私钥的后 {length} 位字符',
+      title: '两阶段密钥输入',
+      stage1Description: '请输入密钥的前 {length} 位字符',
+      stage2Description: '请输入密钥的后 {length} 位字符',
       stage1InputLabel: '第一部分',
       stage2InputLabel: '第二部分',
       characters: '位字符',
-      helpText: '💡 請輸入 {length} 位（不含 0x）或 {totalWithPrefix} 位（含 0x 前綴）',
+      helpText: '💡 请输入 {length} 位（不含 0x）或 {totalWithPrefix} 位（含 0x 前缀）',
       processing: '处理中...',
       nextButton: '下一步',
       cancelButton: '取消',
@@ -1676,7 +1687,7 @@ export const translations = {
     // Error Messages
     errors: {
       privatekeyIncomplete: '请输入至少 {expected} 位字符',
-      privatekeyInvalidFormat: '私钥格式无效（应为64位十六进制字符）',
+      privatekeyInvalidFormat: '密钥格式无效（应为64位十六进制字符）',
       privatekeyObfuscationFailed: '剪贴板混淆失败',
     },
   },

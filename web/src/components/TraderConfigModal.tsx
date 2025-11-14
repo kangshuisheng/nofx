@@ -25,10 +25,14 @@ interface TraderConfigData {
   is_cross_margin: boolean
   use_coin_pool: boolean
   use_oi_top: boolean
-  initial_balance: number
+  initial_balance?: number // 可选：创建时不需要，编辑时使用
   scan_interval_minutes: number
-  taker_fee_rate: number  // Taker 费率 (默认 0.0004 = 0.04%)
-  maker_fee_rate: number  // Maker 费率 (默认 0.0002 = 0.02%)
+  taker_fee_rate: number // Taker 费率 (默认 0.0004 = 0.04%)
+  maker_fee_rate: number // Maker 费率 (默认 0.0002 = 0.02%)
+  timeframes: string // 时间线选择 (逗号分隔，例如: "1m,4h,1d")
+  order_strategy: string // Order strategy: "market_only", "conservative_hybrid", "limit_only"
+  limit_price_offset: number // Limit order price offset percentage (e.g., -0.03 for -0.03%)
+  limit_timeout_seconds: number // Timeout in seconds before converting to market order
 }
 
 interface TraderConfigModalProps {
@@ -38,6 +42,7 @@ interface TraderConfigModalProps {
   isEditMode?: boolean
   availableModels?: AIModel[]
   availableExchanges?: Exchange[]
+  existingTraderCount?: number
   onSave?: (data: CreateTraderRequest) => Promise<void>
 }
 
@@ -48,9 +53,19 @@ export function TraderConfigModal({
   isEditMode = false,
   availableModels = [],
   availableExchanges = [],
+  existingTraderCount = 0,
   onSave,
 }: TraderConfigModalProps) {
   const { language } = useLanguage()
+
+  // Generate smart default trader name
+  const generateDefaultName = () => {
+    const modelName = availableModels[0]?.name || 'AI'
+    const exchangeName =
+      availableExchanges[0]?.name?.split(' ')[0] || 'Exchange'
+    const nextNumber = existingTraderCount + 1
+    return `${modelName}-${exchangeName}-${nextNumber}`
+  }
   const [formData, setFormData] = useState<TraderConfigData>({
     trader_name: '',
     ai_model: '',
@@ -64,10 +79,14 @@ export function TraderConfigModal({
     is_cross_margin: true,
     use_coin_pool: false,
     use_oi_top: false,
-    initial_balance: 1000,
+    initial_balance: 100,
     scan_interval_minutes: 3,
     taker_fee_rate: 0.0004, // 默认 Binance Taker 费率 (0.04%)
     maker_fee_rate: 0.0002, // 默认 Binance Maker 费率 (0.02%)
+    timeframes: '4h', // 默认只勾选 4 小时线
+    order_strategy: 'conservative_hybrid', // 默认使用保守混合策略
+    limit_price_offset: -0.03, // 默认 -0.03% 限价偏移
+    limit_timeout_seconds: 60, // 默认 60 秒超时
   })
   const [isSaving, setIsSaving] = useState(false)
   const [availableCoins, setAvailableCoins] = useState<string[]>([])
@@ -100,7 +119,7 @@ export function TraderConfigModal({
       }
     } else if (!isEditMode) {
       setFormData({
-        trader_name: '',
+        trader_name: generateDefaultName(),
         ai_model: availableModels[0]?.id || '',
         exchange_id: availableExchanges[0]?.id || '',
         btc_eth_leverage: 5,
@@ -112,11 +131,38 @@ export function TraderConfigModal({
         is_cross_margin: true,
         use_coin_pool: false,
         use_oi_top: false,
-        initial_balance: 1000,
+        initial_balance: 100,
         scan_interval_minutes: 3,
         taker_fee_rate: 0.0004, // 默认 Binance Taker 费率 (0.04%)
         maker_fee_rate: 0.0002, // 默认 Binance Maker 费率 (0.02%)
+        timeframes: '4h', // 默认只勾选 4 小时线
+        order_strategy: 'conservative_hybrid', // 默认使用保守混合策略
+        limit_price_offset: -0.03, // 默认 -0.03%
+        limit_timeout_seconds: 60, // 默认 60秒超时
       })
+    }
+    // 确保旧数据也有默认的 timeframes 和 system_prompt_template
+    if (traderData && traderData.timeframes === undefined) {
+      setFormData((prev) => ({
+        ...prev,
+        timeframes: '4h',
+      }))
+    }
+    // 确保旧数据也有默认的 system_prompt_template
+    if (traderData && traderData.system_prompt_template === undefined) {
+      setFormData((prev) => ({
+        ...prev,
+        system_prompt_template: 'default',
+      }))
+    }
+    // 确保旧数据也有默认的订单策略配置
+    if (traderData && traderData.order_strategy === undefined) {
+      setFormData((prev) => ({
+        ...prev,
+        order_strategy: 'conservative_hybrid',
+        limit_price_offset: -0.03,
+        limit_timeout_seconds: 60,
+      }))
     }
   }, [traderData, isEditMode, availableModels, availableExchanges])
 
@@ -256,16 +302,20 @@ export function TraderConfigModal({
         is_cross_margin: formData.is_cross_margin,
         use_coin_pool: formData.use_coin_pool,
         use_oi_top: formData.use_oi_top,
-        initial_balance: formData.initial_balance,
         scan_interval_minutes: formData.scan_interval_minutes,
-        taker_fee_rate: formData.taker_fee_rate,  // 添加 Taker 费率
-        maker_fee_rate: formData.maker_fee_rate,  // 添加 Maker 费率
+        taker_fee_rate: formData.taker_fee_rate, // 添加 Taker 费率
+        maker_fee_rate: formData.maker_fee_rate, // 添加 Maker 费率
+        timeframes: formData.timeframes, // 添加时间线选择
       }
-      await toast.promise(onSave(saveData), {
-        loading: '正在保存…',
-        success: '保存成功',
-        error: '保存失败',
-      })
+
+      // 只在编辑模式时包含initial_balance（用于手动更新）
+      if (isEditMode && formData.initial_balance !== undefined) {
+        saveData.initial_balance = formData.initial_balance
+      }
+
+      // 直接调用 onSave，让父组件处理 toast 通知
+      // 避免重复弹窗（父组件 AITradersPage 已有 toast.promise）
+      await onSave(saveData)
       onClose()
     } catch (error) {
       console.error('保存失败:', error)
@@ -321,7 +371,8 @@ export function TraderConfigModal({
             <div className="space-y-4">
               <div>
                 <label className="text-sm text-[#EAECEF] block mb-2">
-                  交易员名称
+                  {language === 'zh' ? '交易员名称' : 'Trader Name'}{' '}
+                  <span className="text-[#F6465D]">*</span>
                 </label>
                 <input
                   type="text"
@@ -330,7 +381,12 @@ export function TraderConfigModal({
                     handleInputChange('trader_name', e.target.value)
                   }
                   className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
-                  placeholder="请输入交易员名称"
+                  placeholder={
+                    language === 'zh'
+                      ? '例如: DeepSeek-Binance-1'
+                      : 'e.g., DeepSeek-Binance-1'
+                  }
+                  required
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -415,15 +471,12 @@ export function TraderConfigModal({
                     </button>
                   </div>
                 </div>
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm text-[#EAECEF]">
-                      初始余额 ($)
-                      {!isEditMode && (
-                        <span className="text-[#F0B90B] ml-1">*</span>
-                      )}
-                    </label>
-                    {isEditMode && (
+                {isEditMode && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm text-[#EAECEF]">
+                        初始余额 ($)
+                      </label>
                       <button
                         type="button"
                         onClick={handleFetchCurrentBalance}
@@ -432,26 +485,46 @@ export function TraderConfigModal({
                       >
                         {isFetchingBalance ? '获取中...' : '获取当前余额'}
                       </button>
+                    </div>
+                    <input
+                      type="number"
+                      value={formData.initial_balance || 0}
+                      onChange={(e) =>
+                        handleInputChange(
+                          'initial_balance',
+                          Number(e.target.value)
+                        )
+                      }
+                      onBlur={(e) => {
+                        // Force minimum value on blur
+                        const value = Number(e.target.value)
+                        if (value < 100) {
+                          handleInputChange('initial_balance', 100)
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
+                      min="100"
+                      step="0.01"
+                    />
+                    <p className="text-xs text-[#848E9C] mt-1">
+                      用于手动更新初始余额基准（例如充值/提现后）
+                    </p>
+                    {balanceFetchError && (
+                      <p className="text-xs text-red-500 mt-1">
+                        {balanceFetchError}
+                      </p>
                     )}
                   </div>
-                  <input
-                    type="number"
-                    value={formData.initial_balance}
-                    onChange={(e) =>
-                      handleInputChange(
-                        'initial_balance',
-                        Number(e.target.value)
-                      )
-                    }
-                    className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
-                    min="0.01"
-                    step="0.01"
-                  />
-                  {!isEditMode && (
-                    <p className="text-xs text-[#F0B90B] mt-1 flex items-center gap-1">
+                )}
+                {!isEditMode && (
+                  <div>
+                    <label className="text-sm text-[#EAECEF] mb-2 block">
+                      初始余额
+                    </label>
+                    <div className="w-full px-3 py-2 bg-[#1E2329] border border-[#2B3139] rounded text-[#848E9C] flex items-center gap-2">
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        className="w-3.5 h-3.5"
+                        className="w-4 h-4 text-[#F0B90B]"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
@@ -459,26 +532,16 @@ export function TraderConfigModal({
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       >
-                        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
-                        <line x1="12" x2="12" y1="9" y2="13" />
-                        <line x1="12" x2="12.01" y1="17" y2="17" />
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" x2="12" y1="8" y2="12" />
+                        <line x1="12" x2="12.01" y1="16" y2="16" />
                       </svg>
-                      请输入您交易所账户的当前实际余额。建议最低 100
-                      USDT，留空或输入 0 将自动从交易所获取。如果输入不准确，P&L
-                      统计将会错误。
-                    </p>
-                  )}
-                  {isEditMode && (
-                    <p className="text-xs text-[#848E9C] mt-1">
-                      点击"获取当前余额"按钮可自动获取您交易所账户的当前净值
-                    </p>
-                  )}
-                  {balanceFetchError && (
-                    <p className="text-xs text-red-500 mt-1">
-                      {balanceFetchError}
-                    </p>
-                  )}
-                </div>
+                      <span className="text-sm">
+                        系统将自动获取您的账户净值作为初始余额
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 第二行：AI 扫描决策间隔 */}
@@ -493,12 +556,12 @@ export function TraderConfigModal({
                     onChange={(e) => {
                       const parsedValue = Number(e.target.value)
                       const safeValue = Number.isFinite(parsedValue)
-                        ? Math.max(3, parsedValue)
-                        : 3
+                        ? Math.max(1, parsedValue)
+                        : 1
                       handleInputChange('scan_interval_minutes', safeValue)
                     }}
                     className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
-                    min="3"
+                    min="1"
                     max="60"
                     step="1"
                   />
@@ -507,6 +570,81 @@ export function TraderConfigModal({
                   </p>
                 </div>
                 <div></div>
+              </div>
+
+              {/* 时间线选择 */}
+              <div>
+                <label className="text-sm text-[#EAECEF] block mb-3">
+                  📊{' '}
+                  {language === 'zh'
+                    ? 'K线时间线选择'
+                    : 'Kline Timeframe Selection'}
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  {(() => {
+                    const interval = formData.scan_interval_minutes
+                    const baseFrames = [
+                      { value: '15m', label: '15分钟' },
+                      { value: '1h', label: '1小时' },
+                      { value: '4h', label: '4小时' },
+                      { value: '1d', label: '1天' },
+                    ]
+
+                    // 根据扫描间隔添加短周期线
+                    const frames =
+                      interval === 1
+                        ? [{ value: '1m', label: '1分钟' }, ...baseFrames]
+                        : interval === 3
+                          ? [{ value: '3m', label: '3分钟' }, ...baseFrames]
+                          : baseFrames
+
+                    const selectedFrames = formData.timeframes
+                      .split(',')
+                      .filter((t) => t)
+
+                    return frames.map((frame) => {
+                      const isSelected = selectedFrames.includes(frame.value)
+                      return (
+                        <button
+                          key={frame.value}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              // 取消勾选
+                              const newFrames = selectedFrames.filter(
+                                (t) => t !== frame.value
+                              )
+                              handleInputChange(
+                                'timeframes',
+                                newFrames.join(',')
+                              )
+                            } else {
+                              // 勾选
+                              handleInputChange(
+                                'timeframes',
+                                [...selectedFrames, frame.value].join(',')
+                              )
+                            }
+                          }}
+                          className="px-3 py-2 rounded text-sm font-medium transition-all"
+                          style={{
+                            backgroundColor: isSelected ? '#F0B90B' : '#0B0E11',
+                            border: `1px solid ${isSelected ? '#F0B90B' : '#2B3139'}`,
+                            color: isSelected ? '#000' : '#EAECEF',
+                          }}
+                        >
+                          {isSelected && '✓ '}
+                          {frame.label}
+                        </button>
+                      )
+                    })
+                  })()}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {language === 'zh'
+                    ? '根据扫描间隔自动调整：1分钟扫描只显示1分钟线，3分钟扫描只显示3分钟线。默认勾选4小时线。'
+                    : 'Auto-adjusted by scan interval: 1min scan shows 1m only, 3min scan shows 3m only. 4h is selected by default.'}
+                </p>
               </div>
 
               {/* 第三行：杠杆设置 */}
@@ -593,6 +731,140 @@ export function TraderConfigModal({
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     默认 0.02% (Binance 标准费率)
+                  </p>
+                </div>
+              </div>
+
+              {/* 订单策略设置 */}
+              <div>
+                <label className="text-sm text-[#EAECEF] block mb-3">
+                  📋 订单策略
+                </label>
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleInputChange('order_strategy', 'market_only')
+                    }
+                    className={`px-3 py-2 rounded text-sm ${
+                      formData.order_strategy === 'market_only'
+                        ? 'bg-[#F0B90B] text-black'
+                        : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                    }`}
+                  >
+                    仅市价单
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleInputChange('order_strategy', 'conservative_hybrid')
+                    }
+                    className={`px-3 py-2 rounded text-sm ${
+                      formData.order_strategy === 'conservative_hybrid'
+                        ? 'bg-[#F0B90B] text-black'
+                        : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                    }`}
+                  >
+                    保守混合
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleInputChange('order_strategy', 'limit_only')
+                    }
+                    className={`px-3 py-2 rounded text-sm ${
+                      formData.order_strategy === 'limit_only'
+                        ? 'bg-[#F0B90B] text-black'
+                        : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                    }`}
+                  >
+                    仅限价单
+                  </button>
+                </div>
+
+                {/* 限价偏移和超时设置（仅在非纯市价模式下显示） */}
+                {formData.order_strategy !== 'market_only' && (
+                  <div className="grid grid-cols-2 gap-4 mt-3">
+                    <div>
+                      <label className="text-sm text-[#EAECEF] block mb-2">
+                        限价偏移 (%)
+                      </label>
+                      <input
+                        type="number"
+                        value={formData.limit_price_offset}
+                        onChange={(e) =>
+                          handleInputChange(
+                            'limit_price_offset',
+                            Number(e.target.value)
+                          )
+                        }
+                        className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
+                        min="-1"
+                        max="0"
+                        step="0.01"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        负数表示优于市价（例如 -0.03 = 市价的 -0.03%）
+                      </p>
+                    </div>
+                    <div>
+                      <label className="text-sm text-[#EAECEF] block mb-2">
+                        超时转换 (秒)
+                      </label>
+                      <input
+                        type="number"
+                        value={formData.limit_timeout_seconds}
+                        onChange={(e) =>
+                          handleInputChange(
+                            'limit_timeout_seconds',
+                            Number(e.target.value)
+                          )
+                        }
+                        className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
+                        min="10"
+                        max="300"
+                        step="10"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        限价单未成交时，自动转为市价单的等待时间
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-3 p-3 bg-[#1E2329] rounded-lg border border-[#2B3139]">
+                  <p className="text-xs text-[#848E9C]">
+                    {formData.order_strategy === 'market_only' && (
+                      <>
+                        <span className="text-[#F0B90B] font-medium">
+                          仅市价单：
+                        </span>
+                        100% 成交率，立即执行，手续费较高（Taker 费率{' '}
+                        {(formData.taker_fee_rate * 100).toFixed(2)}%）
+                      </>
+                    )}
+                    {formData.order_strategy === 'conservative_hybrid' && (
+                      <>
+                        <span className="text-[#F0B90B] font-medium">
+                          保守混合：
+                        </span>
+                        先尝试限价单（Maker 费率{' '}
+                        {(formData.maker_fee_rate * 100).toFixed(2)}%），
+                        {formData.limit_timeout_seconds}
+                        秒未成交后自动转为市价单。 预计 85-90% 成交率，节省约
+                        0.02% 手续费
+                      </>
+                    )}
+                    {formData.order_strategy === 'limit_only' && (
+                      <>
+                        <span className="text-[#F0B90B] font-medium">
+                          仅限价单：
+                        </span>
+                        仅使用限价单（Maker 费率{' '}
+                        {(formData.maker_fee_rate * 100).toFixed(2)}%），
+                        不会自动转为市价单。成交率取决于市场流动性和偏移设置
+                      </>
+                    )}
                   </p>
                 </div>
               </div>

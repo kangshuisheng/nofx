@@ -137,6 +137,13 @@ type PriceTicker struct {
 	Price  string `json:"price"`
 }
 
+type Ticker struct {
+	Symbol    string  `json:"symbol"`
+	LastPrice float64 `json:"lastPrice"`
+	Volume    float64 `json:"volume,omitempty"`
+	Timestamp int64   `json:"timestamp,omitempty"`
+}
+
 type Ticker24hr struct {
 	Symbol             string `json:"symbol"`
 	PriceChange        string `json:"priceChange"`

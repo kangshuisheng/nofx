@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import ReactDOM from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import useSWR from 'swr'
 import { api } from '../lib/api'
@@ -36,6 +37,8 @@ import {
   HelpCircle,
   Radio,
   Pencil,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { confirmToast } from '../lib/notify'
 import { toast } from 'sonner'
@@ -74,7 +77,9 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   const [showExchangeModal, setShowExchangeModal] = useState(false)
   const [showSignalSourceModal, setShowSignalSourceModal] = useState(false)
   const [editingModel, setEditingModel] = useState<string | null>(null)
+  const [initialModelId, setInitialModelId] = useState<string | null>(null)
   const [editingExchange, setEditingExchange] = useState<string | null>(null)
+  const [initialExchangeId, setInitialExchangeId] = useState<string | null>(null)
   const [editingTrader, setEditingTrader] = useState<any>(null)
   const [supportedModels, setSupportedModels] = useState<AIModel[]>([])
   const [supportedExchanges, setSupportedExchanges] = useState<Exchange[]>([])
@@ -105,7 +110,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     )
   }
 
-  const { data: traders } = useSWR<TraderInfo[]>(
+  const { data: traders, mutate: mutateTraders } = useSWR<TraderInfo[]>(
     user && token ? 'traders' : null,
     api.getTraders,
     { refreshInterval: 5000 }
@@ -113,12 +118,14 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
 
   const { data: allModels, mutate: mutateModels } = useSWR<AIModel[]>(
     user && token ? 'models' : null,
-    api.getModelConfigs
+    api.getModelConfigs,
+    { refreshInterval: 5000 }
   )
 
   const { data: allExchanges, mutate: mutateExchanges } = useSWR<Exchange[]>(
     user && token ? 'exchanges' : null,
-    api.getExchangeConfigs
+    api.getExchangeConfigs,
+    { refreshInterval: 5000 }
   )
 
   // 加载支持的模型和交易所列表（用于选择）
@@ -270,6 +277,10 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         success: '创建成功',
         error: '创建失败',
       })
+
+      // Immediately refresh traders list for better UX
+      await mutateTraders()
+
       setShowCreateModal(false)
       cacheManager.onTraderCreated()
     } catch (error) {
@@ -329,6 +340,10 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         success: '保存成功',
         error: '保存失败',
       })
+
+      // Immediately refresh traders list for better UX
+      await mutateTraders()
+
       setShowEditModal(false)
       setEditingTrader(null)
       cacheManager.onTraderUpdated(traderId)
@@ -350,6 +365,10 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         success: '删除成功',
         error: '删除失败',
       })
+
+      // Immediately refresh traders list for better UX
+      await mutateTraders()
+
       cacheManager.onTraderDeleted(traderId)
     } catch (error) {
       console.error('Failed to delete trader:', error)
@@ -372,6 +391,10 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           error: '启动失败',
         })
       }
+
+      // Immediately refresh traders list to update running status
+      await mutateTraders()
+
       cacheManager.onTraderStateChanged(traderId)
     } catch (error) {
       console.error('Failed to toggle trader:', error)
@@ -900,15 +923,15 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
               return (
                 <div
                   key={model.id}
-                  className={`flex items-center justify-between p-2 md:p-3 rounded transition-all ${
-                    inUse
-                      ? 'cursor-not-allowed'
-                      : 'cursor-pointer hover:bg-gray-700'
-                  }`}
+                  className="flex items-center justify-between p-2 md:p-3 rounded transition-all"
                   style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
-                  onClick={() => handleModelClick(model.id)}
                 >
-                  <div className="flex items-center gap-2 md:gap-3">
+                  <div
+                    className={`flex items-center gap-2 md:gap-3 flex-1 min-w-0 ${
+                      inUse ? 'cursor-not-allowed' : 'cursor-pointer hover:opacity-80'
+                    }`}
+                    onClick={() => !inUse && handleModelClick(model.id)}
+                  >
                     <div className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center flex-shrink-0">
                       {getModelIcon(model.provider || model.id, {
                         width: 28,
@@ -942,30 +965,85 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                       </div>
                     </div>
                   </div>
-                  <div
-                    className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full flex-shrink-0 ${model.enabled ? 'bg-green-400' : 'bg-gray-500'}`}
-                  />
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <div
+                      className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${model.enabled ? 'bg-green-400' : 'bg-gray-500'}`}
+                    />
+                    <button
+                      onClick={() => handleDeleteModelConfig(model.id)}
+                      disabled={inUse}
+                      className="px-2 md:px-3 py-1.5 md:py-2 rounded text-xs md:text-sm font-semibold transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{
+                        background: 'rgba(246, 70, 93, 0.1)',
+                        color: '#F6465D',
+                      }}
+                      title={inUse ? t('cannotDelete', language) : t('delete', language)}
+                    >
+                      <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
+                    </button>
+                  </div>
                 </div>
               )
             })}
             {configuredModels.length === 0 && (
-              <div
-                className="text-center py-6 md:py-8"
-                style={{ color: '#848E9C' }}
-              >
-                <Brain className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2 opacity-50" />
-                <div className="text-xs md:text-sm mb-3">
-                  {t('noModelsConfigured', language)}
+              <div className="py-4">
+                <div className="text-center mb-4">
+                  <div className="text-sm font-semibold mb-2" style={{ color: '#EAECEF' }}>
+                    {t('selectModel', language)}
+                  </div>
+                  <div className="text-xs" style={{ color: '#848E9C' }}>
+                    {t('pleaseSelectModel', language)}
+                  </div>
                 </div>
-                <button
-                  onClick={handleAddModel}
-                  className="px-4 py-2 rounded text-sm font-medium transition-colors"
-                  style={{ backgroundColor: '#F0B90B', color: '#000' }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#FCD535'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#F0B90B'}
-                >
-                  {t('configureAIModels', language)}
-                </button>
+                <div className="grid grid-cols-2 gap-3">
+                  {supportedModels.map((model) => (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => {
+                        setEditingModel(null)
+                        setInitialModelId(model.id)
+                        setShowModelModal(true)
+                      }}
+                      className="p-4 rounded-lg border-2 transition-all hover:scale-[1.02]"
+                      style={{
+                        borderColor: '#2B3139',
+                        backgroundColor: '#0B0E11',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = 'rgba(240, 185, 11, 0.5)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#2B3139'
+                      }}
+                    >
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="w-12 h-12 flex items-center justify-center">
+                          {getModelIcon(model.provider || model.id, {
+                            width: 48,
+                            height: 48,
+                          }) || (
+                            <div
+                              className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold"
+                              style={{
+                                background: model.id === 'deepseek' ? '#60a5fa' : '#c084fc',
+                                color: '#fff',
+                              }}
+                            >
+                              {model.name[0]}
+                            </div>
+                          )}
+                        </div>
+                        <div className="font-semibold text-sm" style={{ color: '#EAECEF' }}>
+                          {getShortName(model.name)}
+                        </div>
+                        <div className="text-xs" style={{ color: '#848E9C' }}>
+                          {model.provider}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -989,15 +1067,15 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
               return (
                 <div
                   key={exchange.id}
-                  className={`flex items-center justify-between p-2 md:p-3 rounded transition-all ${
-                    inUse
-                      ? 'cursor-not-allowed'
-                      : 'cursor-pointer hover:bg-gray-700'
-                  }`}
+                  className="flex items-center justify-between p-2 md:p-3 rounded transition-all"
                   style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
-                  onClick={() => handleExchangeClick(exchange.id)}
                 >
-                  <div className="flex items-center gap-2 md:gap-3">
+                  <div
+                    className={`flex items-center gap-2 md:gap-3 flex-1 min-w-0 ${
+                      inUse ? 'cursor-not-allowed' : 'cursor-pointer hover:opacity-80'
+                    }`}
+                    onClick={() => !inUse && handleExchangeClick(exchange.id)}
+                  >
                     <div className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center flex-shrink-0">
                       {getExchangeIcon(exchange.id, { width: 28, height: 28 })}
                     </div>
@@ -1018,30 +1096,76 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                       </div>
                     </div>
                   </div>
-                  <div
-                    className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full flex-shrink-0 ${exchange.enabled ? 'bg-green-400' : 'bg-gray-500'}`}
-                  />
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <div
+                      className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full ${exchange.enabled ? 'bg-green-400' : 'bg-gray-500'}`}
+                    />
+                    <button
+                      onClick={() => handleDeleteExchangeConfig(exchange.id)}
+                      disabled={inUse}
+                      className="px-2 md:px-3 py-1.5 md:py-2 rounded text-xs md:text-sm font-semibold transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{
+                        background: 'rgba(246, 70, 93, 0.1)',
+                        color: '#F6465D',
+                      }}
+                      title={
+                        inUse
+                          ? t('cannotDelete', language)
+                          : t('delete', language)
+                      }
+                    >
+                      <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
+                    </button>
+                  </div>
                 </div>
               )
             })}
             {configuredExchanges.length === 0 && (
-              <div
-                className="text-center py-6 md:py-8"
-                style={{ color: '#848E9C' }}
-              >
-                <Landmark className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-2 opacity-50" />
-                <div className="text-xs md:text-sm mb-3">
-                  {t('noExchangesConfigured', language)}
+              <div className="py-4">
+                <div className="text-center mb-4">
+                  <div className="text-sm font-semibold mb-2" style={{ color: '#EAECEF' }}>
+                    {t('selectExchange', language)}
+                  </div>
+                  <div className="text-xs" style={{ color: '#848E9C' }}>
+                    {t('pleaseSelectExchange', language)}
+                  </div>
                 </div>
-                <button
-                  onClick={handleAddExchange}
-                  className="px-4 py-2 rounded text-sm font-medium transition-colors"
-                  style={{ backgroundColor: '#F0B90B', color: '#000' }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#FCD535'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#F0B90B'}
-                >
-                  {t('configureExchanges', language)}
-                </button>
+                <div className="grid grid-cols-2 gap-3">
+                  {supportedExchanges.map((exchange) => (
+                    <button
+                      key={exchange.id}
+                      type="button"
+                      onClick={() => {
+                        setEditingExchange(null)
+                        setInitialExchangeId(exchange.id)
+                        setShowExchangeModal(true)
+                      }}
+                      className="p-4 rounded-lg border-2 transition-all hover:scale-[1.02]"
+                      style={{
+                        borderColor: '#2B3139',
+                        backgroundColor: '#0B0E11',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = 'rgba(240, 185, 11, 0.5)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#2B3139'
+                      }}
+                    >
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="w-12 h-12 flex items-center justify-center">
+                          {getExchangeIcon(exchange.id, { width: 48, height: 48 })}
+                        </div>
+                        <div className="font-semibold text-sm" style={{ color: '#EAECEF' }}>
+                          {exchange.name}
+                        </div>
+                        <div className="text-xs" style={{ color: '#848E9C' }}>
+                          {exchange.type.toUpperCase()}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -1255,6 +1379,18 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                       }
                     </p>
                   </div>
+                  {configuredModels.length === 0 && (
+                    <button
+                      onClick={handleAddModel}
+                      className="flex-shrink-0 px-3 py-1.5 rounded text-xs font-semibold transition-all hover:scale-105"
+                      style={{
+                        background: '#F0B90B',
+                        color: '#000',
+                      }}
+                    >
+                      {language === 'zh' ? '配置AI模型' : 'Configure Model'}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1276,6 +1412,18 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                       }
                     </p>
                   </div>
+                  {configuredExchanges.length === 0 && (
+                    <button
+                      onClick={handleAddExchange}
+                      className="flex-shrink-0 px-3 py-1.5 rounded text-xs font-semibold transition-all hover:scale-105"
+                      style={{
+                        background: '#F0B90B',
+                        color: '#000',
+                      }}
+                    >
+                      {language === 'zh' ? '配置交易所' : 'Configure Exchange'}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1283,17 +1431,19 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
               <div className="rounded-lg p-4 md:p-6" style={{ backgroundColor: '#1E2329', border: '1px solid #2B3139' }}>
                 <div className="flex items-start gap-3 md:gap-4">
                   <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-base md:text-lg font-bold"
-                       style={{ backgroundColor: '#474D57', color: '#fff' }}>
-                    3
+                       style={{ backgroundColor: (traders && traders.length > 0) ? '#0ECB81' : '#474D57', color: '#fff' }}>
+                    {(traders && traders.length > 0) ? '✓' : '3'}
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="text-base md:text-lg font-semibold mb-2" style={{ color: '#EAECEF' }}>
                       {t('quickStartStep3Title', language)}
                     </h3>
-                    <p className="text-xs md:text-sm mb-3" style={{ color: '#848E9C' }}>
-                      {configuredModels.length > 0 && configuredExchanges.length > 0
-                        ? t('step3Ready', language)
-                        : t('step3Description', language)}
+                    <p className="text-xs md:text-sm mb-3" style={{ color: (traders && traders.length > 0) ? '#0ECB81' : '#848E9C' }}>
+                      {(traders && traders.length > 0)
+                        ? `${t('step3Completed', language)}: ${traders.length} ${language === 'zh' ? '个交易员' : 'trader(s)'}`
+                        : (configuredModels.length > 0 && configuredExchanges.length > 0
+                          ? t('step3Ready', language)
+                          : t('step3Description', language))}
                     </p>
                     <button
                       onClick={() => setShowCreateModal(true)}
@@ -1331,6 +1481,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           isEditMode={false}
           availableModels={enabledModels}
           availableExchanges={enabledExchanges}
+          existingTraderCount={traders?.length || 0}
           onSave={handleCreateTrader}
           onClose={() => setShowCreateModal(false)}
         />
@@ -1358,11 +1509,13 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           allModels={supportedModels}
           configuredModels={allModels || []}
           editingModelId={editingModel}
+          initialModelId={initialModelId}
           onSave={handleSaveModelConfig}
           onDelete={handleDeleteModelConfig}
           onClose={() => {
             setShowModelModal(false)
             setEditingModel(null)
+            setInitialModelId(null)
           }}
           language={language}
         />
@@ -1373,11 +1526,13 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         <ExchangeConfigModal
           allExchanges={supportedExchanges}
           editingExchangeId={editingExchange}
+          initialExchangeId={initialExchangeId}
           onSave={handleSaveExchangeConfig}
           onDelete={handleDeleteExchangeConfig}
           onClose={() => {
             setShowExchangeModal(false)
             setEditingExchange(null)
+            setInitialExchangeId(null)
           }}
           language={language}
         />
@@ -1406,38 +1561,63 @@ function Tooltip({
   children: React.ReactNode
 }) {
   const [show, setShow] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const triggerRef = React.useRef<HTMLDivElement>(null)
+
+  const updatePosition = () => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect()
+      setPosition({
+        top: rect.top - 8, // 向上偏移留出空間
+        left: rect.left + rect.width / 2, // 水平居中
+      })
+    }
+  }
+
+  const handleMouseEnter = () => {
+    updatePosition()
+    setShow(true)
+  }
 
   return (
     <div className="relative inline-block">
       <div
-        onMouseEnter={() => setShow(true)}
+        ref={triggerRef}
+        onMouseEnter={handleMouseEnter}
         onMouseLeave={() => setShow(false)}
-        onClick={() => setShow(!show)}
+        onClick={() => {
+          if (!show) updatePosition()
+          setShow(!show)
+        }}
       >
         {children}
       </div>
-      {show && (
-        <div
-          className="absolute z-10 px-3 py-2 text-sm rounded-lg shadow-lg w-64 left-1/2 transform -translate-x-1/2 bottom-full mb-2"
-          style={{
-            background: '#2B3139',
-            color: '#EAECEF',
-            border: '1px solid #474D57',
-          }}
-        >
-          {content}
+      {show &&
+        ReactDOM.createPortal(
           <div
-            className="absolute left-1/2 transform -translate-x-1/2 top-full"
+            className="fixed z-[9999] px-3 py-2 text-sm rounded-lg shadow-lg w-64 transform -translate-x-1/2 -translate-y-full pointer-events-none"
             style={{
-              width: 0,
-              height: 0,
-              borderLeft: '6px solid transparent',
-              borderRight: '6px solid transparent',
-              borderTop: '6px solid #2B3139',
+              background: '#2B3139',
+              color: '#EAECEF',
+              border: '1px solid #474D57',
+              top: `${position.top}px`,
+              left: `${position.left}px`,
             }}
-          />
-        </div>
-      )}
+          >
+            {content}
+            <div
+              className="absolute left-1/2 transform -translate-x-1/2 top-full"
+              style={{
+                width: 0,
+                height: 0,
+                borderLeft: '6px solid transparent',
+                borderRight: '6px solid transparent',
+                borderTop: '6px solid #2B3139',
+              }}
+            />
+          </div>,
+          document.body
+        )}
     </div>
   )
 }
@@ -1465,13 +1645,17 @@ function SignalSourceModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto"
+      onClick={onClose}
+    >
       <div
         className="bg-gray-800 rounded-lg w-full max-w-lg relative my-8"
         style={{
           background: '#1E2329',
           maxHeight: 'calc(100vh - 4rem)',
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-xl font-bold mb-4" style={{ color: '#EAECEF' }}>
           {t('signalSourceConfig', language)}
@@ -1582,6 +1766,7 @@ function ModelConfigModal({
   allModels,
   configuredModels,
   editingModelId,
+  initialModelId,
   onSave,
   onDelete,
   onClose,
@@ -1590,6 +1775,7 @@ function ModelConfigModal({
   allModels: AIModel[]
   configuredModels: AIModel[]
   editingModelId: string | null
+  initialModelId: string | null
   onSave: (
     modelId: string,
     apiKey: string,
@@ -1600,10 +1786,11 @@ function ModelConfigModal({
   onClose: () => void
   language: Language
 }) {
-  const [selectedModelId, setSelectedModelId] = useState(editingModelId || '')
+  const [selectedModelId, setSelectedModelId] = useState(editingModelId || initialModelId || '')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [modelName, setModelName] = useState('')
+  const [showApiKey, setShowApiKey] = useState(false)
 
   // 获取当前编辑的模型信息 - 编辑时从已配置的模型中查找，新建时从所有支持的模型中查找
   const selectedModel = editingModelId
@@ -1635,13 +1822,17 @@ function ModelConfigModal({
   const availableModels = allModels || []
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto"
+      onClick={onClose}
+    >
       <div
         className="bg-gray-800 rounded-lg w-full max-w-lg relative my-8"
         style={{
           background: '#1E2329',
           maxHeight: 'calc(100vh - 4rem)',
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         <div
           className="flex items-center justify-between p-6 pb-4 sticky top-0 z-10"
@@ -1670,7 +1861,7 @@ function ModelConfigModal({
             className="space-y-4 overflow-y-auto"
             style={{ maxHeight: 'calc(100vh - 16rem)' }}
           >
-            {!editingModelId && (
+            {!editingModelId && !initialModelId && (
               <div>
                 <label
                   className="block text-sm font-semibold mb-3"
@@ -1760,7 +1951,7 @@ function ModelConfigModal({
                       {getShortName(selectedModel.name)}
                     </div>
                     <div className="text-xs" style={{ color: '#848E9C' }}>
-                      {selectedModel.provider} • {selectedModel.id}
+                      {selectedModel.provider === selectedModel.id ? selectedModel.provider : `${selectedModel.provider} • ${selectedModel.id}`}
                     </div>
                   </div>
                 </div>
@@ -1803,19 +1994,35 @@ function ModelConfigModal({
                       </div>
                     ) : null
                   })()}
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={t('enterAPIKey', language)}
-                    className="w-full px-3 py-2 rounded"
-                    style={{
-                      background: '#0B0E11',
-                      border: '1px solid #2B3139',
-                      color: '#EAECEF',
-                    }}
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      type={showApiKey ? 'text' : 'password'}
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={t('enterAPIKey', language)}
+                      className="w-full px-3 py-2 pr-10 rounded"
+                      style={{
+                        background: '#0B0E11',
+                        border: '1px solid #2B3139',
+                        color: '#EAECEF',
+                      }}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition-colors"
+                      style={{
+                        color: '#848E9C',
+                        background: 'transparent'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(43, 49, 57, 0.6)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      title={showApiKey ? (language === 'zh' ? '隐藏' : 'Hide') : (language === 'zh' ? '显示' : 'Show')}
+                    >
+                      {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -1923,6 +2130,7 @@ function ModelConfigModal({
 function ExchangeConfigModal({
   allExchanges,
   editingExchangeId,
+  initialExchangeId,
   onSave,
   onDelete,
   onClose,
@@ -1930,6 +2138,7 @@ function ExchangeConfigModal({
 }: {
   allExchanges: Exchange[]
   editingExchangeId: string | null
+  initialExchangeId: string | null
   onSave: (
     exchangeId: string,
     apiKey: string,
@@ -1945,7 +2154,7 @@ function ExchangeConfigModal({
   language: Language
 }) {
   const [selectedExchangeId, setSelectedExchangeId] = useState(
-    editingExchangeId || ''
+    editingExchangeId || initialExchangeId || ''
   )
   const [apiKey, setApiKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
@@ -1976,6 +2185,12 @@ function ExchangeConfigModal({
   const [secureInputTarget, setSecureInputTarget] = useState<
     null | 'hyperliquid' | 'aster'
   >(null)
+
+  // 顯示/隱藏敏感資訊
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [showSecretKey, setShowSecretKey] = useState(false)
+  const [showPassphrase, setShowPassphrase] = useState(false)
+  const [showAsterPrivateKey, setShowAsterPrivateKey] = useState(false)
 
   // 获取当前编辑的交易所信息
   const selectedExchange = allExchanges?.find(
@@ -2086,17 +2301,6 @@ function ExchangeConfigModal({
     setSecureInputTarget(null)
   }
 
-  // 掩盖敏感数据显示
-  const maskSecret = (secret: string) => {
-    if (!secret || secret.length === 0) return ''
-    if (secret.length <= 8) return '*'.repeat(secret.length)
-    return (
-      secret.slice(0, 4) +
-      '*'.repeat(Math.max(secret.length - 8, 4)) +
-      secret.slice(-4)
-    )
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedExchangeId) return
@@ -2141,13 +2345,17 @@ function ExchangeConfigModal({
   const availableExchanges = allExchanges || []
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto"
+      onClick={onClose}
+    >
       <div
         className="bg-gray-800 rounded-lg w-full max-w-lg relative my-8"
         style={{
           background: '#1E2329',
           maxHeight: 'calc(100vh - 4rem)',
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         <div
           className="flex items-center justify-between p-6 pb-4 sticky top-0 z-10"
@@ -2195,7 +2403,7 @@ function ExchangeConfigModal({
             className="space-y-4 overflow-y-auto"
             style={{ maxHeight: 'calc(100vh - 16rem)' }}
           >
-            {!editingExchangeId && (
+            {!editingExchangeId && !initialExchangeId && (
               <div className="space-y-3">
                 <div className="space-y-2">
                   <div
@@ -2278,8 +2486,7 @@ function ExchangeConfigModal({
                       {getShortName(selectedExchange.name)}
                     </div>
                     <div className="text-xs" style={{ color: '#848E9C' }}>
-                      {selectedExchange.type.toUpperCase()} •{' '}
-                      {selectedExchange.id}
+                      {selectedExchange.type.toUpperCase() === selectedExchange.id.toUpperCase() ? selectedExchange.type.toUpperCase() : `${selectedExchange.type.toUpperCase()} • ${selectedExchange.id}`}
                     </div>
                   </div>
                 </div>
@@ -2414,19 +2621,35 @@ function ExchangeConfigModal({
                         >
                           {t('apiKey', language)} <span style={{ color: '#F6465D' }}>*</span>
                         </label>
-                        <input
-                          type="password"
-                          value={apiKey}
-                          onChange={(e) => setApiKey(e.target.value)}
-                          placeholder={t('enterAPIKey', language)}
-                          className="w-full px-3 py-2 rounded"
-                          style={{
-                            background: '#0B0E11',
-                            border: '1px solid #2B3139',
-                            color: '#EAECEF',
-                          }}
-                          required
-                        />
+                        <div className="relative">
+                          <input
+                            type={showApiKey ? 'text' : 'password'}
+                            value={apiKey}
+                            onChange={(e) => setApiKey(e.target.value)}
+                            placeholder={t('enterAPIKey', language)}
+                            className="w-full px-3 py-2 pr-10 rounded"
+                            style={{
+                              background: '#0B0E11',
+                              border: '1px solid #2B3139',
+                              color: '#EAECEF',
+                            }}
+                            required
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition-colors"
+                            style={{
+                              color: '#848E9C',
+                              background: 'transparent'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(43, 49, 57, 0.6)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                            title={showApiKey ? (language === 'zh' ? '隐藏' : 'Hide') : (language === 'zh' ? '显示' : 'Show')}
+                          >
+                            {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
                       </div>
 
                       <div>
@@ -2436,19 +2659,35 @@ function ExchangeConfigModal({
                         >
                           {t('secretKey', language)} <span style={{ color: '#F6465D' }}>*</span>
                         </label>
-                        <input
-                          type="password"
-                          value={secretKey}
-                          onChange={(e) => setSecretKey(e.target.value)}
-                          placeholder={t('enterSecretKey', language)}
-                          className="w-full px-3 py-2 rounded"
-                          style={{
-                            background: '#0B0E11',
-                            border: '1px solid #2B3139',
-                            color: '#EAECEF',
-                          }}
-                          required
-                        />
+                        <div className="relative">
+                          <input
+                            type={showSecretKey ? 'text' : 'password'}
+                            value={secretKey}
+                            onChange={(e) => setSecretKey(e.target.value)}
+                            placeholder={t('enterSecretKey', language)}
+                            className="w-full px-3 py-2 pr-10 rounded"
+                            style={{
+                              background: '#0B0E11',
+                              border: '1px solid #2B3139',
+                              color: '#EAECEF',
+                            }}
+                            required
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowSecretKey(!showSecretKey)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition-colors"
+                            style={{
+                              color: '#848E9C',
+                              background: 'transparent'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(43, 49, 57, 0.6)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                            title={showSecretKey ? (language === 'zh' ? '隐藏' : 'Hide') : (language === 'zh' ? '显示' : 'Show')}
+                          >
+                            {showSecretKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
                       </div>
 
                       {selectedExchange.id === 'okx' && (
@@ -2459,19 +2698,35 @@ function ExchangeConfigModal({
                           >
                             {t('passphrase', language)} <span style={{ color: '#F6465D' }}>*</span>
                           </label>
-                          <input
-                            type="password"
-                            value={passphrase}
-                            onChange={(e) => setPassphrase(e.target.value)}
-                            placeholder={t('enterPassphrase', language)}
-                            className="w-full px-3 py-2 rounded"
-                            style={{
-                              background: '#0B0E11',
-                              border: '1px solid #2B3139',
-                              color: '#EAECEF',
-                            }}
-                            required
-                          />
+                          <div className="relative">
+                            <input
+                              type={showPassphrase ? 'text' : 'password'}
+                              value={passphrase}
+                              onChange={(e) => setPassphrase(e.target.value)}
+                              placeholder={t('enterPassphrase', language)}
+                              className="w-full px-3 py-2 pr-10 rounded"
+                              style={{
+                                background: '#0B0E11',
+                                border: '1px solid #2B3139',
+                                color: '#EAECEF',
+                              }}
+                              required
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowPassphrase(!showPassphrase)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition-colors"
+                              style={{
+                                color: '#848E9C',
+                                background: 'transparent'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(43, 49, 57, 0.6)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              title={showPassphrase ? (language === 'zh' ? '隐藏' : 'Hide') : (language === 'zh' ? '显示' : 'Show')}
+                            >
+                              {showPassphrase ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
                         </div>
                       )}
 
@@ -2651,19 +2906,35 @@ function ExchangeConfigModal({
                           />
                         </Tooltip>
                       </label>
-                      <input
-                        type="password"
-                        value={asterPrivateKey}
-                        onChange={(e) => setAsterPrivateKey(e.target.value)}
-                        placeholder={t('enterPrivateKey', language)}
-                        className="w-full px-3 py-2 rounded"
-                        style={{
-                          background: '#0B0E11',
-                          border: '1px solid #2B3139',
-                          color: '#EAECEF',
-                        }}
-                        required
-                      />
+                      <div className="relative">
+                        <input
+                          type={showAsterPrivateKey ? 'text' : 'password'}
+                          value={asterPrivateKey}
+                          onChange={(e) => setAsterPrivateKey(e.target.value)}
+                          placeholder={t('enterPrivateKey', language)}
+                          className="w-full px-3 py-2 pr-10 rounded"
+                          style={{
+                            background: '#0B0E11',
+                            border: '1px solid #2B3139',
+                            color: '#EAECEF',
+                          }}
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAsterPrivateKey(!showAsterPrivateKey)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition-colors"
+                          style={{
+                            color: '#848E9C',
+                            background: 'transparent'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(43, 49, 57, 0.6)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                          title={showAsterPrivateKey ? (language === 'zh' ? '隐藏' : 'Hide') : (language === 'zh' ? '显示' : 'Show')}
+                        >
+                          {showAsterPrivateKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
                   </>
                 )}
@@ -2671,6 +2942,25 @@ function ExchangeConfigModal({
                 {/* Hyperliquid 交易所的字段 */}
                 {selectedExchange.id === 'hyperliquid' && (
                   <>
+                    {/* USDC 链信息提示 */}
+                    <div
+                      className="p-3 rounded mb-3"
+                      style={{
+                        background: 'rgba(14, 203, 129, 0.1)',
+                        border: '1px solid rgba(14, 203, 129, 0.3)',
+                      }}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span style={{ fontSize: '16px' }}>ℹ️</span>
+                        <div
+                          className="text-xs flex-1"
+                          style={{ color: '#848E9C', lineHeight: '1.5', whiteSpace: 'pre-line' }}
+                        >
+                          {t('hyperliquidUsdcWarning', language)}
+                        </div>
+                      </div>
+                    </div>
+
                     {/* 安全提示 banner */}
                     <div
                       className="p-3 rounded mb-4"
@@ -2714,7 +3004,7 @@ function ExchangeConfigModal({
                       </div>
                     </div>
 
-                    {/* Agent Private Key 字段 */}
+                    {/* Agent API Key 字段 */}
                     <div>
                       <label
                         className="block text-sm font-semibold mb-2"
@@ -2722,57 +3012,34 @@ function ExchangeConfigModal({
                       >
                         {t('hyperliquidAgentPrivateKey', language)} <span style={{ color: '#F6465D' }}>*</span>
                       </label>
-                      <div className="flex flex-col gap-2">
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={maskSecret(apiKey)}
-                            readOnly
-                            placeholder={t(
-                              'enterHyperliquidAgentPrivateKey',
-                              language
-                            )}
-                            className="w-full px-3 py-2 rounded"
-                            style={{
-                              background: '#0B0E11',
-                              border: '1px solid #2B3139',
-                              color: '#EAECEF',
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setSecureInputTarget('hyperliquid')}
-                            className="px-3 py-2 rounded text-xs font-semibold transition-all hover:scale-105"
-                            style={{
-                              background: '#F0B90B',
-                              color: '#000',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {apiKey
-                              ? t('secureInputReenter', language)
-                              : t('secureInputButton', language)}
-                          </button>
-                          {apiKey && (
-                            <button
-                              type="button"
-                              onClick={() => setApiKey('')}
-                              className="px-3 py-2 rounded text-xs font-semibold transition-all hover:scale-105"
-                              style={{
-                                background: '#1B1F2B',
-                                color: '#848E9C',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {t('secureInputClear', language)}
-                            </button>
-                          )}
-                        </div>
-                        {apiKey && (
-                          <div className="text-xs" style={{ color: '#848E9C' }}>
-                            {t('secureInputHint', language)}
-                          </div>
-                        )}
+                      <div className="relative">
+                        <input
+                          type={showApiKey ? 'text' : 'password'}
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          placeholder={t('enterHyperliquidAgentPrivateKey', language)}
+                          className="w-full px-3 py-2 pr-10 rounded"
+                          style={{
+                            background: '#0B0E11',
+                            border: '1px solid #2B3139',
+                            color: '#EAECEF',
+                          }}
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition-colors"
+                          style={{
+                            color: '#848E9C',
+                            background: 'transparent'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(43, 49, 57, 0.6)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                          title={showApiKey ? (language === 'zh' ? '隐藏' : 'Hide') : (language === 'zh' ? '显示' : 'Show')}
+                        >
+                          {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
                       </div>
                       <div
                         className="text-xs mt-1"

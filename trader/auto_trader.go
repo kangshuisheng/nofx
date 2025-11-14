@@ -79,6 +79,11 @@ type AutoTraderConfig struct {
 
 	// 系统提示词模板
 	SystemPromptTemplate string // 系统提示词模板名称（如 "default", "aggressive"）
+
+	// 订单策略配置
+	OrderStrategy       string  // Order strategy: "market_only", "conservative_hybrid", "limit_only"
+	LimitPriceOffset    float64 // Limit order price offset percentage (e.g., -0.03 for -0.03%)
+	LimitTimeoutSeconds int     // Timeout in seconds before converting to market order
 }
 
 // AutoTrader 自动交易器
@@ -101,17 +106,19 @@ type AutoTrader struct {
 	lastResetTime         time.Time
 	stopUntil             time.Time
 	isRunning             bool
-	startTime             time.Time               // 系统启动时间
-	callCount             int                     // AI调用次数
-	positionFirstSeenTime map[string]int64        // 持仓首次出现时间 (symbol_side -> timestamp毫秒)
-	stopMonitorCh         chan struct{}           // 用于停止监控goroutine
-	monitorWg             sync.WaitGroup          // 用于等待监控goroutine结束
-	peakPnLCache          map[string]float64      // 最高收益缓存 (symbol -> 峰值盈亏百分比)
-	peakPnLCacheMutex     sync.RWMutex            // 缓存读写锁
-	lastBalanceSyncTime   time.Time               // 上次余额同步时间
-	database              interface{}             // 数据库引用（用于自动更新余额）
-	userID                string                  // 用户ID
-	fearGreedClient       *market.FearGreedClient // 恐慌贪婪指数客户端
+	startTime             time.Time                        // 系统启动时间
+	callCount             int                              // AI调用次数
+	positionFirstSeenTime map[string]int64                 // 持仓首次出现时间 (symbol_side -> timestamp毫秒)
+	lastPositions         map[string]decision.PositionInfo // 上一次周期的持仓快照 (用于检测被动平仓)
+	positionStopLoss      map[string]float64               // 持仓止损价格 (symbol_side -> stop_loss_price)
+	positionTakeProfit    map[string]float64               // 持仓止盈价格 (symbol_side -> take_profit_price)
+	stopMonitorCh         chan struct{}                    // 用于停止监控goroutine
+	monitorWg             sync.WaitGroup                   // 用于等待监控goroutine结束
+	peakPnLCache          map[string]float64               // 最高收益缓存 (symbol -> 峰值盈亏百分比)
+	peakPnLCacheMutex     sync.RWMutex                     // 缓存读写锁
+	lastBalanceSyncTime   time.Time                        // 上次余额同步时间
+	database              interface{}                      // 数据库引用（用于自动更新余额）
+	userID                string                           // 用户ID
 }
 
 // NewAutoTrader 创建自动交易器
@@ -180,7 +187,14 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 	switch config.Exchange {
 	case "binance":
 		log.Printf("🏦 [%s] 使用币安合约交易", config.Name)
-		trader = NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, userID)
+		trader = NewFuturesTrader(
+			config.BinanceAPIKey,
+			config.BinanceSecretKey,
+			userID,
+			config.OrderStrategy,
+			config.LimitPriceOffset,
+			config.LimitTimeoutSeconds,
+		)
 	case "hyperliquid":
 		log.Printf("🏦 [%s] 使用Hyperliquid交易", config.Name)
 		trader, err = NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.HyperliquidTestnet)
@@ -231,6 +245,9 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		callCount:             0,
 		isRunning:             false,
 		positionFirstSeenTime: make(map[string]int64),
+		lastPositions:         make(map[string]decision.PositionInfo),
+		positionStopLoss:      make(map[string]float64),
+		positionTakeProfit:    make(map[string]float64),
 		stopMonitorCh:         make(chan struct{}),
 		monitorWg:             sync.WaitGroup{},
 		peakPnLCache:          make(map[string]float64),
@@ -291,97 +308,6 @@ func (at *AutoTrader) Stop() {
 	log.Println("⏹ 自动交易系统停止")
 }
 
-// autoSyncBalanceIfNeeded 自动同步余额（每10分钟检查一次，变化>5%才更新）
-func (at *AutoTrader) autoSyncBalanceIfNeeded() {
-	// 距离上次同步不足10分钟，跳过
-	if time.Since(at.lastBalanceSyncTime) < 10*time.Minute {
-		return
-	}
-
-	log.Printf("🔄 [%s] 开始自动检查余额变化...", at.name)
-
-	// 查询实际余额
-	balanceInfo, err := at.trader.GetBalance()
-	if err != nil {
-		log.Printf("⚠️ [%s] 查询余额失败: %v", at.name, err)
-		at.lastBalanceSyncTime = time.Now() // 即使失败也更新时间，避免频繁重试
-		return
-	}
-
-	// ✅ 提取总资产（total equity = 钱包余额 + 未实现盈亏）
-	// 使用统一的工具函数解析余额信息
-	totalEquity, success := ParseTotalEquity(balanceInfo, fmt.Sprintf("[%s]", at.name))
-	if !success {
-		log.Printf("❌ [%s] 无法提取余额信息，跳过本次同步", at.name)
-		at.lastBalanceSyncTime = time.Now()
-		return
-	}
-	actualBalance := totalEquity
-
-	oldBalance := at.initialBalance
-
-	// 防止除以零：如果初始余额无效，直接更新为实际余额
-	if oldBalance <= 0 {
-		log.Printf("⚠️ [%s] 初始余额无效 (%.2f)，直接更新为实际余额 %.2f USDT", at.name, oldBalance, actualBalance)
-		at.initialBalance = actualBalance
-		if at.database != nil {
-			type DatabaseUpdater interface {
-				UpdateTraderInitialBalance(userID, id string, newBalance float64) error
-			}
-			if db, ok := at.database.(DatabaseUpdater); ok {
-				if err := db.UpdateTraderInitialBalance(at.userID, at.id, actualBalance); err != nil {
-					log.Printf("❌ [%s] 更新数据库失败: %v", at.name, err)
-				} else {
-					log.Printf("✅ [%s] 已自动同步余额到数据库", at.name)
-				}
-			} else {
-				log.Printf("⚠️ [%s] 数据库类型不支持UpdateTraderInitialBalance接口", at.name)
-			}
-		} else {
-			log.Printf("⚠️ [%s] 数据库引用为空，余额仅在内存中更新", at.name)
-		}
-		at.lastBalanceSyncTime = time.Now()
-		return
-	}
-
-	changePercent := ((actualBalance - oldBalance) / oldBalance) * 100
-
-	// 变化超过5%才更新
-	if math.Abs(changePercent) > 5.0 {
-		log.Printf("🔔 [%s] 检测到余额大幅变化: %.2f → %.2f USDT (%.2f%%)",
-			at.name, oldBalance, actualBalance, changePercent)
-
-		// 更新内存中的 initialBalance
-		at.initialBalance = actualBalance
-
-		// 更新数据库（需要类型断言）
-		if at.database != nil {
-			// 这里需要根据实际的数据库类型进行类型断言
-			// 由于使用了 interface{}，我们需要在 TraderManager 层面处理更新
-			// 或者在这里进行类型检查
-			type DatabaseUpdater interface {
-				UpdateTraderInitialBalance(userID, id string, newBalance float64) error
-			}
-			if db, ok := at.database.(DatabaseUpdater); ok {
-				err := db.UpdateTraderInitialBalance(at.userID, at.id, actualBalance)
-				if err != nil {
-					log.Printf("❌ [%s] 更新数据库失败: %v", at.name, err)
-				} else {
-					log.Printf("✅ [%s] 已自动同步余额到数据库", at.name)
-				}
-			} else {
-				log.Printf("⚠️ [%s] 数据库类型不支持UpdateTraderInitialBalance接口", at.name)
-			}
-		} else {
-			log.Printf("⚠️ [%s] 数据库引用为空，余额仅在内存中更新", at.name)
-		}
-	} else {
-		log.Printf("✓ [%s] 余额变化不大 (%.2f%%)，无需更新 [当前总资产: %.2f USDT]", at.name, changePercent, actualBalance)
-	}
-
-	at.lastBalanceSyncTime = time.Now()
-}
-
 // runCycle 运行一个交易周期（使用AI全权决策）
 func (at *AutoTrader) runCycle() error {
 	at.callCount++
@@ -392,6 +318,7 @@ func (at *AutoTrader) runCycle() error {
 
 	// 创建决策记录
 	record := &logger.DecisionRecord{
+		Exchange:     at.config.Exchange, // 记录交易所类型，用于计算手续费
 		ExecutionLog: []string{},
 		Success:      true,
 	}
@@ -413,9 +340,6 @@ func (at *AutoTrader) runCycle() error {
 		log.Println("📅 日盈亏已重置")
 	}
 
-	// 3. 自动同步余额（每10分钟检查一次，充值/提现后自动更新）
-	at.autoSyncBalanceIfNeeded()
-
 	// 4. 收集交易上下文
 	ctx, err := at.buildTradingContext()
 	if err != nil {
@@ -427,11 +351,12 @@ func (at *AutoTrader) runCycle() error {
 
 	// 保存账户状态快照
 	record.AccountState = logger.AccountSnapshot{
-		TotalBalance:          ctx.Account.TotalEquity,
+		TotalBalance:          ctx.Account.TotalEquity - ctx.Account.UnrealizedPnL,
 		AvailableBalance:      ctx.Account.AvailableBalance,
-		TotalUnrealizedProfit: ctx.Account.TotalPnL,
+		TotalUnrealizedProfit: ctx.Account.UnrealizedPnL,
 		PositionCount:         ctx.Account.PositionCount,
 		MarginUsedPct:         ctx.Account.MarginUsedPct,
+		InitialBalance:        at.initialBalance, // 记录当时的初始余额基准
 	}
 
 	// 保存持仓快照
@@ -446,6 +371,42 @@ func (at *AutoTrader) runCycle() error {
 			Leverage:         float64(pos.Leverage),
 			LiquidationPrice: pos.LiquidationPrice,
 		})
+	}
+
+	// 检测被动平仓（止损/止盈/强平/手动）
+	closedPositions := at.detectClosedPositions(ctx.Positions)
+	if len(closedPositions) > 0 {
+		autoCloseActions := at.generateAutoCloseActions(closedPositions)
+		record.Decisions = append(record.Decisions, autoCloseActions...)
+		log.Printf("🔔 检测到 %d 个被动平仓", len(closedPositions))
+		for i, closed := range closedPositions {
+			action := autoCloseActions[i]
+			pnl := closed.Quantity * (closed.MarkPrice - closed.EntryPrice)
+			if closed.Side == "short" {
+				pnl = -pnl
+			}
+			pnlPct := pnl / (closed.EntryPrice * closed.Quantity) * 100 * float64(closed.Leverage)
+
+			// 平仓原因中文映射
+			reasonMap := map[string]string{
+				"stop_loss":   "止损",
+				"take_profit": "止盈",
+				"liquidation": "强平",
+				"unknown":     "未知",
+			}
+			reasonCN := reasonMap[action.Error]
+			if reasonCN == "" {
+				reasonCN = action.Error
+			}
+
+			log.Printf("   └─ %s %s | 开仓: %.4f → 平仓: %.4f | 盈亏: %+.2f%% | 原因: %s",
+				closed.Symbol,
+				closed.Side,
+				closed.EntryPrice,
+				action.Price, // 使用推断的平仓价格
+				pnlPct,
+				reasonCN)
+		}
 	}
 
 	log.Print(strings.Repeat("=", 70))
@@ -566,7 +527,10 @@ func (at *AutoTrader) runCycle() error {
 		record.Decisions = append(record.Decisions, actionRecord)
 	}
 
-	// 9. 保存决策记录
+	// 9. 更新持仓快照（用于下一周期检测被动平仓）
+	at.updatePositionSnapshot(ctx.Positions)
+
+	// 10. 保存决策记录
 	if err := at.decisionLogger.LogDecision(record); err != nil {
 		log.Printf("⚠ 保存决策记录失败: %v", err)
 	}
@@ -652,8 +616,12 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 
 		// 获取该持仓的历史最高收益率
 		at.peakPnLCacheMutex.RLock()
-		peakPnlPct := at.peakPnLCache[symbol]
+		peakPnlPct := at.peakPnLCache[posKey]
 		at.peakPnLCacheMutex.RUnlock()
+
+		// 获取止损止盈价格（用于后续推断平仓原因）
+		stopLoss := at.positionStopLoss[posKey]
+		takeProfit := at.positionTakeProfit[posKey]
 
 		positionInfos = append(positionInfos, decision.PositionInfo{
 			Symbol:           symbol,
@@ -668,13 +636,17 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 			LiquidationPrice: liquidationPrice,
 			MarginUsed:       marginUsed,
 			UpdateTime:       updateTime,
+			StopLoss:         stopLoss,
+			TakeProfit:       takeProfit,
 		})
 	}
 
-	// 清理已平仓的持仓记录
+	// 清理已平仓的持仓记录（包括止损止盈记录）
 	for key := range at.positionFirstSeenTime {
 		if !currentPositionKeys[key] {
 			delete(at.positionFirstSeenTime, key)
+			delete(at.positionStopLoss, key)
+			delete(at.positionTakeProfit, key)
 		}
 	}
 
@@ -717,6 +689,7 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		Account: decision.AccountInfo{
 			TotalEquity:      totalEquity,
 			AvailableBalance: availableBalance,
+			UnrealizedPnL:    totalUnrealizedProfit,
 			TotalPnL:         totalPnL,
 			TotalPnLPct:      totalPnLPct,
 			MarginUsed:       totalMarginUsed,
@@ -828,9 +801,13 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	// 设置止损止盈
 	if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
 		log.Printf("  ⚠ 设置止损失败: %v", err)
+	} else {
+		at.positionStopLoss[posKey] = decision.StopLoss // 记录止损价格
 	}
 	if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
 		log.Printf("  ⚠ 设置止盈失败: %v", err)
+	} else {
+		at.positionTakeProfit[posKey] = decision.TakeProfit // 记录止盈价格
 	}
 
 	return nil
@@ -908,9 +885,13 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	// 设置止损止盈
 	if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
 		log.Printf("  ⚠ 设置止损失败: %v", err)
+	} else {
+		at.positionStopLoss[posKey] = decision.StopLoss // 记录止损价格
 	}
 	if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
 		log.Printf("  ⚠ 设置止盈失败: %v", err)
+	} else {
+		at.positionTakeProfit[posKey] = decision.TakeProfit // 记录止盈价格
 	}
 
 	return nil
@@ -1364,7 +1345,7 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 	}
 
 	totalMarginUsed := 0.0
-	totalUnrealizedPnL := 0.0
+	totalUnrealizedPnLCalculated := 0.0
 	for _, pos := range positions {
 		markPrice := pos["markPrice"].(float64)
 		quantity := pos["positionAmt"].(float64)
@@ -1372,7 +1353,7 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 			quantity = -quantity
 		}
 		unrealizedPnl := pos["unRealizedProfit"].(float64)
-		totalUnrealizedPnL += unrealizedPnl
+		totalUnrealizedPnLCalculated += unrealizedPnl
 
 		leverage := 10
 		if lev, ok := pos["leverage"].(float64); ok {
@@ -1382,10 +1363,19 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 		totalMarginUsed += marginUsed
 	}
 
+	// 验证未实现盈亏的一致性（API值 vs 从持仓计算）
+	diff := math.Abs(totalUnrealizedProfit - totalUnrealizedPnLCalculated)
+	if diff > 0.1 { // 允许0.01 USDT的误差
+		log.Printf("⚠️ 未实现盈亏不一致: API=%.4f, 计算=%.4f, 差异=%.4f",
+			totalUnrealizedProfit, totalUnrealizedPnLCalculated, diff)
+	}
+
 	totalPnL := totalEquity - at.initialBalance
 	totalPnLPct := 0.0
 	if at.initialBalance > 0 {
 		totalPnLPct = (totalPnL / at.initialBalance) * 100
+	} else {
+		log.Printf("⚠️ Initial Balance异常: %.2f，无法计算PNL百分比", at.initialBalance)
 	}
 
 	marginUsedPct := 0.0
@@ -1397,15 +1387,14 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 		// 核心字段
 		"total_equity":      totalEquity,           // 账户净值 = wallet + unrealized
 		"wallet_balance":    totalWalletBalance,    // 钱包余额（不含未实现盈亏）
-		"unrealized_profit": totalUnrealizedProfit, // 未实现盈亏（从API）
+		"unrealized_profit": totalUnrealizedProfit, // 未实现盈亏（交易所API官方值）
 		"available_balance": availableBalance,      // 可用余额
 
 		// 盈亏统计
-		"total_pnl":            totalPnL,           // 总盈亏 = equity - initial
-		"total_pnl_pct":        totalPnLPct,        // 总盈亏百分比
-		"total_unrealized_pnl": totalUnrealizedPnL, // 未实现盈亏（从持仓计算）
-		"initial_balance":      at.initialBalance,  // 初始余额
-		"daily_pnl":            at.dailyPnL,        // 日盈亏
+		"total_pnl":       totalPnL,          // 总盈亏 = equity - initial
+		"total_pnl_pct":   totalPnLPct,       // 总盈亏百分比
+		"initial_balance": at.initialBalance, // 初始余额
+		"daily_pnl":       at.dailyPnL,       // 日盈亏
 
 		// 持仓信息
 		"position_count":  len(positions),  // 持仓数量
@@ -1739,4 +1728,132 @@ func (at *AutoTrader) ClearPeakPnLCache(symbol, side string) {
 
 	posKey := symbol + "_" + side
 	delete(at.peakPnLCache, posKey)
+}
+
+// detectClosedPositions 检测被交易所自动平仓的持仓（止损/止盈触发）
+// 对比上一次和当前的持仓快照，找出消失的持仓
+func (at *AutoTrader) detectClosedPositions(currentPositions []decision.PositionInfo) []decision.PositionInfo {
+	// 首次运行或没有缓存，返回空列表
+	if at.lastPositions == nil || len(at.lastPositions) == 0 {
+		return []decision.PositionInfo{}
+	}
+
+	// 构建当前持仓的 key 集合
+	currentKeys := make(map[string]bool)
+	for _, pos := range currentPositions {
+		key := pos.Symbol + "_" + pos.Side
+		currentKeys[key] = true
+	}
+
+	// 检测消失的持仓
+	var closedPositions []decision.PositionInfo
+	for key, lastPos := range at.lastPositions {
+		if !currentKeys[key] {
+			// 持仓消失了，说明被自动平仓（止损/止盈触发）
+			closedPositions = append(closedPositions, lastPos)
+		}
+	}
+
+	return closedPositions
+}
+
+// generateAutoCloseActions 为被动平仓的持仓生成 DecisionAction
+// generateAutoCloseActions - Create DecisionActions for passive closes with intelligent price/reason inference
+func (at *AutoTrader) generateAutoCloseActions(closedPositions []decision.PositionInfo) []logger.DecisionAction {
+	var actions []logger.DecisionAction
+
+	for _, pos := range closedPositions {
+		// 确定动作类型
+		action := "auto_close_long"
+		if pos.Side == "short" {
+			action = "auto_close_short"
+		}
+
+		// 智能推断平仓价格和原因
+		closePrice, closeReason := at.inferCloseDetails(pos)
+
+		// 生成 DecisionAction
+		actions = append(actions, logger.DecisionAction{
+			Action:    action,
+			Symbol:    pos.Symbol,
+			Quantity:  pos.Quantity,
+			Leverage:  pos.Leverage,
+			Price:     closePrice, // 推断的平仓价格（止损/止盈/强平/市价）
+			OrderID:   0,          // 自动平仓没有订单ID
+			Timestamp: time.Now(), // 检测时间（非真实触发时间）
+			Success:   true,
+			Error:     closeReason, // 使用 Error 字段存储平仓原因（stop_loss/take_profit/liquidation/manual/unknown）
+		})
+	}
+
+	return actions
+}
+
+// inferCloseDetails - Intelligently infer close price and reason based on position data
+func (at *AutoTrader) inferCloseDetails(pos decision.PositionInfo) (price float64, reason string) {
+	const priceThreshold = 0.01 // 1% 价格阈值，用于判断是否接近目标价格
+
+	markPrice := pos.MarkPrice
+
+	// 1. 优先检查是否接近强平价（爆仓）- 因为这是最严重的情况
+	if pos.LiquidationPrice > 0 {
+		liquidationThreshold := 0.02 // 2% 强平价阈值（更宽松，因为接近强平时会被系统平仓）
+		if pos.Side == "long" {
+			// 多头爆仓：价格接近强平价
+			if markPrice <= pos.LiquidationPrice*(1+liquidationThreshold) {
+				return pos.LiquidationPrice, "liquidation"
+			}
+		} else {
+			// 空头爆仓：价格接近强平价
+			if markPrice >= pos.LiquidationPrice*(1-liquidationThreshold) {
+				return pos.LiquidationPrice, "liquidation"
+			}
+		}
+	}
+
+	// 2. 检查是否触发止损
+	if pos.StopLoss > 0 {
+		if pos.Side == "long" {
+			// 多头止损：价格跌破止损价
+			if markPrice <= pos.StopLoss*(1+priceThreshold) {
+				return pos.StopLoss, "stop_loss"
+			}
+		} else {
+			// 空头止损：价格涨破止损价
+			if markPrice >= pos.StopLoss*(1-priceThreshold) {
+				return pos.StopLoss, "stop_loss"
+			}
+		}
+	}
+
+	// 3. 检查是否触发止盈
+	if pos.TakeProfit > 0 {
+		if pos.Side == "long" {
+			// 多头止盈：价格涨到止盈价
+			if markPrice >= pos.TakeProfit*(1-priceThreshold) {
+				return pos.TakeProfit, "take_profit"
+			}
+		} else {
+			// 空头止盈：价格跌到止盈价
+			if markPrice <= pos.TakeProfit*(1+priceThreshold) {
+				return pos.TakeProfit, "take_profit"
+			}
+		}
+	}
+
+	// 4. 无法判断原因，可能是手动平仓或其他原因
+	// 使用当前市场价作为估算平仓价
+	return markPrice, "unknown"
+}
+
+// updatePositionSnapshot 更新持仓快照（在每次 buildTradingContext 后调用）
+func (at *AutoTrader) updatePositionSnapshot(currentPositions []decision.PositionInfo) {
+	// 清空旧快照
+	at.lastPositions = make(map[string]decision.PositionInfo)
+
+	// 保存当前持仓快照
+	for _, pos := range currentPositions {
+		key := pos.Symbol + "_" + pos.Side
+		at.lastPositions[key] = pos
+	}
 }

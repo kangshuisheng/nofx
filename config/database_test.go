@@ -317,7 +317,7 @@ func TestUpdateExchange_MultipleExchangeTypes(t *testing.T) {
 
 			found := false
 			for _, ex := range exchanges {
-				if ex.ID == tc.exchangeID {
+				if ex.ExchangeID == tc.exchangeID {
 					found = true
 					if ex.Name != tc.name {
 						t.Errorf("交易所名称不正确，期望 %s，实际 %s", tc.name, ex.Name)
@@ -629,6 +629,11 @@ func TestSynchronousMode(t *testing.T) {
 // TestDataPersistenceAcrossReopen 测试数据在数据库关闭并重新打开后是否持久化
 // TDD: 模拟 Docker restart 场景
 func TestDataPersistenceAcrossReopen(t *testing.T) {
+	// Skip test if DATA_ENCRYPTION_KEY environment variable is not set
+	if os.Getenv("DATA_ENCRYPTION_KEY") == "" {
+		t.Skip("Skipping encryption test: DATA_ENCRYPTION_KEY not set")
+	}
+
 	// 创建临时数据库文件
 	tmpFile, err := os.CreateTemp("", "test_persistence_*.db")
 	if err != nil {
@@ -703,7 +708,7 @@ func TestDataPersistenceAcrossReopen(t *testing.T) {
 		// 验证数据完整性
 		found := false
 		for _, ex := range exchanges {
-			if ex.ID == "binance" {
+			if ex.ExchangeID == "binance" {
 				found = true
 				if ex.APIKey != testAPIKey {
 					t.Errorf("API Key 丢失或损坏，期望 %s，实际 %s", testAPIKey, ex.APIKey)

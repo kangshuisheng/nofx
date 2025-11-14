@@ -71,7 +71,7 @@ func migrateExchanges(db *sql.DB, em *crypto.EncryptionManager) error {
 
 	// 查詢所有未加密的記錄（假設加密數據都包含 '==' Base64 特徵）
 	rows, err := db.Query(`
-		SELECT user_id, id, api_key, secret_key,
+		SELECT user_id, exchange_id, api_key, secret_key,
 		       COALESCE(hyperliquid_private_key, ''),
 		       COALESCE(aster_private_key, '')
 		FROM exchanges
@@ -128,7 +128,7 @@ func migrateExchanges(db *sql.DB, em *crypto.EncryptionManager) error {
 			UPDATE exchanges
 			SET api_key = ?, secret_key = ?,
 			    hyperliquid_private_key = ?, aster_private_key = ?
-			WHERE user_id = ? AND id = ?
+			WHERE user_id = ? AND exchange_id = ?
 		`, encAPIKey, encSecretKey, encHLPrivateKey, encAsterPrivateKey, userID, exchangeID)
 
 		if err != nil {
@@ -152,7 +152,7 @@ func migrateAIModels(db *sql.DB, em *crypto.EncryptionManager) error {
 	log.Println("🔄 遷移 AI 模型配置...")
 
 	rows, err := db.Query(`
-		SELECT user_id, id, api_key
+		SELECT user_id, model_id, api_key
 		FROM ai_models
 		WHERE api_key != '' AND api_key NOT LIKE '%==%'
 	`)
@@ -180,7 +180,7 @@ func migrateAIModels(db *sql.DB, em *crypto.EncryptionManager) error {
 		}
 
 		_, err = tx.Exec(`
-			UPDATE ai_models SET api_key = ? WHERE user_id = ? AND id = ?
+			UPDATE ai_models SET api_key = ? WHERE user_id = ? AND model_id = ?
 		`, encAPIKey, userID, modelID)
 
 		if err != nil {

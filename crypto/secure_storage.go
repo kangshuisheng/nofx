@@ -60,7 +60,7 @@ func (ss *SecureStorage) SaveEncryptedExchangeConfig(userID, exchangeID, apiKey,
 	_, err = ss.db.Exec(`
 		UPDATE exchanges
 		SET api_key = ?, secret_key = ?, aster_private_key = ?, updated_at = datetime('now')
-		WHERE user_id = ? AND id = ?
+		WHERE user_id = ? AND exchange_id = ?
 	`, encryptedAPIKey, encryptedSecretKey, encryptedPrivateKey, userID, exchangeID)
 
 	if err != nil {
@@ -81,7 +81,7 @@ func (ss *SecureStorage) LoadDecryptedExchangeConfig(userID, exchangeID string) 
 	err = ss.db.QueryRow(`
 		SELECT api_key, secret_key, aster_private_key
 		FROM exchanges
-		WHERE user_id = ? AND id = ?
+		WHERE user_id = ? AND exchange_id = ?
 	`, userID, exchangeID).Scan(&encryptedAPIKey, &encryptedSecretKey, &encryptedPrivateKey)
 
 	if err != nil {
@@ -130,7 +130,7 @@ func (ss *SecureStorage) SaveEncryptedAIModelConfig(userID, modelID, apiKey stri
 	_, err = ss.db.Exec(`
 		UPDATE ai_models
 		SET api_key = ?, updated_at = datetime('now')
-		WHERE user_id = ? AND id = ?
+		WHERE user_id = ? AND model_id = ?
 	`, encryptedAPIKey, userID, modelID)
 
 	if err != nil {
@@ -147,7 +147,7 @@ func (ss *SecureStorage) LoadDecryptedAIModelConfig(userID, modelID string) (str
 	var encryptedAPIKey sql.NullString
 
 	err := ss.db.QueryRow(`
-		SELECT api_key FROM ai_models WHERE user_id = ? AND id = ?
+		SELECT api_key FROM ai_models WHERE user_id = ? AND model_id = ?
 	`, userID, modelID).Scan(&encryptedAPIKey)
 
 	if err != nil {

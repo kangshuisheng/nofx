@@ -319,8 +319,8 @@ func main() {
 			if trader.IsRunning {
 				status = "运行中"
 			}
-			fmt.Printf("  • %s (%s + %s) - 初始资金: %.0f USDT [%s]\n",
-				trader.Name, strings.ToUpper(trader.AIModelID), strings.ToUpper(trader.ExchangeID),
+			fmt.Printf("  • %s (Model#%d + Exchange#%d) - 初始资金: %.0f USDT [%s]\n",
+				trader.Name, trader.AIModelID, trader.ExchangeID,
 				trader.InitialBalance, status)
 		}
 	}
@@ -377,8 +377,10 @@ func main() {
 	}()
 
 	// 启动流行情数据 - 默认使用所有交易员设置的币种 如果没有设置币种 则优先使用系统默认
-	go market.NewWSMonitor(150).Start(database.GetCustomCoins())
-	//go market.NewWSMonitor(150).Start([]string{}) //这里是一个使用方式 传入空的话 则使用market市场的所有币种
+	// 获取所有活跃 trader 的时间线配置（合并后的并集）
+	timeframes := database.GetAllTimeframes()
+	go market.NewWSMonitor(150, timeframes).Start(database.GetCustomCoins())
+	//go market.NewWSMonitor(150, timeframes).Start([]string{}) //这里是一个使用方式 传入空的话 则使用market市场的所有币种
 	// 设置优雅退出
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
