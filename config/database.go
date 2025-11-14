@@ -9,6 +9,7 @@ import (
 	"log"
 	"nofx/crypto"
 	"nofx/market"
+	"nofx/security"
 	"os"
 	"slices"
 	"strings"
@@ -628,8 +629,27 @@ func (d *Database) createDatabaseBackup(reason string) (string, error) {
 	timestamp := time.Now().Format("20060102_150405")
 	backupPath := fmt.Sprintf("%s.backup.%s.%s", d.dbPath, reason, timestamp)
 
+	// 【安全加固】驗證備份路徑，防止路徑注入攻擊
+	guard := security.NewSQLGuard()
+
+	// 驗證 reason 參數（應該是安全的標識符）
+	if err := guard.ValidateIdentifier(reason); err != nil {
+		log.Printf("⚠️ [SECURITY] 備份原因包含非法字符: %v", err)
+		// 降級處理：使用安全的默認值
+		reason = "unknown"
+		backupPath = fmt.Sprintf("%s.backup.%s.%s", d.dbPath, reason, timestamp)
+	}
+
+	// 驗證完整路徑中不包含 SQL 注入風險字符
+	if strings.ContainsAny(backupPath, "';\"") {
+		return "", fmt.Errorf("備份路徑包含非法字符")
+	}
+
 	// 使用 SQLite 的 VACUUM INTO 创建备份（更安全可靠）
-	_, err := d.db.Exec(fmt.Sprintf("VACUUM INTO '%s'", backupPath))
+	// 注意：VACUUM INTO 不支持參數化查詢，所以必須使用字符串拼接
+	// 已通過上述驗證確保路徑安全
+	query := fmt.Sprintf("VACUUM INTO '%s'", backupPath)
+	_, err := d.db.Exec(query)
 	if err != nil {
 		// 如果 VACUUM INTO 失败，尝试使用文件复制
 		return d.fallbackCopyBackup(reason, timestamp)

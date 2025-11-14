@@ -1278,11 +1278,41 @@ func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string,
 }
 
 // GetOpenOrders retrieves open orders for AI decision context
-// TODO: Implement Binance Futures /fapi/v1/openOrders API call
 func (t *FuturesTrader) GetOpenOrders(symbol string) ([]decision.OpenOrderInfo, error) {
-	// Return empty list for now to avoid blocking main flow
-	// TODO: Implement full Binance Futures open orders API integration
-	return []decision.OpenOrderInfo{}, nil
+	// 使用 Binance SDK 查詢未成交訂單
+	service := t.client.NewListOpenOrdersService()
+	if symbol != "" {
+		service = service.Symbol(symbol)
+	}
+
+	orders, err := service.Do(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("獲取未成交訂單失敗: %w", err)
+	}
+
+	// 轉換為 decision.OpenOrderInfo 格式
+	result := make([]decision.OpenOrderInfo, 0, len(orders))
+	for _, order := range orders {
+		// 解析價格和數量
+		price, _ := strconv.ParseFloat(order.Price, 64)
+		stopPrice, _ := strconv.ParseFloat(order.StopPrice, 64)
+		quantity, _ := strconv.ParseFloat(order.OrigQuantity, 64)
+
+		orderInfo := decision.OpenOrderInfo{
+			Symbol:       order.Symbol,
+			OrderID:      order.OrderID,
+			Type:         string(order.Type),
+			Side:         string(order.Side),
+			PositionSide: string(order.PositionSide),
+			Quantity:     quantity,
+			Price:        price,
+			StopPrice:    stopPrice,
+		}
+		result = append(result, orderInfo)
+	}
+
+	log.Printf("✓ 查詢到 %d 個未成交訂單", len(result))
+	return result, nil
 }
 
 // 辅助函数
