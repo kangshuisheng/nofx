@@ -78,6 +78,9 @@ func corsMiddleware() gin.HandlerFunc {
 
 // setupRoutes 设置路由
 func (s *Server) setupRoutes() {
+	// 根路径健康检查（用于容器健康检查）
+	s.router.GET("/health", s.handleHealth)
+
 	// API路由组
 	api := s.router.Group("/api")
 	{
@@ -160,10 +163,8 @@ func (s *Server) setupRoutes() {
 
 // handleHealth 健康检查
 func (s *Server) handleHealth(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"status": "ok",
-		"time":   c.Request.Context().Value("time"),
-	})
+	// 简单的健康检查，立即返回
+	c.String(http.StatusOK, "OK")
 }
 
 // handleGetSystemConfig 获取系统配置（客户端需要知道的配置）

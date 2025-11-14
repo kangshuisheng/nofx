@@ -32,12 +32,14 @@ services:
           "CMD",
           "curl",
           "-f",
-          "http://localhost:8080/api/health",
+          "--max-time",
+          "10",
+          "http://localhost:8080/health",
         ]
-      interval: 30s
-      timeout: 15s
-      retries: 5
-      start_period: 120s
+      interval: 20s
+      timeout: 30s
+      retries: 10
+      start_period: 180s
 
   nofx-frontend:
     build:

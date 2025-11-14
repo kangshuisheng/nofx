@@ -107,16 +107,16 @@ RUN touch /app/beta_codes.txt
 
 # 创建启动脚本
 RUN echo '#!/bin/sh' > /app/start.sh && \
-    echo 'echo "Starting NOFX Backend..."' >> /app/start.sh && \
-    echo 'echo "Waiting for dependencies..."' >> /app/start.sh && \
-    echo 'sleep 5' >> /app/start.sh && \
-    echo 'echo "Starting application..."' >> /app/start.sh && \
+    echo 'echo "🚀 Starting NOFX Backend Service..."' >> /app/start.sh && \
+    echo 'echo "⏳ Waiting for dependencies to initialize..."' >> /app/start.sh && \
+    echo 'sleep 10' >> /app/start.sh && \
+    echo 'echo "✅ Dependencies ready, starting application..."' >> /app/start.sh && \
     echo 'exec ./nofx' >> /app/start.sh && \
     chmod +x /app/start.sh
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=5 \
-  CMD curl -f http://localhost:8080/api/health || exit 1
+HEALTHCHECK --interval=20s --timeout=30s --start-period=180s --retries=10 \
+  CMD curl -f --max-time 10 http://localhost:8080/health || exit 1
 
 CMD ["/app/start.sh"]
