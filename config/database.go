@@ -56,6 +56,7 @@ type DatabaseInterface interface {
 // Database 配置数据库
 type Database struct {
 	db            *sql.DB
+	dbPath        string // 數據庫文件路徑（用於備份等操作）
 	cryptoService *crypto.CryptoService
 }
 
@@ -84,7 +85,10 @@ func NewDatabase(dbPath string) (*Database, error) {
 		return nil, fmt.Errorf("设置synchronous失败: %w", err)
 	}
 
-	database := &Database{db: db}
+	database := &Database{
+		db:     db,
+		dbPath: dbPath,
+	}
 	if err := database.createTables(); err != nil {
 		return nil, fmt.Errorf("创建表失败: %w", err)
 	}
@@ -557,6 +561,14 @@ func (d *Database) migrateToAutoIncrementID() error {
 
 	log.Printf("🔄 开始迁移到自增ID结构（支持多配置）...")
 
+	// === 步骤0：创建自动备份 ===
+	backupPath, err := d.createDatabaseBackup("pre-autoincrement-migration")
+	if err != nil {
+		log.Printf("⚠️  创建备份失败: %v（继续迁移但风险較高）", err)
+	} else {
+		log.Printf("✅ 自动备份已创建: %s", backupPath)
+	}
+
 	// === 步骤1：迁移 ai_models 表 ===
 	if err := d.migrateAIModelsTable(); err != nil {
 		return fmt.Errorf("迁移 ai_models 表失败: %w", err)
@@ -567,7 +579,109 @@ func (d *Database) migrateToAutoIncrementID() error {
 		return fmt.Errorf("迁移 exchanges 表到自增ID失败: %w", err)
 	}
 
+	// === 步骤3：验证迁移完整性 ===
+	if err := d.validateMigrationIntegrity(); err != nil {
+		log.Printf("❌ 迁移验证失败: %v", err)
+		return fmt.Errorf("迁移验证失败: %w", err)
+	}
+	log.Printf("✅ 迁移验证通过")
+
 	log.Printf("✅ 自增ID结构迁移完成")
+	return nil
+}
+
+// createDatabaseBackup 创建数据库备份
+func (d *Database) createDatabaseBackup(reason string) (string, error) {
+	// 构造备份文件名
+	timestamp := time.Now().Format("20060102_150405")
+	backupPath := fmt.Sprintf("%s.backup.%s.%s", d.dbPath, reason, timestamp)
+
+	// 使用 SQLite 的 VACUUM INTO 创建备份（更安全可靠）
+	_, err := d.db.Exec(fmt.Sprintf("VACUUM INTO '%s'", backupPath))
+	if err != nil {
+		// 如果 VACUUM INTO 失败，尝试使用文件复制
+		return d.fallbackCopyBackup(reason, timestamp)
+	}
+
+	return backupPath, nil
+}
+
+// fallbackCopyBackup 备份方案：文件复制
+func (d *Database) fallbackCopyBackup(reason, timestamp string) (string, error) {
+	backupPath := fmt.Sprintf("%s.backup.%s.%s", d.dbPath, reason, timestamp)
+
+	// 读取原数据库文件
+	data, err := os.ReadFile(d.dbPath)
+	if err != nil {
+		return "", fmt.Errorf("读取数据库文件失败: %w", err)
+	}
+
+	// 写入备份文件
+	if err := os.WriteFile(backupPath, data, 0600); err != nil {
+		return "", fmt.Errorf("写入备份文件失败: %w", err)
+	}
+
+	return backupPath, nil
+}
+
+// validateMigrationIntegrity 验证迁移后的数据完整性
+func (d *Database) validateMigrationIntegrity() error {
+	log.Printf("🔍 验证迁移数据完整性...")
+
+	// 1. 检查所有表是否存在必需的列
+	tables := []struct {
+		name   string
+		column string
+	}{
+		{"ai_models", "model_id"},
+		{"ai_models", "display_name"},
+		{"exchanges", "exchange_id"},
+		{"exchanges", "display_name"},
+	}
+
+	for _, t := range tables {
+		var count int
+		err := d.db.QueryRow(fmt.Sprintf(`
+			SELECT COUNT(*) FROM pragma_table_info('%s')
+			WHERE name = '%s'
+		`, t.name, t.column)).Scan(&count)
+		if err != nil {
+			return fmt.Errorf("检查列 %s.%s 失败: %w", t.name, t.column, err)
+		}
+		if count == 0 {
+			return fmt.Errorf("列 %s.%s 不存在", t.name, t.column)
+		}
+	}
+
+	// 2. 检查是否有孤立的 trader 记录（外键完整性）
+	var orphanedCount int
+	err := d.db.QueryRow(`
+		SELECT COUNT(*) FROM traders t
+		WHERE NOT EXISTS (SELECT 1 FROM ai_models WHERE id = t.ai_model_id)
+		   OR NOT EXISTS (SELECT 1 FROM exchanges WHERE id = t.exchange_id)
+	`).Scan(&orphanedCount)
+	if err != nil {
+		return fmt.Errorf("检查外键完整性失败: %w", err)
+	}
+	if orphanedCount > 0 {
+		return fmt.Errorf("发现 %d 个孤立的 trader 记录（外键引用不存在）", orphanedCount)
+	}
+
+	// 3. 检查数据行数是否合理
+	var aiModelCount, exchangeCount, traderCount int
+	d.db.QueryRow("SELECT COUNT(*) FROM ai_models").Scan(&aiModelCount)
+	d.db.QueryRow("SELECT COUNT(*) FROM exchanges").Scan(&exchangeCount)
+	d.db.QueryRow("SELECT COUNT(*) FROM traders").Scan(&traderCount)
+
+	log.Printf("📊 数据统计: ai_models=%d, exchanges=%d, traders=%d", aiModelCount, exchangeCount, traderCount)
+
+	if aiModelCount == 0 && traderCount > 0 {
+		return fmt.Errorf("异常：有 %d 个 traders 但没有 AI 模型", traderCount)
+	}
+	if exchangeCount == 0 && traderCount > 0 {
+		return fmt.Errorf("异常：有 %d 个 traders 但没有交易所", traderCount)
+	}
+
 	return nil
 }
 
