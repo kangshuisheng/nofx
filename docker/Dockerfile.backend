@@ -17,20 +17,40 @@ FROM alpine:${ALPINE_VERSION} AS ta-lib-builder
 ARG TA_LIB_VERSION
 
 RUN apk update && apk add --no-cache \
-    wget tar make gcc g++ musl-dev autoconf automake
+    wget tar make gcc g++ musl-dev autoconf automake libtool
 
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-${TA_LIB_VERSION}-src.tar.gz && \
+# 使用多个镜像源和重试机制下载 TA-Lib
+RUN set -e && \
+    for url in \
+        "http://prdownloads.sourceforge.net/ta-lib/ta-lib-${TA_LIB_VERSION}-src.tar.gz" \
+        "https://downloads.sourceforge.net/project/ta-lib/ta-lib/${TA_LIB_VERSION}/ta-lib-${TA_LIB_VERSION}-src.tar.gz" \
+        "https://github.com/TA-Lib/ta-lib/releases/download/v${TA_LIB_VERSION}/ta-lib-${TA_LIB_VERSION}-src.tar.gz"; do \
+        echo "Trying to download from: $url" && \
+        if wget --timeout=30 --tries=3 "$url"; then \
+            echo "Download successful from: $url" && break; \
+        else \
+            echo "Download failed from: $url, trying next..." && \
+            rm -f ta-lib-${TA_LIB_VERSION}-src.tar.gz; \
+        fi; \
+    done && \
+    if [ ! -f "ta-lib-${TA_LIB_VERSION}-src.tar.gz" ]; then \
+        echo "All download attempts failed" && exit 1; \
+    fi && \
     tar -xzf ta-lib-${TA_LIB_VERSION}-src.tar.gz && \
     cd ta-lib && \
     if [ "$(uname -m)" = "aarch64" ]; then \
-        CONFIG_GUESS=$(find /usr/share -name config.guess | head -1) && \
-        CONFIG_SUB=$(find /usr/share -name config.sub | head -1) && \
-        cp "$CONFIG_GUESS" config.guess && \
-        cp "$CONFIG_SUB" config.sub && \
-        chmod +x config.guess config.sub; \
+        echo "Configuring for ARM64 architecture..." && \
+        autoreconf -fiv && \
+        CONFIG_GUESS=$(find /usr/share -name config.guess 2>/dev/null | head -1) && \
+        CONFIG_SUB=$(find /usr/share -name config.sub 2>/dev/null | head -1) && \
+        if [ -n "$CONFIG_GUESS" ] && [ -n "$CONFIG_SUB" ]; then \
+            cp "$CONFIG_GUESS" config.guess && \
+            cp "$CONFIG_SUB" config.sub && \
+            chmod +x config.guess config.sub; \
+        fi; \
     fi && \
-    ./configure --prefix=/usr/local && \
-    make && make install && \
+    ./configure --prefix=/usr/local --disable-shared --enable-static && \
+    make -j1 && make install && \
     cd .. && rm -rf ta-lib ta-lib-${TA_LIB_VERSION}-src.tar.gz
 
 # ──────────────────────────────────────────────────────────────
