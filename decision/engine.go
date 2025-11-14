@@ -628,7 +628,7 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 // extractCoTTrace 提取思维链分析
 func extractCoTTrace(response string) string {
 	// 方法1: 优先尝试提取 <reasoning> 标签内容
-	if match := reReasoningTag.FindStringSubmatch(response); match != nil && len(match) > 1 {
+	if match := reReasoningTag.FindStringSubmatch(response); len(match) > 1 {
 		log.Printf("✓ 使用 <reasoning> 标签提取思维链")
 		return strings.TrimSpace(match[1])
 	}
