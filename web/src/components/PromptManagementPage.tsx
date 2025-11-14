@@ -33,9 +33,24 @@ export default function PromptManagementPage() {
   }, [])
 
   // 选择模板
-  const handleSelectTemplate = (template: PromptTemplate) => {
+  const handleSelectTemplate = async (template: PromptTemplate) => {
     setSelectedTemplate(template)
-    setEditContent(template.content)
+
+    // 获取完整的模板内容
+    try {
+      const response = await fetch(`/api/prompt-templates/${template.name}`)
+      if (response.ok) {
+        const data = await response.json()
+        setEditContent(data.content || '')
+      } else {
+        toast.error('获取模板内容失败')
+        setEditContent('')
+      }
+    } catch (error) {
+      console.error('获取模板内容失败:', error)
+      toast.error('获取模板内容失败')
+      setEditContent('')
+    }
   }
 
   // 保存模板
@@ -75,7 +90,7 @@ export default function PromptManagementPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newTemplateName,
-          content: editContent || '# 新模板\n\n请输入您的提示词内容...',
+          content: '# 新模板\n\n请输入您的提示词内容...',
         }),
       })
 
@@ -216,8 +231,8 @@ export default function PromptManagementPage() {
               />
 
               <div className="mt-2 flex justify-between text-xs text-gray-500">
-                <span>字符数: {editContent.length}</span>
-                <span>行数: {editContent.split('\n').length}</span>
+                <span>字符数: {editContent?.length || 0}</span>
+                <span>行数: {editContent?.split('\n').length || 0}</span>
               </div>
             </>
           ) : (
