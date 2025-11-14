@@ -173,6 +173,7 @@ func (s *Server) setupRoutes() {
 			authGroup.POST("/login", s.handleLogin)
 			authGroup.POST("/verify-otp", s.handleVerifyOTP)
 			authGroup.POST("/complete-registration", s.handleCompleteRegistration)
+			authGroup.POST("/refresh-token", s.handleRefreshToken)
 		}
 
 		// 需要认证的路由
@@ -2393,6 +2394,37 @@ func (s *Server) handleVerifyOTP(c *gin.Context) {
 		"user_id": user.ID,
 		"email":   user.Email,
 		"message": "登录成功",
+	})
+}
+
+// handleRefreshToken 刷新访问令牌（使用 Refresh Token 获取新的 Token Pair）
+func (s *Server) handleRefreshToken(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 refresh_token 参数"})
+		return
+	}
+
+	// 调用 auth.RefreshAccessToken 刷新令牌（自动进行 Token Rotation）
+	tokenPair, err := auth.RefreshAccessToken(req.RefreshToken)
+	if err != nil {
+		log.Printf("❌ [AUTH] Refresh Token 刷新失败: %v", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Refresh Token 无效或已过期"})
+		return
+	}
+
+	log.Printf("✓ [AUTH] Token 刷新成功")
+
+	c.JSON(http.StatusOK, gin.H{
+		"access_token":       tokenPair.AccessToken,
+		"refresh_token":      tokenPair.RefreshToken,
+		"expires_in":         tokenPair.ExpiresIn,
+		"refresh_expires_in": tokenPair.RefreshExpiresIn,
+		"token_type":         "Bearer",
+		"message":            "Token 刷新成功",
 	})
 }
 
