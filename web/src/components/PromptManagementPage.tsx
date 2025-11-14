@@ -123,7 +123,7 @@ export default function PromptManagementPage() {
     <div className="min-h-screen p-6" style={{ background: '#0B0E11', color: '#EAECEF' }}>
       {/* Header */}
       <div className="max-w-7xl mx-auto mb-8">
-        <h1 className="text-3xl font-bold mb-2">💬 提示词管理</h1>
+        <h1 className="text-3xl font-bold mb-2">提示词管理</h1>
         <p className="text-gray-400">管理您的 AI 交易策略提示词模板</p>
       </div>
 
