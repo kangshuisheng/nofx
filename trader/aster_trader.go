@@ -1082,7 +1082,7 @@ func (t *AsterTrader) CancelStopLossOrders(symbol string) error {
 				"orderId": int64(orderID),
 			}
 
-			_, err := t.request("DELETE", "/fapi/v1/order", cancelParams)
+			_, err := t.request("DELETE", "/fapi/v3/order", cancelParams)
 			if err != nil {
 				errMsg := fmt.Sprintf("订单ID %d: %v", int64(orderID), err)
 				cancelErrors = append(cancelErrors, fmt.Errorf("%s", errMsg))
@@ -1141,7 +1141,7 @@ func (t *AsterTrader) CancelTakeProfitOrders(symbol string) error {
 				"orderId": int64(orderID),
 			}
 
-			_, err := t.request("DELETE", "/fapi/v1/order", cancelParams)
+			_, err := t.request("DELETE", "/fapi/v3/order", cancelParams)
 			if err != nil {
 				errMsg := fmt.Sprintf("订单ID %d: %v", int64(orderID), err)
 				cancelErrors = append(cancelErrors, fmt.Errorf("%s", errMsg))
