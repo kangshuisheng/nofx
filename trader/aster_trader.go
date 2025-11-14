@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"nofx/decision"
 	"nofx/hook"
 	"sort"
 	"strconv"
@@ -1229,4 +1230,65 @@ func (t *AsterTrader) FormatQuantity(symbol string, quantity float64) (string, e
 		return "", err
 	}
 	return fmt.Sprintf("%v", formatted), nil
+}
+
+// GetOpenOrders retrieves open orders for AI decision context
+// Returns all orders if symbol is empty, otherwise returns orders for the specified symbol
+func (t *AsterTrader) GetOpenOrders(symbol string) ([]decision.OpenOrderInfo, error) {
+	params := map[string]interface{}{}
+	if symbol != "" {
+		params["symbol"] = symbol
+	}
+
+	body, err := t.request("GET", "/fapi/v3/openOrders", params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch open orders: %w", err)
+	}
+
+	var orders []map[string]interface{}
+	if err := json.Unmarshal(body, &orders); err != nil {
+		return nil, fmt.Errorf("failed to parse order data: %w", err)
+	}
+
+	// Convert to decision.OpenOrderInfo structure
+	result := []decision.OpenOrderInfo{}
+	for _, order := range orders {
+		orderInfo := decision.OpenOrderInfo{}
+
+		// Parse basic fields
+		if sym, ok := order["symbol"].(string); ok {
+			orderInfo.Symbol = sym
+		}
+		if orderID, ok := order["orderId"].(float64); ok {
+			orderInfo.OrderID = int64(orderID)
+		}
+		if orderType, ok := order["type"].(string); ok {
+			orderInfo.Type = orderType
+		}
+		if side, ok := order["side"].(string); ok {
+			orderInfo.Side = side
+		}
+		if posSide, ok := order["positionSide"].(string); ok {
+			orderInfo.PositionSide = posSide
+		}
+
+		// Parse quantity
+		if qtyStr, ok := order["origQty"].(string); ok {
+			orderInfo.Quantity, _ = strconv.ParseFloat(qtyStr, 64)
+		}
+
+		// Parse price (for limit orders)
+		if priceStr, ok := order["price"].(string); ok {
+			orderInfo.Price, _ = strconv.ParseFloat(priceStr, 64)
+		}
+
+		// Parse stop-loss/take-profit price
+		if stopPriceStr, ok := order["stopPrice"].(string); ok {
+			orderInfo.StopPrice, _ = strconv.ParseFloat(stopPriceStr, 64)
+		}
+
+		result = append(result, orderInfo)
+	}
+
+	return result, nil
 }

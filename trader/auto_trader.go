@@ -94,8 +94,8 @@ type AutoTrader struct {
 	exchange              string // 交易平台名称
 	config                AutoTraderConfig
 	trader                Trader // 使用Trader接口（支持多平台）
-	mcpClient             *mcp.Client
-	decisionLogger        *logger.DecisionLogger // 决策日志记录器
+	mcpClient             mcp.AIClient
+	decisionLogger        logger.IDecisionLogger // 决策日志记录器
 	initialBalance        float64
 	dailyPnL              float64
 	customPrompt          string   // 自定义交易策略prompt
@@ -143,11 +143,12 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 	// 初始化AI
 	if config.AIModel == "custom" {
 		// 使用自定义API
-		mcpClient.SetCustomAPI(config.CustomAPIURL, config.CustomAPIKey, config.CustomModelName)
+		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
 		log.Printf("🤖 [%s] 使用自定义AI API: %s (模型: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
 	} else if config.UseQwen || config.AIModel == "qwen" {
 		// 使用Qwen (支持自定义URL和Model)
-		mcpClient.SetQwenAPIKey(config.QwenKey, config.CustomAPIURL, config.CustomModelName)
+		mcpClient = mcp.NewQwenClient()
+		mcpClient.SetAPIKey(config.QwenKey, config.CustomAPIURL, config.CustomModelName)
 		if config.CustomAPIURL != "" || config.CustomModelName != "" {
 			log.Printf("🤖 [%s] 使用阿里云Qwen AI (自定义URL: %s, 模型: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
 		} else {
@@ -155,7 +156,8 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		}
 	} else {
 		// 默认使用DeepSeek (支持自定义URL和Model)
-		mcpClient.SetDeepSeekAPIKey(config.DeepSeekKey, config.CustomAPIURL, config.CustomModelName)
+		mcpClient = mcp.NewDeepSeekClient()
+		mcpClient.SetAPIKey(config.DeepSeekKey, config.CustomAPIURL, config.CustomModelName)
 		if config.CustomAPIURL != "" || config.CustomModelName != "" {
 			log.Printf("🤖 [%s] 使用DeepSeek AI (自定义URL: %s, 模型: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
 		} else {
@@ -677,7 +679,17 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		performance = nil
 	}
 
-	// 6. 构建上下文
+	// 6. Fetch open orders for AI decision context to prevent duplicate orders
+	openOrders, err := at.trader.GetOpenOrders("")
+	if err != nil {
+		log.Printf("⚠️  Failed to fetch open orders: %v (continuing execution, but AI won't see order status)", err)
+		// Don't block main flow, use empty list
+		openOrders = []decision.OpenOrderInfo{}
+	} else {
+		log.Printf("  ✓ Fetched %d open orders", len(openOrders))
+	}
+
+	// 7. Build context
 	ctx := &decision.Context{
 		CurrentTime:     time.Now().Format("2006-01-02 15:04:05"),
 		RuntimeMinutes:  int(time.Since(at.startTime).Minutes()),
@@ -697,6 +709,7 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 			PositionCount:    len(positionInfos),
 		},
 		Positions:      positionInfos,
+		OpenOrders:     openOrders, // 添加未成交订单（用于 AI 了解挂单状态，避免重复下单）
 		CandidateCoins: candidateCoins,
 		Performance:    performance, // 添加历史表现分析
 	}
@@ -1017,10 +1030,12 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *decision.Decisio
 
 	// 取消旧的止损单（只删除止损单，不影响止盈单）
 	// 注意：如果存在双向持仓，这会删除两个方向的止损单
+	// ✅ 修复 Issue #998: 必须成功取消旧单才能继续，防止重复挂单
 	if err := at.trader.CancelStopLossOrders(decision.Symbol); err != nil {
-		log.Printf("  ⚠ 取消旧止损单失败: %v", err)
-		// 不中断执行，继续设置新止损
+		return fmt.Errorf("取消舊止損單失敗，中止操作以防止重複掛單 (Issue #998): %w", err)
 	}
+
+	log.Printf("  ✓ 已取消舊止損單，準備設置新止損")
 
 	// 调用交易所 API 修改止损
 	quantity := math.Abs(positionAmt)
@@ -1101,10 +1116,12 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *decision.Decis
 
 	// 取消旧的止盈单（只删除止盈单，不影响止损单）
 	// 注意：如果存在双向持仓，这会删除两个方向的止盈单
+	// ✅ 修复 Issue #998: 必须成功取消旧单才能继续，防止重复挂单
 	if err := at.trader.CancelTakeProfitOrders(decision.Symbol); err != nil {
-		log.Printf("  ⚠ 取消旧止盈单失败: %v", err)
-		// 不中断执行，继续设置新止盈
+		return fmt.Errorf("取消舊止盈單失敗，中止操作以防止重複掛單 (Issue #998): %w", err)
 	}
+
+	log.Printf("  ✓ 已取消舊止盈單，準備設置新止盈")
 
 	// 调用交易所 API 修改止盈
 	quantity := math.Abs(positionAmt)
@@ -1285,7 +1302,7 @@ func (at *AutoTrader) GetSystemPromptTemplate() string {
 }
 
 // GetDecisionLogger 获取决策日志记录器
-func (at *AutoTrader) GetDecisionLogger() *logger.DecisionLogger {
+func (at *AutoTrader) GetDecisionLogger() logger.IDecisionLogger {
 	return at.decisionLogger
 }
 

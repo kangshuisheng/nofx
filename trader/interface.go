@@ -1,5 +1,7 @@
 package trader
 
+import "nofx/decision"
+
 // Trader 交易器统一接口
 // 支持多个交易平台（币安、Hyperliquid等）
 type Trader interface {
@@ -50,4 +52,8 @@ type Trader interface {
 
 	// FormatQuantity 格式化数量到正确的精度
 	FormatQuantity(symbol string, quantity float64) (string, error)
+
+	// GetOpenOrders retrieves open orders for AI decision context
+	// Returns all orders if symbol is empty, otherwise returns orders for the specified symbol
+	GetOpenOrders(symbol string) ([]decision.OpenOrderInfo, error)
 }

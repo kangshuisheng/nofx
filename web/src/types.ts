@@ -140,6 +140,7 @@ export interface CreateTraderRequest {
   taker_fee_rate?: number  // Taker 费率 (默认 0.0004 = 0.04%)
   maker_fee_rate?: number  // Maker 费率 (默认 0.0002 = 0.02%)
   timeframes?: string      // 时间线选择 (逗号分隔，例如: "1m,4h,1d")
+  order_strategy?: string  // 订单策略 (adaptive, moderate, aggressive 等)
 }
 
 export interface UpdateModelConfigRequest {

@@ -17,9 +17,9 @@ func TestPromptContainsAllValidActions(t *testing.T) {
 		"open_short",
 		"close_long",
 		"close_short",
-		"update_stop_loss",     // Issue #982: This was missing
-		"update_take_profit",   // Issue #982: This was missing
-		"partial_close",        // Issue #982: This was missing
+		"update_stop_loss",   // Issue #982: This was missing
+		"update_take_profit", // Issue #982: This was missing
+		"partial_close",      // Issue #982: This was missing
 		"hold",
 		"wait",
 	}

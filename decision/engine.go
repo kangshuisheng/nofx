@@ -46,6 +46,18 @@ type PositionInfo struct {
 	TakeProfit       float64 `json:"take_profit,omitempty"` // 止盈价格（用于推断平仓原因）
 }
 
+// OpenOrderInfo represents an open order for AI decision context
+type OpenOrderInfo struct {
+	Symbol       string  `json:"symbol"`        // Trading pair
+	OrderID      int64   `json:"order_id"`      // Order ID
+	Type         string  `json:"type"`          // Order type: STOP_MARKET, TAKE_PROFIT_MARKET, LIMIT, MARKET
+	Side         string  `json:"side"`          // Order side: BUY, SELL
+	PositionSide string  `json:"position_side"` // Position side: LONG, SHORT, BOTH
+	Quantity     float64 `json:"quantity"`      // Order quantity
+	Price        float64 `json:"price"`         // Limit order price (for limit orders)
+	StopPrice    float64 `json:"stop_price"`    // Trigger price (for stop-loss/take-profit orders)
+}
+
 // AccountInfo 账户信息
 type AccountInfo struct {
 	TotalEquity      float64 `json:"total_equity"`      // 账户净值
@@ -81,6 +93,7 @@ type Context struct {
 	CallCount       int                     `json:"call_count"`
 	Account         AccountInfo             `json:"account"`
 	Positions       []PositionInfo          `json:"positions"`
+	OpenOrders      []OpenOrderInfo         `json:"open_orders"` // List of open orders for AI context
 	CandidateCoins  []CandidateCoin         `json:"candidate_coins"`
 	MarketDataMap   map[string]*market.Data `json:"-"` // 不序列化，但内部使用
 	OITopDataMap    map[string]*OITopData   `json:"-"` // OI Top数据映射
@@ -125,12 +138,12 @@ type FullDecision struct {
 }
 
 // GetFullDecision 获取AI的完整交易决策（批量分析所有币种和持仓）
-func GetFullDecision(ctx *Context, mcpClient *mcp.Client) (*FullDecision, error) {
+func GetFullDecision(ctx *Context, mcpClient mcp.AIClient) (*FullDecision, error) {
 	return GetFullDecisionWithCustomPrompt(ctx, mcpClient, "", false, "")
 }
 
 // GetFullDecisionWithCustomPrompt 获取AI的完整交易决策（支持自定义prompt和模板选择）
-func GetFullDecisionWithCustomPrompt(ctx *Context, mcpClient *mcp.Client, customPrompt string, overrideBase bool, templateName string) (*FullDecision, error) {
+func GetFullDecisionWithCustomPrompt(ctx *Context, mcpClient mcp.AIClient, customPrompt string, overrideBase bool, templateName string) (*FullDecision, error) {
 	// 1. 为所有币种获取市场数据
 	if err := fetchMarketDataForContext(ctx); err != nil {
 		return nil, fmt.Errorf("获取市场数据失败: %w", err)
@@ -378,6 +391,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("<decision>\n")
 	sb.WriteString("```json\n[\n")
 	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"下跌趋势+MACD死叉\"},\n", btcEthLeverage, accountEquity*1.5))
+	sb.WriteString("  {\"symbol\": \"SOLUSDT\", \"action\": \"update_stop_loss\", \"new_stop_loss\": 155, \"reasoning\": \"移动止损至保本位\"},\n")
 	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"止盈离场\"}\n")
 	sb.WriteString("]\n```\n")
 	sb.WriteString("</decision>\n\n")
@@ -385,10 +399,19 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | update_stop_loss | update_take_profit | partial_close | hold | wait\n")
 	sb.WriteString("- `confidence`: 0-100（开仓建议≥75）\n")
 	sb.WriteString("- 开仓时必填: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning\n")
-	sb.WriteString("- 更新止损时必填: new_stop_loss (必须大于0)\n")
-	sb.WriteString("- 更新止盈时必填: new_take_profit (必须大于0)\n")
-	sb.WriteString("- **部分平仓时必填**: `close_percentage` (值必须在 1 到 100 之间，例如 50)\n")
-	sb.WriteString("- **重要**: 不支持 partial_close_long 或 partial_close_short，请使用 partial_close\n\n")
+	sb.WriteString("- update_stop_loss 时必填: new_stop_loss (注意是 new_stop_loss，不是 stop_loss)\n")
+	sb.WriteString("- update_take_profit 时必填: new_take_profit (注意是 new_take_profit，不是 take_profit)\n")
+	sb.WriteString("- partial_close 时必填: close_percentage (1-100)\n\n")
+	sb.WriteString("## 🛡️ 未成交挂单提醒\n\n")
+	sb.WriteString("在「当前持仓」部分，你会看到每个持仓的挂单状态：\n\n")
+	sb.WriteString("- 🛡️ **止损单**: 表示该持仓已有止损保护\n")
+	sb.WriteString("- 🎯 **止盈单**: 表示该持仓已设置止盈目标\n")
+	sb.WriteString("- ⚠️ **该持仓没有止损保护！**: 表示该持仓缺少止损单，需要立即设置\n\n")
+	sb.WriteString("**重要**: \n")
+	sb.WriteString("- ✅ 如果看到 🛡️ 止损单已存在，且你想调整止损价格，仍可使用 `update_stop_loss` 动作（系统会自动取消旧单并设置新单）\n")
+	sb.WriteString("- ⚠️ 如果看到 🛡️ 止损单已存在，且当前止损价格合理，**不要重复发送相同的 update_stop_loss 指令**\n")
+	sb.WriteString("- 🚨 如果看到 ⚠️ **该持仓没有止损保护！**，必须立即使用 `update_stop_loss` 设置止损，否则风险极高\n")
+	sb.WriteString("- 同样规则适用于 `update_take_profit` 和 🎯 止盈单\n\n")
 
 	return sb.String()
 }
@@ -438,10 +461,32 @@ func buildUserPrompt(ctx *Context) string {
 			// 计算仓位价值（用于 partial_close 检查）
 			positionValue := math.Abs(pos.Quantity) * pos.MarkPrice
 
-			sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价%.4f 当前价%.4f | 数量%.4f | 仓位价值%.2f USDT | 盈亏%+.2f%% | 盈亏金额%+.2f USDT | 最高收益率%.2f%% | 杠杆%dx | 保证金%.0f | 强平价%.4f%s\n\n",
+			sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价%.4f 当前价%.4f | 数量%.4f | 仓位价值%.2f USDT | 盈亏%+.2f%% | 盈亏金额%+.2f USDT | 最高收益率%.2f%% | 杠杆%dx | 保证金%.0f | 强平价%.4f%s\n",
 				i+1, pos.Symbol, strings.ToUpper(pos.Side),
 				pos.EntryPrice, pos.MarkPrice, pos.Quantity, positionValue, pos.UnrealizedPnLPct, pos.UnrealizedPnL, pos.PeakPnLPct,
 				pos.Leverage, pos.MarginUsed, pos.LiquidationPrice, holdingDuration))
+
+			// Display stop-loss/take-profit orders for this position to prevent duplicate orders
+			hasStopLoss := false
+
+			for _, order := range ctx.OpenOrders {
+				if order.Symbol != pos.Symbol {
+					continue
+				}
+
+				if order.Type == "STOP_MARKET" || order.Type == "STOP" {
+					sb.WriteString(fmt.Sprintf("   🛡️ 止损单: %.4f (%s)\n", order.StopPrice, order.Side))
+					hasStopLoss = true
+				} else if order.Type == "TAKE_PROFIT_MARKET" || order.Type == "TAKE_PROFIT" {
+					sb.WriteString(fmt.Sprintf("   🎯 止盈单: %.4f (%s)\n", order.StopPrice, order.Side))
+				}
+			}
+
+			if !hasStopLoss {
+				sb.WriteString("   ⚠️ **该持仓没有止损保护！**\n")
+			}
+
+			sb.WriteString("\n")
 
 			// 使用FormatMarketData输出完整市场数据
 			if marketData, ok := ctx.MarketDataMap[pos.Symbol]; ok {

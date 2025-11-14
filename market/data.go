@@ -635,7 +635,6 @@ func getFundingRate(symbol string) (float64, error) {
 }
 
 // Format 格式化市场数据 (最终优化版，支持所有高级策略)
-// Format 格式化市场数据 (最终优化版，支持所有高级策略)
 func Format(data *Data) string {
 	var sb strings.Builder
 

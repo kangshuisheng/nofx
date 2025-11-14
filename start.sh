@@ -174,6 +174,26 @@ check_config() {
 }
 
 # ------------------------------------------------------------------------
+# Validation: Database File (config.db)
+# ------------------------------------------------------------------------
+check_database() {
+    if [ -f "scripts/init-db.sh" ]; then
+        ./scripts/init-db.sh
+    else
+        # 簡單備用檢查
+        if [ -d "config.db" ]; then
+            print_warning "config.db 是目錄，正在修復..."
+            mv config.db "config.db.broken_$(date +%Y%m%d_%H%M%S)"
+            touch config.db
+            print_success "已修復 config.db"
+        elif [ ! -e "config.db" ]; then
+            touch config.db
+            print_info "已創建空的 config.db"
+        fi
+    fi
+}
+
+# ------------------------------------------------------------------------
 # Utility: Read Environment Variables
 # ------------------------------------------------------------------------
 read_env_vars() {

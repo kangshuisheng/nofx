@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"nofx/decision"
 	"nofx/hook"
 	"strconv"
 	"strings"
@@ -1228,6 +1229,14 @@ func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string,
 
 	format := fmt.Sprintf("%%.%df", precision)
 	return fmt.Sprintf(format, quantity), nil
+}
+
+// GetOpenOrders retrieves open orders for AI decision context
+// TODO: Implement Binance Futures /fapi/v1/openOrders API call
+func (t *FuturesTrader) GetOpenOrders(symbol string) ([]decision.OpenOrderInfo, error) {
+	// Return empty list for now to avoid blocking main flow
+	// TODO: Implement full Binance Futures open orders API integration
+	return []decision.OpenOrderInfo{}, nil
 }
 
 // 辅助函数

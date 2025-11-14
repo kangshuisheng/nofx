@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"nofx/decision"
 	"strconv"
 	"strings"
 	"sync"
@@ -903,4 +904,12 @@ func absFloat(x float64) float64 {
 		return -x
 	}
 	return x
+}
+
+// GetOpenOrders retrieves open orders for AI decision context
+// TODO: Implement Hyperliquid /info endpoint with type="openOrders" API call
+func (t *HyperliquidTrader) GetOpenOrders(symbol string) ([]decision.OpenOrderInfo, error) {
+	// Return empty list for now to avoid blocking main flow
+	// TODO: Implement full Hyperliquid open orders API integration
+	return []decision.OpenOrderInfo{}, nil
 }

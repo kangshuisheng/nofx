@@ -31,7 +31,7 @@ type AutoTraderTestSuite struct {
 	// Mock 依赖
 	mockTrader *MockTrader
 	mockDB     *MockDatabase
-	mockLogger *logger.DecisionLogger
+	mockLogger logger.IDecisionLogger
 
 	// gomonkey patches
 	patches *gomonkey.Patches
@@ -1087,6 +1087,10 @@ func (m *MockTrader) CancelStopOrders(symbol string) error {
 
 func (m *MockTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
 	return fmt.Sprintf("%.4f", quantity), nil
+}
+
+func (m *MockTrader) GetOpenOrders(symbol string) ([]decision.OpenOrderInfo, error) {
+	return []decision.OpenOrderInfo{}, nil
 }
 
 // ============================================================

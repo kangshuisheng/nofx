@@ -4,6 +4,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { t } from '../i18n/translations'
 import { toast } from 'sonner'
 import { Pencil, Plus, X as IconX } from 'lucide-react'
+import { httpClient } from '../lib/httpClient'
 
 // 提取下划线后面的名称部分
 function getShortName(fullName: string): string {
@@ -170,7 +171,7 @@ export function TraderConfigModal({
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const response = await fetch('/api/config')
+        const response = await httpClient.get('/api/config')
         const config = await response.json()
         if (config.default_coins) {
           setAvailableCoins(config.default_coins)
@@ -196,7 +197,7 @@ export function TraderConfigModal({
   useEffect(() => {
     const fetchPromptTemplates = async () => {
       try {
-        const response = await fetch('/api/prompt-templates')
+        const response = await httpClient.get('/api/prompt-templates')
         const data = await response.json()
         if (data.templates) {
           setPromptTemplates(data.templates)
@@ -254,18 +255,12 @@ export function TraderConfigModal({
         throw new Error('未登录，请先登录')
       }
 
-      const response = await fetch(
+      const response = await httpClient.get(
         `/api/account?trader_id=${traderData.trader_id}`,
         {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          Authorization: `Bearer ${token}`,
         }
       )
-
-      if (!response.ok) {
-        throw new Error('获取账户余额失败')
-      }
 
       const data = await response.json()
 
@@ -303,9 +298,10 @@ export function TraderConfigModal({
         use_coin_pool: formData.use_coin_pool,
         use_oi_top: formData.use_oi_top,
         scan_interval_minutes: formData.scan_interval_minutes,
-        taker_fee_rate: formData.taker_fee_rate, // 添加 Taker 费率
-        maker_fee_rate: formData.maker_fee_rate, // 添加 Maker 费率
-        timeframes: formData.timeframes, // 添加时间线选择
+        taker_fee_rate: formData.taker_fee_rate,  // 添加 Taker 费率
+        maker_fee_rate: formData.maker_fee_rate,  // 添加 Maker 费率
+        timeframes: formData.timeframes,          // 添加时间线选择
+        order_strategy: formData.order_strategy,  // 添加订单策略
       }
 
       // 只在编辑模式时包含initial_balance（用于手动更新）
@@ -496,14 +492,14 @@ export function TraderConfigModal({
                         )
                       }
                       onBlur={(e) => {
-                        // Force minimum value on blur
+                        // Force minimum value on blur (exchange minimum position size)
                         const value = Number(e.target.value)
-                        if (value < 100) {
-                          handleInputChange('initial_balance', 100)
+                        if (value < 5) {
+                          handleInputChange('initial_balance', 5)
                         }
                       }}
                       className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
-                      min="100"
+                      min="5"
                       step="0.01"
                     />
                     <p className="text-xs text-[#848E9C] mt-1">
