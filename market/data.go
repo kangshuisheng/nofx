@@ -635,19 +635,21 @@ func getFundingRate(symbol string) (float64, error) {
 }
 
 // Format 格式化市场数据 (最终优化版，支持所有高级策略)
+// Format 格式化市场数据 (最终优化版，支持所有高级策略)
 func Format(data *Data) string {
 	var sb strings.Builder
 
-	// 1. 核心摘要信息 (策略需要 OI)
+	// 1. 核心摘要信息
 	priceStr := formatPriceWithDynamicPrecision(data.CurrentPrice)
-	sb.WriteString(fmt.Sprintf("Price: %s | OI Chg(4h): %.2f%% | Funding: %.2e\n\n",
+	// 修正1：将资金费率从科学记数法(%.2e)改为6位小数(%.6f)，让AI能直接进行数学比较
+	sb.WriteString(fmt.Sprintf("Price: %s | OI Chg(4h): %.2f%% | Funding: %.6f\n\n",
 		priceStr, data.OpenInterest.Change4h, data.FundingRate))
 
 	// 2. 15分钟周期数据 (入场信号核心)
 	if data.MidTermSeries15m != nil {
 		sb.WriteString("- 15min (Entry Signal):\n")
 
-		const seriesLength = 6
+		const seriesLength = 6 // 保持6个数据点用于趋势和背离判断
 
 		prices := data.MidTermSeries15m.MidPrices
 		if len(prices) > seriesLength {
@@ -667,34 +669,25 @@ func Format(data *Data) string {
 		}
 		sb.WriteString(fmt.Sprintf("  - RSI(14):%s\n", formatFloatSlice(rsi14s)))
 
-		// ⭐️ 新增：为"成交量突破确认"规则提供前5根K线平均成交量
-		// 计算前5根3分钟K线的平均成交量
-		if data.IntradaySeries != nil && len(data.IntradaySeries.Volume) >= 5 {
-			// 获取最近5根K线的成交量（不包括当前最新一根）
-			volumes := data.IntradaySeries.Volume
-			startIdx := len(volumes) - 6 // -6是因为要排除最新一根，往前取5根
-			if startIdx < 0 {
-				startIdx = 0
-			}
-			endIdx := len(volumes) - 1 // 排除最新一根
-
-			sum := 0.0
-			count := 0
-			for i := startIdx; i < endIdx && count < 5; i++ {
-				sum += volumes[i]
-				count++
-			}
-
-			if count > 0 {
-				avgVolume := sum / float64(count)
-				sb.WriteString(fmt.Sprintf("  - Avg_Volume_Last_5_Bars: %.2f\n", avgVolume))
-			}
-		}
-		// ⭐️ 新增：为"成交量共振"规则提供15分钟的成交量数据
-		// 注意: 我们需要从 IntradaySeries(3m) 获取成交量数据来近似15m的成交量活动
+		// 为清单中的成交量规则提供精确数据
 		if data.IntradaySeries != nil && len(data.IntradaySeries.Volume) > 0 {
-			lastVolume := data.IntradaySeries.Volume[len(data.IntradaySeries.Volume)-1]
-			sb.WriteString(fmt.Sprintf("  - Current_Volume: %.2f\n\n", lastVolume))
+			volumes := data.IntradaySeries.Volume
+
+			// 计算 Current_Volume (最新一根3m K线的成交量)
+			currentVolume := volumes[len(volumes)-1]
+			sb.WriteString(fmt.Sprintf("  - Current_Volume: %.2f\n", currentVolume))
+
+			// 计算 Avg_Volume_Last_5_Bars (不含最新一根的前5根平均成交量)
+			if len(volumes) >= 6 {
+				sum := 0.0
+				for i := len(volumes) - 6; i < len(volumes)-1; i++ {
+					sum += volumes[i]
+				}
+				avgVolume := sum / 5.0
+				sb.WriteString(fmt.Sprintf("  - Avg_Volume_Last_5_Bars: %.2f\n\n", avgVolume))
+			} else {
+				sb.WriteString("\n")
+			}
 		} else {
 			sb.WriteString("\n")
 		}
@@ -704,15 +697,20 @@ func Format(data *Data) string {
 	if data.LongerTermContext != nil {
 		sb.WriteString("- 4H (Trend & Risk):\n")
 
-		// 输出 EMA20 和 EMA50 的具体数值，供“趋势健康度”规则使用
+		// 输出 EMA20 和 EMA50 的具体数值
 		sb.WriteString(fmt.Sprintf("  - EMAs: EMA20(%.3f) vs EMA50(%.3f)\n",
 			data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
 
 		// 为 ATR 动态止损提供数据
 		sb.WriteString(fmt.Sprintf("  - ATR(14) for StopLoss: %.4f\n", data.LongerTermContext.ATR14))
 
-		// 为信心评分提供成交量数据
-		sb.WriteString(fmt.Sprintf("  - Volume_Ratio_Current_Avg: %.2f\n\n", data.LongerTermContext.CurrentVolume/data.LongerTermContext.AverageVolume))
+		// 为信心评分提供成交量比率
+		if data.LongerTermContext.AverageVolume > 0 {
+			ratio := data.LongerTermContext.CurrentVolume / data.LongerTermContext.AverageVolume
+			sb.WriteString(fmt.Sprintf("  - Volume_Ratio_Current_Avg: %.2f\n\n", ratio))
+		} else {
+			sb.WriteString("  - Volume_Ratio_Current_Avg: 0.00\n\n")
+		}
 	}
 	return sb.String()
 }
