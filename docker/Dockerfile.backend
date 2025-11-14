@@ -111,12 +111,13 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'echo "⏳ Waiting for dependencies to initialize..."' >> /app/start.sh && \
     echo 'sleep 10' >> /app/start.sh && \
     echo 'echo "✅ Dependencies ready, starting application..."' >> /app/start.sh && \
+    echo 'echo "📊 Monitoring service health..."' >> /app/start.sh && \
     echo 'exec ./nofx' >> /app/start.sh && \
     chmod +x /app/start.sh
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=20s --timeout=30s --start-period=180s --retries=10 \
-  CMD curl -f --max-time 10 http://localhost:8080/health || exit 1
+  CMD curl -f --max-time 10 http://localhost:8080/api/health || exit 1
 
 CMD ["/app/start.sh"]

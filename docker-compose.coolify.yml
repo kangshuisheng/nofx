@@ -34,7 +34,7 @@ services:
           "-f",
           "--max-time",
           "10",
-          "http://localhost:8080/health",
+          "http://localhost:8080/api/health",
         ]
       interval: 20s
       timeout: 30s
