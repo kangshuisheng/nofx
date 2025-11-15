@@ -99,7 +99,7 @@ export function ConfirmDialogProvider({
       >
         <AlertDialogContent>
           <div className="flex flex-col gap-5 text-center">
-            <AlertDialogTitle className={state.title ? "text-xl" : "sr-only"}>
+            <AlertDialogTitle className={state.title ? 'text-xl' : 'sr-only'}>
               {state.title || '确认对话框'}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-[var(--text-primary)] text-base font-medium">

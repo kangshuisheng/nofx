@@ -25,7 +25,8 @@ function getAuthHeaders(): Record<string, string> {
 
 export default function PromptManagementPage() {
   const [templates, setTemplates] = useState<PromptTemplate[]>([])
-  const [selectedTemplate, setSelectedTemplate] = useState<PromptTemplate | null>(null)
+  const [selectedTemplate, setSelectedTemplate] =
+    useState<PromptTemplate | null>(null)
   const [editContent, setEditContent] = useState('')
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [newTemplateName, setNewTemplateName] = useState('')
@@ -34,7 +35,10 @@ export default function PromptManagementPage() {
   // 加载模板列表
   const loadTemplates = async () => {
     try {
-      const response = await httpClient.get('/api/prompt-templates', getAuthHeaders())
+      const response = await httpClient.get(
+        '/api/prompt-templates',
+        getAuthHeaders()
+      )
       const data = await response.json()
       setTemplates(data.templates || [])
     } catch (error) {
@@ -53,7 +57,10 @@ export default function PromptManagementPage() {
 
     // 获取完整的模板内容
     try {
-      const response = await httpClient.get(`/api/prompt-templates/${template.name}`, getAuthHeaders())
+      const response = await httpClient.get(
+        `/api/prompt-templates/${template.name}`,
+        getAuthHeaders()
+      )
       if (response.ok) {
         const data = await response.json()
         setEditContent(data.content || '')
@@ -151,11 +158,16 @@ export default function PromptManagementPage() {
   }
 
   return (
-    <div className="min-h-screen p-3 sm:p-6" style={{ background: '#0B0E11', color: '#EAECEF' }}>
+    <div
+      className="min-h-screen p-3 sm:p-6"
+      style={{ background: '#0B0E11', color: '#EAECEF' }}
+    >
       {/* Header */}
       <div className="max-w-7xl mx-auto mb-4 sm:mb-8">
         <h1 className="text-2xl sm:text-3xl font-bold mb-2">提示词管理</h1>
-        <p className="text-sm sm:text-base text-gray-400">管理您的 AI 交易策略提示词模板</p>
+        <p className="text-sm sm:text-base text-gray-400">
+          管理您的 AI 交易策略提示词模板
+        </p>
       </div>
 
       {/* Actions */}
@@ -170,7 +182,11 @@ export default function PromptManagementPage() {
         <button
           onClick={loadTemplates}
           className="px-4 py-2 rounded font-semibold transition-all hover:scale-105 text-sm sm:text-base"
-          style={{ background: 'rgba(240, 185, 11, 0.1)', color: '#F0B90B', border: '1px solid #F0B90B' }}
+          style={{
+            background: 'rgba(240, 185, 11, 0.1)',
+            color: '#F0B90B',
+            border: '1px solid #F0B90B',
+          }}
         >
           🔄 刷新
         </button>
@@ -180,7 +196,9 @@ export default function PromptManagementPage() {
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
         {/* Template List (Left Sidebar) */}
         <div className="lg:col-span-3 bg-[#1E2329] border border-[#2B3139] rounded-lg p-3 sm:p-4">
-          <h2 className="text-base sm:text-lg font-bold mb-3 sm:mb-4">📁 模板列表 ({templates.length})</h2>
+          <h2 className="text-base sm:text-lg font-bold mb-3 sm:mb-4">
+            📁 模板列表 ({templates.length})
+          </h2>
           <div className="space-y-2 max-h-[200px] lg:max-h-none overflow-y-auto lg:overflow-visible">
             {templates.map((template) => (
               <button
@@ -192,7 +210,10 @@ export default function PromptManagementPage() {
                     : 'hover:bg-gray-700'
                 }`}
                 style={{
-                  color: selectedTemplate?.name === template.name ? '#F0B90B' : '#EAECEF',
+                  color:
+                    selectedTemplate?.name === template.name
+                      ? '#F0B90B'
+                      : '#EAECEF',
                 }}
               >
                 {template.name === 'default' && '⭐ '}
@@ -208,7 +229,8 @@ export default function PromptManagementPage() {
             <>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
                 <h2 className="text-lg sm:text-xl font-bold truncate">
-                  📝 {selectedTemplate.display_name?.zh || selectedTemplate.name}
+                  📝{' '}
+                  {selectedTemplate.display_name?.zh || selectedTemplate.name}
                 </h2>
                 <div className="flex gap-2 sm:gap-3 flex-shrink-0">
                   <button
@@ -222,7 +244,11 @@ export default function PromptManagementPage() {
                     <button
                       onClick={() => setIsDeleteModalOpen(true)}
                       className="flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded font-semibold transition-all hover:scale-105 text-sm sm:text-base"
-                      style={{ background: 'rgba(246, 70, 93, 0.1)', color: '#F6465D', border: '1px solid #F6465D' }}
+                      style={{
+                        background: 'rgba(246, 70, 93, 0.1)',
+                        color: '#F6465D',
+                        border: '1px solid #F6465D',
+                      }}
                     >
                       🗑️ 删除
                     </button>
@@ -231,7 +257,9 @@ export default function PromptManagementPage() {
               </div>
 
               {selectedTemplate.description?.zh && (
-                <p className="text-xs sm:text-sm text-gray-400 mb-4">{selectedTemplate.description.zh}</p>
+                <p className="text-xs sm:text-sm text-gray-400 mb-4">
+                  {selectedTemplate.description.zh}
+                </p>
               )}
 
               <textarea
@@ -270,13 +298,20 @@ export default function PromptManagementPage() {
               onChange={(e) => setNewTemplateName(e.target.value)}
               placeholder="输入模板名称（英文）"
               className="w-full px-3 py-2 rounded mb-4 text-sm sm:text-base"
-              style={{ background: '#0B0E11', color: '#EAECEF', border: '1px solid #2B3139' }}
+              style={{
+                background: '#0B0E11',
+                color: '#EAECEF',
+                border: '1px solid #2B3139',
+              }}
             />
             <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 sm:justify-end">
               <button
                 onClick={() => setIsCreateModalOpen(false)}
                 className="px-4 py-2 rounded text-sm sm:text-base order-2 sm:order-1"
-                style={{ background: 'rgba(255,255,255,0.1)', color: '#EAECEF' }}
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  color: '#EAECEF',
+                }}
               >
                 取消
               </button>
@@ -304,7 +339,10 @@ export default function PromptManagementPage() {
               <button
                 onClick={() => setIsDeleteModalOpen(false)}
                 className="px-4 py-2 rounded text-sm sm:text-base order-2 sm:order-1"
-                style={{ background: 'rgba(255,255,255,0.1)', color: '#EAECEF' }}
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  color: '#EAECEF',
+                }}
               >
                 取消
               </button>

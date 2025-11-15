@@ -17,16 +17,16 @@ export const CacheDependencies = {
    * 影響：交易員列表、排行榜
    */
   TRADER_LIFECYCLE: [
-    'traders',      // App.tsx 導航 + AITradersPage.tsx 列表
-    'competition',  // CompetitionPage.tsx 排行榜
+    'traders', // App.tsx 導航 + AITradersPage.tsx 列表
+    'competition', // CompetitionPage.tsx 排行榜
   ],
 
   /**
    * 單個交易員的狀態數據
    */
   TRADER_STATE: (traderId: string) => [
-    `status-${traderId}`,      // Running state
-    `account-${traderId}`,     // Account info
+    `status-${traderId}`, // Running state
+    `account-${traderId}`, // Account info
     `performance-${traderId}`, // Performance analysis
   ],
 } as const
@@ -42,7 +42,7 @@ export const cacheManager = {
    */
   onTraderCreated: () => {
     console.log('[Cache] Invalidating after trader created')
-    CacheDependencies.TRADER_LIFECYCLE.forEach(key => mutate(key))
+    CacheDependencies.TRADER_LIFECYCLE.forEach((key) => mutate(key))
   },
 
   /**
@@ -52,9 +52,9 @@ export const cacheManager = {
   onTraderUpdated: (traderId: string) => {
     console.log(`[Cache] Invalidating after trader updated: ${traderId}`)
     // Update list
-    CacheDependencies.TRADER_LIFECYCLE.forEach(key => mutate(key))
+    CacheDependencies.TRADER_LIFECYCLE.forEach((key) => mutate(key))
     // Update trader's detailed data
-    CacheDependencies.TRADER_STATE(traderId).forEach(key => mutate(key))
+    CacheDependencies.TRADER_STATE(traderId).forEach((key) => mutate(key))
   },
 
   /**
@@ -64,14 +64,15 @@ export const cacheManager = {
   onTraderDeleted: (traderId: string) => {
     console.log(`[Cache] Invalidating after trader deleted: ${traderId}`)
     // Update list (remove deleted trader)
-    CacheDependencies.TRADER_LIFECYCLE.forEach(key => mutate(key))
+    CacheDependencies.TRADER_LIFECYCLE.forEach((key) => mutate(key))
     // Clear all caches for this trader
-    CacheDependencies.TRADER_STATE(traderId).forEach(key => mutate(key))
+    CacheDependencies.TRADER_STATE(traderId).forEach((key) => mutate(key))
     // Clear comparison chart caches containing this trader
-    mutate((key: any) =>
-      typeof key === 'string' &&
-      key.startsWith('all-equity-histories-') &&
-      key.includes(traderId)
+    mutate(
+      (key: any) =>
+        typeof key === 'string' &&
+        key.startsWith('all-equity-histories-') &&
+        key.includes(traderId)
     )
   },
 
@@ -82,7 +83,7 @@ export const cacheManager = {
   onTraderStateChanged: (traderId: string) => {
     console.log(`[Cache] Invalidating after trader state changed: ${traderId}`)
     // 更新列表（is_running 字段）
-    CacheDependencies.TRADER_LIFECYCLE.forEach(key => mutate(key))
+    CacheDependencies.TRADER_LIFECYCLE.forEach((key) => mutate(key))
     // Update trader state
     mutate(`status-${traderId}`)
   },
@@ -93,15 +94,15 @@ export const cacheManager = {
    */
   refreshAll: () => {
     console.log('[Cache] Force refreshing all trader data')
-    mutate((key: any) =>
-      typeof key === 'string' && (
-        key === 'traders' ||
-        key === 'competition' ||
-        key.startsWith('status-') ||
-        key.startsWith('account-') ||
-        key.startsWith('performance-') ||
-        key.startsWith('all-equity-histories-')
-      )
+    mutate(
+      (key: any) =>
+        typeof key === 'string' &&
+        (key === 'traders' ||
+          key === 'competition' ||
+          key.startsWith('status-') ||
+          key.startsWith('account-') ||
+          key.startsWith('performance-') ||
+          key.startsWith('all-equity-histories-'))
     )
   },
 
@@ -114,6 +115,6 @@ export const cacheManager = {
     mutate(`account-${traderId}`)
     mutate(`performance-${traderId}`)
     // List page also needs update (displays current balance)
-    CacheDependencies.TRADER_LIFECYCLE.forEach(key => mutate(key))
+    CacheDependencies.TRADER_LIFECYCLE.forEach((key) => mutate(key))
   },
 }

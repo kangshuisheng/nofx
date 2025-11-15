@@ -14,17 +14,17 @@ function getShortName(fullName: string): string {
 
 // 根据扫描间隔智能生成默认时间线
 function getDefaultTimeframes(scanInterval: number): string {
-  const baseFrames = '15m,1h,4h'  // 基础时间线
+  const baseFrames = '15m,1h,4h' // 基础时间线
 
   // 根据扫描间隔添加智能短周期
   if (scanInterval <= 2) {
-    return `1m,${baseFrames}`  // ≤2分钟 → 1m,15m,1h,4h
+    return `1m,${baseFrames}` // ≤2分钟 → 1m,15m,1h,4h
   } else if (scanInterval >= 3 && scanInterval <= 4) {
-    return `3m,${baseFrames}`  // 3-4分钟 → 3m,15m,1h,4h
+    return `3m,${baseFrames}` // 3-4分钟 → 3m,15m,1h,4h
   } else if (scanInterval >= 5 && scanInterval < 15) {
-    return `5m,${baseFrames}`  // 5-14分钟 → 5m,15m,1h,4h
+    return `5m,${baseFrames}` // 5-14分钟 → 5m,15m,1h,4h
   } else {
-    return baseFrames          // ≥15分钟 → 15m,1h,4h
+    return baseFrames // ≥15分钟 → 15m,1h,4h
   }
 }
 
@@ -44,10 +44,10 @@ interface TraderConfigData {
   use_oi_top: boolean
   initial_balance?: number // 可选：创建时不需要，编辑时使用
   scan_interval_minutes: number
-  taker_fee_rate: number     // Taker 费率 (默认 0.0004 = 0.04%)
-  maker_fee_rate: number     // Maker 费率 (默认 0.0002 = 0.02%)
-  timeframes: string         // 时间线选择 (逗号分隔，例如: "1m,4h,1d")
-  order_strategy: string     // Order strategy: "market_only", "conservative_hybrid", "limit_only"
+  taker_fee_rate: number // Taker 费率 (默认 0.0004 = 0.04%)
+  maker_fee_rate: number // Maker 费率 (默认 0.0002 = 0.02%)
+  timeframes: string // 时间线选择 (逗号分隔，例如: "1m,4h,1d")
+  order_strategy: string // Order strategy: "market_only", "conservative_hybrid", "limit_only"
   limit_price_offset: number // Limit order price offset percentage (e.g., -0.03 for -0.03%)
   limit_timeout_seconds: number // Timeout in seconds before converting to market order
 }
@@ -78,7 +78,8 @@ export function TraderConfigModal({
   // Generate smart default trader name
   const generateDefaultName = () => {
     const modelName = availableModels[0]?.name || 'AI'
-    const exchangeName = availableExchanges[0]?.name?.split(' ')[0] || 'Exchange'
+    const exchangeName =
+      availableExchanges[0]?.name?.split(' ')[0] || 'Exchange'
     const nextNumber = existingTraderCount + 1
     return `${modelName}-${exchangeName}-${nextNumber}`
   }
@@ -96,13 +97,13 @@ export function TraderConfigModal({
     use_coin_pool: false,
     use_oi_top: false,
     initial_balance: 100,
-    scan_interval_minutes: 2,      // 默认 2 分钟（平衡延遲與成本）
-    taker_fee_rate: 0.0004,        // 默认 Binance Taker 费率 (0.04%)
-    maker_fee_rate: 0.0002,        // 默认 Binance Maker 费率 (0.02%)
-    timeframes: getDefaultTimeframes(2),  // 智能默认：1m,15m,1h,4h（根据扫描间隔=2分钟）
+    scan_interval_minutes: 2, // 默认 2 分钟（平衡延遲與成本）
+    taker_fee_rate: 0.0004, // 默认 Binance Taker 费率 (0.04%)
+    maker_fee_rate: 0.0002, // 默认 Binance Maker 费率 (0.02%)
+    timeframes: getDefaultTimeframes(2), // 智能默认：1m,15m,1h,4h（根据扫描间隔=2分钟）
     order_strategy: 'conservative_hybrid', // 默认使用保守混合策略
-    limit_price_offset: -0.03,     // 默认 -0.03% 限价偏移
-    limit_timeout_seconds: 60,     // 默认 60 秒超时
+    limit_price_offset: -0.03, // 默认 -0.03% 限价偏移
+    limit_timeout_seconds: 60, // 默认 60 秒超时
   })
   const [isSaving, setIsSaving] = useState(false)
   const [availableCoins, setAvailableCoins] = useState<string[]>([])
@@ -147,7 +148,7 @@ export function TraderConfigModal({
         scan_interval_minutes: 2, // 默认 2 分钟（平衡延遲與成本）
         taker_fee_rate: 0.0004, // 默认 Binance Taker 费率 (0.04%)
         maker_fee_rate: 0.0002, // 默认 Binance Maker 费率 (0.02%)
-        timeframes: getDefaultTimeframes(2),  // 智能默认：1m,15m,1h,4h（根据扫描间隔=2分钟）
+        timeframes: getDefaultTimeframes(2), // 智能默认：1m,15m,1h,4h（根据扫描间隔=2分钟）
         order_strategy: 'conservative_hybrid', // 默认使用保守混合策略
         limit_price_offset: -0.03, // 默认 -0.03%
         limit_timeout_seconds: 60, // 默认 60秒超时
@@ -177,11 +178,15 @@ export function TraderConfigModal({
       }))
     }
     // 确保旧数据也有默认的费率配置
-    if (traderData && (traderData.taker_fee_rate === undefined || traderData.maker_fee_rate === undefined)) {
+    if (
+      traderData &&
+      (traderData.taker_fee_rate === undefined ||
+        traderData.maker_fee_rate === undefined)
+    ) {
       setFormData((prev) => ({
         ...prev,
-        taker_fee_rate: traderData.taker_fee_rate ?? 0.0004,  // 默认 0.04%
-        maker_fee_rate: traderData.maker_fee_rate ?? 0.0002,  // 默认 0.02%
+        taker_fee_rate: traderData.taker_fee_rate ?? 0.0004, // 默认 0.04%
+        maker_fee_rate: traderData.maker_fee_rate ?? 0.0002, // 默认 0.02%
       }))
     }
   }, [traderData, isEditMode, availableModels, availableExchanges])
@@ -239,11 +244,13 @@ export function TraderConfigModal({
       // 如果改变了扫描间隔，智能更新 timeframes
       if (field === 'scan_interval_minutes') {
         const newInterval = Number(value)
-        const currentTimeframes = prev.timeframes.split(',').filter(t => t)
-        const baseFrames = ['15m', '1h', '4h', '1d']  // 基础时间线
+        const currentTimeframes = prev.timeframes.split(',').filter((t) => t)
+        const baseFrames = ['15m', '1h', '4h', '1d'] // 基础时间线
 
         // 保留用户手动勾选的基础时间线
-        const userSelectedBase = currentTimeframes.filter(t => baseFrames.includes(t))
+        const userSelectedBase = currentTimeframes.filter((t) =>
+          baseFrames.includes(t)
+        )
 
         // 根据新的扫描间隔生成智能短周期
         let shortFrame = ''
@@ -260,7 +267,7 @@ export function TraderConfigModal({
           ? [shortFrame, ...userSelectedBase].join(',')
           : userSelectedBase.join(',')
 
-        newData.timeframes = newTimeframes || '15m,1h,4h'  // 确保至少有基础时间线
+        newData.timeframes = newTimeframes || '15m,1h,4h' // 确保至少有基础时间线
       }
 
       return newData
@@ -348,10 +355,10 @@ export function TraderConfigModal({
         use_coin_pool: formData.use_coin_pool,
         use_oi_top: formData.use_oi_top,
         scan_interval_minutes: formData.scan_interval_minutes,
-        taker_fee_rate: formData.taker_fee_rate,  // 添加 Taker 费率
-        maker_fee_rate: formData.maker_fee_rate,  // 添加 Maker 费率
-        timeframes: formData.timeframes,          // 添加时间线选择
-        order_strategy: formData.order_strategy,  // 添加订单策略
+        taker_fee_rate: formData.taker_fee_rate, // 添加 Taker 费率
+        maker_fee_rate: formData.maker_fee_rate, // 添加 Maker 费率
+        timeframes: formData.timeframes, // 添加时间线选择
+        order_strategy: formData.order_strategy, // 添加订单策略
       }
 
       // 只在编辑模式时包含initial_balance（用于手动更新）
@@ -427,7 +434,11 @@ export function TraderConfigModal({
                     handleInputChange('trader_name', e.target.value)
                   }
                   className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
-                  placeholder={language === 'zh' ? '例如: DeepSeek-Binance-1' : 'e.g., DeepSeek-Binance-1'}
+                  placeholder={
+                    language === 'zh'
+                      ? '例如: DeepSeek-Binance-1'
+                      : 'e.g., DeepSeek-Binance-1'
+                  }
                   required
                 />
               </div>
@@ -612,7 +623,9 @@ export function TraderConfigModal({
                   </p>
                   {formData.scan_interval_minutes < 3 && (
                     <div className="flex items-start gap-2 mt-2 p-2 bg-yellow-900/20 border border-yellow-700/50 rounded">
-                      <span className="text-yellow-500 text-sm flex-shrink-0">⚠️</span>
+                      <span className="text-yellow-500 text-sm flex-shrink-0">
+                        ⚠️
+                      </span>
                       <p className="text-xs text-yellow-500">
                         {t('scanIntervalCostWarning', language)}
                       </p>
@@ -625,7 +638,10 @@ export function TraderConfigModal({
               {/* 时间线选择 */}
               <div>
                 <label className="text-sm text-[#EAECEF] block mb-3">
-                  📊 {language === 'zh' ? 'K线时间线选择' : 'Kline Timeframe Selection'}
+                  📊{' '}
+                  {language === 'zh'
+                    ? 'K线时间线选择'
+                    : 'Kline Timeframe Selection'}
                 </label>
                 <div className="grid grid-cols-3 gap-3">
                   {(() => {
@@ -639,15 +655,20 @@ export function TraderConfigModal({
 
                     // 根据扫描间隔智能添加短周期线
                     const getShortFrames = () => {
-                      if (interval <= 2) return [{ value: '1m', label: '1分钟' }]
-                      if (interval >= 3 && interval <= 4) return [{ value: '3m', label: '3分钟' }]
-                      if (interval >= 5 && interval < 15) return [{ value: '5m', label: '5分钟' }]
+                      if (interval <= 2)
+                        return [{ value: '1m', label: '1分钟' }]
+                      if (interval >= 3 && interval <= 4)
+                        return [{ value: '3m', label: '3分钟' }]
+                      if (interval >= 5 && interval < 15)
+                        return [{ value: '5m', label: '5分钟' }]
                       return []
                     }
 
                     const frames = [...getShortFrames(), ...baseFrames]
 
-                    const selectedFrames = formData.timeframes.split(',').filter(t => t)
+                    const selectedFrames = formData.timeframes
+                      .split(',')
+                      .filter((t) => t)
 
                     return frames.map((frame) => {
                       const isSelected = selectedFrames.includes(frame.value)
@@ -658,15 +679,27 @@ export function TraderConfigModal({
                           onClick={() => {
                             if (isSelected) {
                               // 取消勾选 - 防止取消最后一个时间线
-                              const newFrames = selectedFrames.filter(t => t !== frame.value)
+                              const newFrames = selectedFrames.filter(
+                                (t) => t !== frame.value
+                              )
                               if (newFrames.length === 0) {
-                                toast.error(language === 'zh' ? '至少需要选择一个时间线' : 'At least one timeframe is required')
+                                toast.error(
+                                  language === 'zh'
+                                    ? '至少需要选择一个时间线'
+                                    : 'At least one timeframe is required'
+                                )
                                 return
                               }
-                              handleInputChange('timeframes', newFrames.join(','))
+                              handleInputChange(
+                                'timeframes',
+                                newFrames.join(',')
+                              )
                             } else {
                               // 勾选
-                              handleInputChange('timeframes', [...selectedFrames, frame.value].join(','))
+                              handleInputChange(
+                                'timeframes',
+                                [...selectedFrames, frame.value].join(',')
+                              )
                             }
                           }}
                           className="px-3 py-2 rounded text-sm font-medium transition-all"
@@ -676,7 +709,8 @@ export function TraderConfigModal({
                             color: isSelected ? '#000' : '#EAECEF',
                           }}
                         >
-                          {isSelected && '✓ '}{frame.label}
+                          {isSelected && '✓ '}
+                          {frame.label}
                         </button>
                       )
                     })
@@ -785,7 +819,9 @@ export function TraderConfigModal({
                 <div className="grid grid-cols-3 gap-3 mb-4">
                   <button
                     type="button"
-                    onClick={() => handleInputChange('order_strategy', 'market_only')}
+                    onClick={() =>
+                      handleInputChange('order_strategy', 'market_only')
+                    }
                     className={`px-3 py-2 rounded text-sm ${
                       formData.order_strategy === 'market_only'
                         ? 'bg-[#F0B90B] text-black'
@@ -796,7 +832,9 @@ export function TraderConfigModal({
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleInputChange('order_strategy', 'conservative_hybrid')}
+                    onClick={() =>
+                      handleInputChange('order_strategy', 'conservative_hybrid')
+                    }
                     className={`px-3 py-2 rounded text-sm ${
                       formData.order_strategy === 'conservative_hybrid'
                         ? 'bg-[#F0B90B] text-black'
@@ -807,7 +845,9 @@ export function TraderConfigModal({
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleInputChange('order_strategy', 'limit_only')}
+                    onClick={() =>
+                      handleInputChange('order_strategy', 'limit_only')
+                    }
                     className={`px-3 py-2 rounded text-sm ${
                       formData.order_strategy === 'limit_only'
                         ? 'bg-[#F0B90B] text-black'
@@ -829,7 +869,10 @@ export function TraderConfigModal({
                         type="number"
                         value={formData.limit_price_offset}
                         onChange={(e) =>
-                          handleInputChange('limit_price_offset', Number(e.target.value))
+                          handleInputChange(
+                            'limit_price_offset',
+                            Number(e.target.value)
+                          )
                         }
                         className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
                         min="-1"
@@ -848,7 +891,10 @@ export function TraderConfigModal({
                         type="number"
                         value={formData.limit_timeout_seconds}
                         onChange={(e) =>
-                          handleInputChange('limit_timeout_seconds', Number(e.target.value))
+                          handleInputChange(
+                            'limit_timeout_seconds',
+                            Number(e.target.value)
+                          )
                         }
                         className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
                         min="10"
@@ -866,22 +912,32 @@ export function TraderConfigModal({
                   <p className="text-xs text-[#848E9C]">
                     {formData.order_strategy === 'market_only' && (
                       <>
-                        <span className="text-[#F0B90B] font-medium">仅市价单：</span>
-                        100% 成交率，立即执行，手续费较高（Taker 费率 {(formData.taker_fee_rate * 100).toFixed(2)}%）
+                        <span className="text-[#F0B90B] font-medium">
+                          仅市价单：
+                        </span>
+                        100% 成交率，立即执行，手续费较高（Taker 费率{' '}
+                        {(formData.taker_fee_rate * 100).toFixed(2)}%）
                       </>
                     )}
                     {formData.order_strategy === 'conservative_hybrid' && (
                       <>
-                        <span className="text-[#F0B90B] font-medium">保守混合：</span>
-                        先尝试限价单（Maker 费率 {(formData.maker_fee_rate * 100).toFixed(2)}%），
-                        {formData.limit_timeout_seconds}秒未成交后自动转为市价单。
-                        预计 85-90% 成交率，节省约 0.02% 手续费
+                        <span className="text-[#F0B90B] font-medium">
+                          保守混合：
+                        </span>
+                        先尝试限价单（Maker 费率{' '}
+                        {(formData.maker_fee_rate * 100).toFixed(2)}%），
+                        {formData.limit_timeout_seconds}
+                        秒未成交后自动转为市价单。 预计 85-90% 成交率，节省约
+                        0.02% 手续费
                       </>
                     )}
                     {formData.order_strategy === 'limit_only' && (
                       <>
-                        <span className="text-[#F0B90B] font-medium">仅限价单：</span>
-                        仅使用限价单（Maker 费率 {(formData.maker_fee_rate * 100).toFixed(2)}%），
+                        <span className="text-[#F0B90B] font-medium">
+                          仅限价单：
+                        </span>
+                        仅使用限价单（Maker 费率{' '}
+                        {(formData.maker_fee_rate * 100).toFixed(2)}%），
                         不会自动转为市价单。成交率取决于市场流动性和偏移设置
                       </>
                     )}
