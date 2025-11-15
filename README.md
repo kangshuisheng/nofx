@@ -11,6 +11,12 @@
 
 ---
 
+> 📢 **Community-Driven Fork**: This is an independently maintained, community-driven version of NOFX. We focus on stability, user experience, and community needs.
+>
+> **Original Project**: [nofxaios/nofx](https://github.com/nofxaios/nofx)
+
+---
+
 ## 📑 Table of Contents
 
 - [🚀 Universal AI Trading Operating System](#-universal-ai-trading-operating-system)

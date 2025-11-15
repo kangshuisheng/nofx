@@ -323,6 +323,24 @@ func (d *Database) createTables() error {
 		log.Printf("⚠️ 迁移自增ID失败: %v", err)
 	}
 
+	// 🔒 添加 UNIQUE 約束防止重複配置
+	uniqueConstraints := []string{
+		// ai_models: 同一用戶不能有重複的 model_id
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_models_user_model
+		 ON ai_models(user_id, model_id)`,
+
+		// exchanges: 同一用戶不能有重複的 exchange_id
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_exchanges_user_exchange
+		 ON exchanges(user_id, exchange_id)`,
+	}
+
+	for _, query := range uniqueConstraints {
+		if _, err := d.db.Exec(query); err != nil {
+			log.Printf("⚠️ 創建唯一索引失敗（可能已存在）: %v", err)
+			// 不返回錯誤，因為索引可能已存在
+		}
+	}
+
 	return nil
 }
 
