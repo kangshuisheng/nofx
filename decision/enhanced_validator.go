@@ -117,11 +117,11 @@ func (ev *EnhancedValidator) validateRisk(d *Decision, result *ValidationResult)
 	riskPercent := (potentialLossUSD / ev.AccountEquity) * 100
 	result.RiskPercent = riskPercent
 
-	// 验证风险预算， 单笔交易最大亏损控制在2%
-	maxAllowedRisk := ev.AccountEquity * 0.02 // 2%
+	// 验证风险预算， 单笔交易最大亏损控制在1.5%
+	maxAllowedRisk := ev.AccountEquity * 0.015 // 1.5%
 	if potentialLossUSD > maxAllowedRisk {
 		result.Errors = append(result.Errors,
-			fmt.Sprintf("风险超限: %.2f USDT (%.2f%%) > 最大允许 %.2f USDT (2%%)",
+			fmt.Sprintf("风险超限: %.2f USDT (%.2f%%) > 最大允许 %.2f USDT (1.5%%)",
 				potentialLossUSD, riskPercent, maxAllowedRisk))
 		result.IsValid = false
 	}
