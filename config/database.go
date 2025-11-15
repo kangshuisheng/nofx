@@ -380,6 +380,17 @@ func (d *Database) initDefaultData() error {
 
 	// 初始化交易所（使用default用户）
 	// 注意：需要兼容不同版本的表結構（遷移前後）
+
+	// 清理舊版本的數字ID記錄（"1", "2", "3"），避免與新版字符串ID重複
+	_, err = d.db.Exec(`
+		DELETE FROM exchanges
+		WHERE user_id = 'default'
+		AND id IN ('1', '2', '3')
+	`)
+	if err != nil {
+		log.Printf("⚠️ 清理舊交易所記錄失敗（可忽略）: %v", err)
+	}
+
 	exchanges := []struct {
 		exchangeID, name, typ string
 	}{

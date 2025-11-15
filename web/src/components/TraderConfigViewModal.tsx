@@ -203,7 +203,7 @@ export function TraderConfigViewModal({
           <div className="bg-[#0B0E11] border border-[#2B3139] rounded-lg p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-[#EAECEF] flex items-center gap-2">
-                💬 交易策略提示词
+                交易策略提示词
               </h3>
               {traderData.custom_prompt && (
                 <CopyButton

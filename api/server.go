@@ -685,8 +685,10 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 
 	// 设置扫描间隔默认值
 	scanIntervalMinutes := req.ScanIntervalMinutes
-	if scanIntervalMinutes < 3 {
-		scanIntervalMinutes = 3 // 默认3分钟，且不允许小于3
+	if scanIntervalMinutes <= 0 {
+		scanIntervalMinutes = 2 // 默认2分钟
+	} else if scanIntervalMinutes < 1 {
+		scanIntervalMinutes = 1 // 最低1分钟，不允许小于1分钟
 	}
 
 	// ✅ Fix #787, #807, #790: Respect user-specified initial balance
@@ -796,15 +798,17 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	log.Printf("✅ [DEBUG] 找到 %d 个 AI 模型配置", len(aiModels))
 
 	var aiModelIntID int
+	var aiModelFound bool
 	for _, model := range aiModels {
 		log.Printf("🔍 [DEBUG] 检查 AI 模型: ID=%d, ModelID=%s (寻找: %s)", model.ID, model.ModelID, req.AIModelID)
 		if model.ModelID == req.AIModelID {
 			aiModelIntID = model.ID
+			aiModelFound = true
 			log.Printf("✅ [DEBUG] 找到匹配的 AI 模型: ID=%d", aiModelIntID)
 			break
 		}
 	}
-	if aiModelIntID == 0 {
+	if !aiModelFound {
 		log.Printf("❌ [DEBUG] 未找到 AI 模型 '%s'，可用的模型：", req.AIModelID)
 		for _, model := range aiModels {
 			log.Printf("   - ModelID=%s", model.ModelID)
@@ -823,15 +827,17 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	log.Printf("✅ [DEBUG] 找到 %d 个交易所配置", len(exchanges))
 
 	var exchangeIntID int
+	var exchangeFound bool
 	for _, exchange := range exchanges {
 		log.Printf("🔍 [DEBUG] 检查交易所: ID=%d, ExchangeID=%s (寻找: %s)", exchange.ID, exchange.ExchangeID, req.ExchangeID)
 		if exchange.ExchangeID == req.ExchangeID {
 			exchangeIntID = exchange.ID
+			exchangeFound = true
 			log.Printf("✅ [DEBUG] 找到匹配的交易所: ID=%d", exchangeIntID)
 			break
 		}
 	}
-	if exchangeIntID == 0 {
+	if !exchangeFound {
 		log.Printf("❌ [DEBUG] 未找到交易所 '%s'，可用的交易所：", req.ExchangeID)
 		for _, exchange := range exchanges {
 			log.Printf("   - ExchangeID=%s", exchange.ExchangeID)
@@ -923,6 +929,12 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	userID := c.GetString("user_id")
 	traderID := c.Param("id")
 
+	// 确保用户的交易员已加载到内存中
+	err := s.traderManager.LoadUserTraders(s.database, userID)
+	if err != nil {
+		log.Printf("⚠️ 加载用户 %s 的交易员失败: %v", userID, err)
+	}
+
 	var req UpdateTraderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -969,8 +981,8 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	scanIntervalMinutes := req.ScanIntervalMinutes
 	if scanIntervalMinutes <= 0 {
 		scanIntervalMinutes = existingTrader.ScanIntervalMinutes // 保持原值
-	} else if scanIntervalMinutes < 3 {
-		scanIntervalMinutes = 3
+	} else if scanIntervalMinutes < 1 {
+		scanIntervalMinutes = 1 // 最低1分钟，不允许小于1分钟
 	}
 
 	// 设置提示词模板，允许更新
@@ -1064,13 +1076,15 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	}
 
 	var aiModelIntID int
+	var aiModelFound bool
 	for _, model := range aiModels {
 		if model.ModelID == req.AIModelID {
 			aiModelIntID = model.ID
+			aiModelFound = true
 			break
 		}
 	}
-	if aiModelIntID == 0 {
+	if !aiModelFound {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("AI模型 %s 不存在", req.AIModelID)})
 		return
 	}
@@ -1082,13 +1096,15 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	}
 
 	var exchangeIntID int
+	var exchangeFound bool
 	for _, exchange := range exchanges {
 		if exchange.ExchangeID == req.ExchangeID {
 			exchangeIntID = exchange.ID
+			exchangeFound = true
 			break
 		}
 	}
-	if exchangeIntID == 0 {
+	if !exchangeFound {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("交易所 %s 不存在", req.ExchangeID)})
 		return
 	}
@@ -1161,14 +1177,20 @@ func (s *Server) handleDeleteTrader(c *gin.Context) {
 	userID := c.GetString("user_id")
 	traderID := c.Param("id")
 
+	// 确保用户的交易员已加载到内存中
+	err := s.traderManager.LoadUserTraders(s.database, userID)
+	if err != nil {
+		log.Printf("⚠️ 加载用户 %s 的交易员失败: %v", userID, err)
+	}
+
 	// ✅ 步骤1：先从内存中停止并移除交易员（RemoveTrader会处理停止逻辑和竞赛缓存清除）
-	if err := s.traderManager.RemoveTrader(traderID); err != nil {
+	if removeErr := s.traderManager.RemoveTrader(traderID); removeErr != nil {
 		// 交易员不在内存中也不是错误，可能已经被移除或从未加载
-		log.Printf("⚠️ 从内存中移除交易员时出现警告: %v", err)
+		log.Printf("⚠️ 从内存中移除交易员时出现警告: %v", removeErr)
 	}
 
 	// ✅ 步骤2：最后才从数据库删除
-	err := s.database.DeleteTrader(userID, traderID)
+	err = s.database.DeleteTrader(userID, traderID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("删除交易员失败: %v", err)})
 		return
@@ -1182,6 +1204,12 @@ func (s *Server) handleDeleteTrader(c *gin.Context) {
 func (s *Server) handleStartTrader(c *gin.Context) {
 	userID := c.GetString("user_id")
 	traderID := c.Param("id")
+
+	// 确保用户的交易员已加载到内存中（修复 404 问题）
+	err := s.traderManager.LoadUserTraders(s.database, userID)
+	if err != nil {
+		log.Printf("⚠️ 加载用户 %s 的交易员失败: %v", userID, err)
+	}
 
 	// 校验交易员是否属于当前用户
 	traderRecord, _, _, err := s.database.GetTraderConfig(userID, traderID)
@@ -1232,8 +1260,14 @@ func (s *Server) handleStopTrader(c *gin.Context) {
 	userID := c.GetString("user_id")
 	traderID := c.Param("id")
 
+	// 确保用户的交易员已加载到内存中
+	err := s.traderManager.LoadUserTraders(s.database, userID)
+	if err != nil {
+		log.Printf("⚠️ 加载用户 %s 的交易员失败: %v", userID, err)
+	}
+
 	// 校验交易员是否属于当前用户
-	_, _, _, err := s.database.GetTraderConfig(userID, traderID)
+	_, _, _, err = s.database.GetTraderConfig(userID, traderID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "交易员不存在或无访问权限"})
 		return
@@ -1270,18 +1304,24 @@ func (s *Server) handleUpdateTraderPrompt(c *gin.Context) {
 	traderID := c.Param("id")
 	userID := c.GetString("user_id")
 
+	// 确保用户的交易员已加载到内存中（修复 404 问题）
+	err := s.traderManager.LoadUserTraders(s.database, userID)
+	if err != nil {
+		log.Printf("⚠️ 加载用户 %s 的交易员失败: %v", userID, err)
+	}
+
 	var req struct {
 		CustomPrompt       string `json:"custom_prompt"`
 		OverrideBasePrompt bool   `json:"override_base_prompt"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
 	// 更新数据库
-	err := s.database.UpdateTraderCustomPrompt(userID, traderID, req.CustomPrompt, req.OverrideBasePrompt)
+	err = s.database.UpdateTraderCustomPrompt(userID, traderID, req.CustomPrompt, req.OverrideBasePrompt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新自定义prompt失败: %v", err)})
 		return
@@ -1302,6 +1342,12 @@ func (s *Server) handleUpdateTraderPrompt(c *gin.Context) {
 func (s *Server) handleSyncBalance(c *gin.Context) {
 	userID := c.GetString("user_id")
 	traderID := c.Param("id")
+
+	// 确保用户的交易员已加载到内存中（修复 404 问题）
+	err := s.traderManager.LoadUserTraders(s.database, userID)
+	if err != nil {
+		log.Printf("⚠️ 加载用户 %s 的交易员失败: %v", userID, err)
+	}
 
 	log.Printf("🔄 用户 %s 请求同步交易员 %s 的余额", userID, traderID)
 
@@ -1731,6 +1777,12 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 	if traderID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "交易员ID不能为空"})
 		return
+	}
+
+	// 确保用户的交易员已加载到内存中（修复 404 问题）
+	err := s.traderManager.LoadUserTraders(s.database, userID)
+	if err != nil {
+		log.Printf("⚠️ 加载用户 %s 的交易员失败: %v", userID, err)
 	}
 
 	traderConfig, aiModel, exchange, err := s.database.GetTraderConfig(userID, traderID)

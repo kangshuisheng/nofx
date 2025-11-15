@@ -187,7 +187,7 @@ export const translations = {
     configureAIModels: 'Configure AI Models',
     configureExchanges: 'Configure Exchanges',
     aiScanInterval: 'AI Scan Decision Interval (minutes)',
-    scanIntervalRecommend: 'Minimum: 1 minute, Recommended: 3-10 minutes',
+    scanIntervalRecommend: 'Minimum: 1 minute, Default: 2 minutes, Recommended: 2-10 minutes',
     useTestnet: 'Use Testnet',
     enabled: 'Enabled',
     save: 'Save',
@@ -1061,7 +1061,7 @@ export const translations = {
     configureAIModels: '配置AI模型',
     configureExchanges: '配置交易所',
     aiScanInterval: 'AI 扫描决策间隔 (分钟)',
-    scanIntervalRecommend: '最低1分钟，建议: 3-10分钟',
+    scanIntervalRecommend: '最低1分钟，默认2分钟，建议: 2-10分钟',
     useTestnet: '使用测试网',
     enabled: '启用',
     save: '保存',
@@ -1563,7 +1563,7 @@ export const translations = {
 
     faqHighFees: '交易手续费太高',
     faqHighFeesAnswer:
-      'NOFX 默认 3 分钟扫描间隔会导致频繁交易。解决方案：将决策间隔增加到 5-10 分钟；优化系统提示词减少过度交易；调整杠杆降低仓位大小。',
+      'NOFX 默认 2 分钟扫描间隔会导致频繁交易。解决方案：将决策间隔增加到 5-10 分钟；优化系统提示词减少过度交易；调整杠杆降低仓位大小。',
 
     faqNoTakeProfit: 'AI 不平掉盈利的仓位',
     faqNoTakeProfitAnswer:

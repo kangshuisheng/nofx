@@ -991,8 +991,27 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *decision.Decisio
 		}
 	}
 
+	// ⚡ 方案 A：智能止损验证 - 检测持仓是否已被交易所自动平仓
 	if targetPosition == nil {
-		return fmt.Errorf("持仓不存在: %s", decision.Symbol)
+		// 检查这个持仓是否在上一个周期存在（说明刚刚被平仓）
+		wasRecentlyOpen := false
+		for key := range at.lastPositions {
+			if strings.HasPrefix(key, decision.Symbol+"_") {
+				wasRecentlyOpen = true
+				break
+			}
+		}
+
+		if wasRecentlyOpen {
+			// 持仓刚刚消失，很可能是止损单已触发
+			log.Printf("  ℹ️  %s 持仓已平仓（止损单可能已触发），跳过止损调整", decision.Symbol)
+			log.Printf("  💡 提示：市价 %.2f，目标止损 %.2f - 交易所可能已在两次AI周期间执行止损",
+				marketData.CurrentPrice, decision.NewStopLoss)
+			return nil // 优雅返回，不抛错误
+		}
+
+		// 如果从未存在过这个持仓，则是配置错误
+		return fmt.Errorf("持仓不存在: %s（从未开仓或已在更早前平仓）", decision.Symbol)
 	}
 
 	// 获取持仓方向和数量
@@ -1000,12 +1019,36 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *decision.Decisio
 	positionSide := strings.ToUpper(side)
 	positionAmt, _ := targetPosition["positionAmt"].(float64)
 
-	// 验证新止损价格合理性
-	if positionSide == "LONG" && decision.NewStopLoss >= marketData.CurrentPrice {
-		return fmt.Errorf("多单止损必须低于当前价格 (当前: %.2f, 新止损: %.2f)", marketData.CurrentPrice, decision.NewStopLoss)
-	}
-	if positionSide == "SHORT" && decision.NewStopLoss <= marketData.CurrentPrice {
-		return fmt.Errorf("空单止损必须高于当前价格 (当前: %.2f, 新止损: %.2f)", marketData.CurrentPrice, decision.NewStopLoss)
+	// ⚡ 智能验证新止损价格合理性（考虑价格波动容差）
+	priceGap := 0.0
+	if positionSide == "LONG" {
+		priceGap = decision.NewStopLoss - marketData.CurrentPrice
+		if priceGap > 0 {
+			// 多单止损价高于当前价 - 可能是延迟导致的异常
+			priceGapPct := (priceGap / marketData.CurrentPrice) * 100
+			if priceGapPct > 0.5 {
+				// 差距超过 0.5%，明显异常
+				return fmt.Errorf("多单止损价异常偏高 (当前: %.2f, 新止损: %.2f, 差距: %.2f%%)",
+					marketData.CurrentPrice, decision.NewStopLoss, priceGapPct)
+			}
+			// 差距 <= 0.5%，可能是价格波动 + AI 延迟，允许通过但警告
+			log.Printf("  ⚠️  止损价 %.2f 略高于市价 %.2f (差距 %.2f%%)，可能是价格快速波动导致",
+				decision.NewStopLoss, marketData.CurrentPrice, priceGapPct)
+		}
+	} else {
+		priceGap = marketData.CurrentPrice - decision.NewStopLoss
+		if priceGap > 0 {
+			// 空单止损价低于当前价 - 可能是延迟导致的异常
+			priceGapPct := (priceGap / marketData.CurrentPrice) * 100
+			if priceGapPct > 0.5 {
+				// 差距超过 0.5%，明显异常
+				return fmt.Errorf("空单止损价异常偏低 (当前: %.2f, 新止损: %.2f, 差距: %.2f%%)",
+					marketData.CurrentPrice, decision.NewStopLoss, priceGapPct)
+			}
+			// 差距 <= 0.5%，可能是价格波动 + AI 延迟，允许通过但警告
+			log.Printf("  ⚠️  止损价 %.2f 略低于市价 %.2f (差距 %.2f%%)，可能是价格快速波动导致",
+				decision.NewStopLoss, marketData.CurrentPrice, priceGapPct)
+		}
 	}
 
 	// ⚠️ 防御性检查：检测是否存在双向持仓（不应该出现，但提供保护）
@@ -1077,8 +1120,27 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *decision.Decis
 		}
 	}
 
+	// ⚡ 方案 A：智能止盈验证 - 检测持仓是否已被交易所自动平仓
 	if targetPosition == nil {
-		return fmt.Errorf("持仓不存在: %s", decision.Symbol)
+		// 检查这个持仓是否在上一个周期存在（说明刚刚被平仓）
+		wasRecentlyOpen := false
+		for key := range at.lastPositions {
+			if strings.HasPrefix(key, decision.Symbol+"_") {
+				wasRecentlyOpen = true
+				break
+			}
+		}
+
+		if wasRecentlyOpen {
+			// 持仓刚刚消失，很可能是止盈单已触发
+			log.Printf("  ℹ️  %s 持仓已平仓（止盈单可能已触发），跳过止盈调整", decision.Symbol)
+			log.Printf("  💡 提示：市价 %.2f，目标止盈 %.2f - 交易所可能已在两次AI周期间执行止盈",
+				marketData.CurrentPrice, decision.NewTakeProfit)
+			return nil // 优雅返回，不抛错误
+		}
+
+		// 如果从未存在过这个持仓，则是配置错误
+		return fmt.Errorf("持仓不存在: %s（从未开仓或已在更早前平仓）", decision.Symbol)
 	}
 
 	// 获取持仓方向和数量
@@ -1086,12 +1148,36 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *decision.Decis
 	positionSide := strings.ToUpper(side)
 	positionAmt, _ := targetPosition["positionAmt"].(float64)
 
-	// 验证新止盈价格合理性
-	if positionSide == "LONG" && decision.NewTakeProfit <= marketData.CurrentPrice {
-		return fmt.Errorf("多单止盈必须高于当前价格 (当前: %.2f, 新止盈: %.2f)", marketData.CurrentPrice, decision.NewTakeProfit)
-	}
-	if positionSide == "SHORT" && decision.NewTakeProfit >= marketData.CurrentPrice {
-		return fmt.Errorf("空单止盈必须低于当前价格 (当前: %.2f, 新止盈: %.2f)", marketData.CurrentPrice, decision.NewTakeProfit)
+	// ⚡ 智能验证新止盈价格合理性（考虑价格波动容差）
+	priceGap := 0.0
+	if positionSide == "LONG" {
+		priceGap = marketData.CurrentPrice - decision.NewTakeProfit
+		if priceGap > 0 {
+			// 多单止盈价低于当前价 - 可能是延迟导致的异常
+			priceGapPct := (priceGap / marketData.CurrentPrice) * 100
+			if priceGapPct > 0.5 {
+				// 差距超过 0.5%，明显异常
+				return fmt.Errorf("多单止盈价异常偏低 (当前: %.2f, 新止盈: %.2f, 差距: %.2f%%)",
+					marketData.CurrentPrice, decision.NewTakeProfit, priceGapPct)
+			}
+			// 差距 <= 0.5%，可能是价格波动 + AI 延迟，允许通过但警告
+			log.Printf("  ⚠️  止盈价 %.2f 略低于市价 %.2f (差距 %.2f%%)，可能是价格快速波动导致",
+				decision.NewTakeProfit, marketData.CurrentPrice, priceGapPct)
+		}
+	} else {
+		priceGap = decision.NewTakeProfit - marketData.CurrentPrice
+		if priceGap > 0 {
+			// 空单止盈价高于当前价 - 可能是延迟导致的异常
+			priceGapPct := (priceGap / marketData.CurrentPrice) * 100
+			if priceGapPct > 0.5 {
+				// 差距超过 0.5%，明显异常
+				return fmt.Errorf("空单止盈价异常偏高 (当前: %.2f, 新止盈: %.2f, 差距: %.2f%%)",
+					marketData.CurrentPrice, decision.NewTakeProfit, priceGapPct)
+			}
+			// 差距 <= 0.5%，可能是价格波动 + AI 延迟，允许通过但警告
+			log.Printf("  ⚠️  止盈价 %.2f 略高于市价 %.2f (差距 %.2f%%)，可能是价格快速波动导致",
+				decision.NewTakeProfit, marketData.CurrentPrice, priceGapPct)
+		}
 	}
 
 	// ⚠️ 防御性检查：检测是否存在双向持仓（不应该出现，但提供保护）
@@ -1168,8 +1254,27 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *decision.Decision,
 		}
 	}
 
+	// ⚡ 方案 A：智能部分平仓验证 - 检测持仓是否已被交易所自动平仓
 	if targetPosition == nil {
-		return fmt.Errorf("持仓不存在: %s", decision.Symbol)
+		// 检查这个持仓是否在上一个周期存在（说明刚刚被平仓）
+		wasRecentlyOpen := false
+		for key := range at.lastPositions {
+			if strings.HasPrefix(key, decision.Symbol+"_") {
+				wasRecentlyOpen = true
+				break
+			}
+		}
+
+		if wasRecentlyOpen {
+			// 持仓刚刚消失，很可能是止损/止盈单已触发全部平仓
+			log.Printf("  ℹ️  %s 持仓已完全平仓（止损/止盈可能已触发），跳过部分平仓", decision.Symbol)
+			log.Printf("  💡 提示：市价 %.2f - 交易所可能已在两次AI周期间自动平仓",
+				marketData.CurrentPrice)
+			return nil // 优雅返回，不抛错误
+		}
+
+		// 如果从未存在过这个持仓，则是配置错误
+		return fmt.Errorf("持仓不存在: %s（从未开仓或已在更早前平仓）", decision.Symbol)
 	}
 
 	// 获取持仓方向和数量

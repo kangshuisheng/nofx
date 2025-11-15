@@ -45,6 +45,8 @@ func DefaultCSRFConfig() CSRFConfig {
 			"/api/register",                 // 注册端点豁免
 			"/api/verify-otp",               // OTP验证端点豁免（已有OTP安全验证）
 			"/api/complete-registration",    // 完成注册端点豁免（已有OTP安全验证）
+			"/api/models",                   // 模型配置端点（已有JWT认证+RSA加密）
+			"/api/exchanges",                // 交易所配置端点（已有JWT认证+RSA加密）
 		},
 	}
 }

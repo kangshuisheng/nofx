@@ -81,10 +81,10 @@ export function TraderConfigModal({
     use_coin_pool: false,
     use_oi_top: false,
     initial_balance: 100,
-    scan_interval_minutes: 3,
-    taker_fee_rate: 0.0004, // 默认 Binance Taker 费率 (0.04%)
-    maker_fee_rate: 0.0002, // 默认 Binance Maker 费率 (0.02%)
-    timeframes: '4h', // 默认只勾选 4 小时线
+    scan_interval_minutes: 2,      // 默认 2 分钟（平衡延遲與成本）
+    taker_fee_rate: 0.0004,        // 默认 Binance Taker 费率 (0.04%)
+    maker_fee_rate: 0.0002,        // 默认 Binance Maker 费率 (0.02%)
+    timeframes: '4h',              // 默认只勾选 4 小时线
     order_strategy: 'conservative_hybrid', // 默认使用保守混合策略
     limit_price_offset: -0.03, // 默认 -0.03% 限价偏移
     limit_timeout_seconds: 60, // 默认 60 秒超时
@@ -133,7 +133,7 @@ export function TraderConfigModal({
         use_coin_pool: false,
         use_oi_top: false,
         initial_balance: 100,
-        scan_interval_minutes: 3,
+        scan_interval_minutes: 2, // 默认 2 分钟（平衡延遲與成本）
         taker_fee_rate: 0.0004, // 默认 Binance Taker 费率 (0.04%)
         maker_fee_rate: 0.0002, // 默认 Binance Maker 费率 (0.02%)
         timeframes: '4h', // 默认只勾选 4 小时线
@@ -586,13 +586,15 @@ export function TraderConfigModal({
                       { value: '1d', label: '1天' },
                     ]
 
-                    // 根据扫描间隔添加短周期线
-                    const frames =
-                      interval === 1
-                        ? [{ value: '1m', label: '1分钟' }, ...baseFrames]
-                        : interval === 3
-                          ? [{ value: '3m', label: '3分钟' }, ...baseFrames]
-                          : baseFrames
+                    // 根据扫描间隔智能添加短周期线
+                    const getShortFrames = () => {
+                      if (interval <= 2) return [{ value: '1m', label: '1分钟' }]
+                      if (interval >= 3 && interval <= 4) return [{ value: '3m', label: '3分钟' }]
+                      if (interval >= 5 && interval < 15) return [{ value: '5m', label: '5分钟' }]
+                      return []
+                    }
+
+                    const frames = [...getShortFrames(), ...baseFrames]
 
                     const selectedFrames = formData.timeframes
                       .split(',')
@@ -638,8 +640,8 @@ export function TraderConfigModal({
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
                   {language === 'zh'
-                    ? '根据扫描间隔自动调整：1分钟扫描只显示1分钟线，3分钟扫描只显示3分钟线。默认勾选4小时线。'
-                    : 'Auto-adjusted by scan interval: 1min scan shows 1m only, 3min scan shows 3m only. 4h is selected by default.'}
+                    ? '根据扫描间隔智能添加短周期线：≤2分钟添加1m，3-4分钟添加3m，5-14分钟添加5m。默认勾选4小时线。'
+                    : 'Smart short-period options: ≤2min adds 1m, 3-4min adds 3m, 5-14min adds 5m. 4h is selected by default.'}
                 </p>
               </div>
 
@@ -955,7 +957,7 @@ export function TraderConfigModal({
           {/* Trading Prompt */}
           <div className="bg-[#0B0E11] border border-[#2B3139] rounded-lg p-5">
             <h3 className="text-lg font-semibold text-[#EAECEF] mb-5 flex items-center gap-2">
-              💬 交易策略提示词
+              交易策略提示词
             </h3>
             <div className="space-y-4">
               {/* 系统提示词模板选择 */}
