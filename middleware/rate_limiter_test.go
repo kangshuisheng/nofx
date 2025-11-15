@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -166,20 +167,22 @@ func TestAuthRateLimitMiddleware(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "login success"})
 	})
 
-	// 第一次登录尝试应该成功
-	w1 := httptest.NewRecorder()
-	req1, _ := http.NewRequest("POST", "/login", nil)
-	req1.RemoteAddr = "192.168.1.1:12345"
-	router.ServeHTTP(w1, req1)
-	assert.Equal(t, http.StatusOK, w1.Code, "第一次登录应该成功")
+	// 前 3 次登录尝试应该成功
+	for i := 1; i <= 3; i++ {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/login", nil)
+		req.RemoteAddr = "192.168.1.1:12345"
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, fmt.Sprintf("第 %d 次登录应该成功", i))
+	}
 
-	// 立即尝试第二次登录应该被阻止（10 秒内只允许 1 次）
-	w2 := httptest.NewRecorder()
-	req2, _ := http.NewRequest("POST", "/login", nil)
-	req2.RemoteAddr = "192.168.1.1:12345"
-	router.ServeHTTP(w2, req2)
-	assert.Equal(t, http.StatusTooManyRequests, w2.Code, "10 秒内第二次登录应该被阻止")
-	assert.Contains(t, w2.Body.String(), "登录尝试次数过多", "应该返回正确的错误消息")
+	// 第 4 次登录应该被阻止（30 秒内只允许 3 次）
+	w4 := httptest.NewRecorder()
+	req4, _ := http.NewRequest("POST", "/login", nil)
+	req4.RemoteAddr = "192.168.1.1:12345"
+	router.ServeHTTP(w4, req4)
+	assert.Equal(t, http.StatusTooManyRequests, w4.Code, "30 秒内第 4 次登录应该被阻止")
+	assert.Contains(t, w4.Body.String(), "登录尝试次数过多", "应该返回正确的错误消息")
 }
 
 // TestStrictRateLimitMiddleware 测试严格限制中间件
