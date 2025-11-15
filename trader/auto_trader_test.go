@@ -99,6 +99,8 @@ func (s *AutoTraderTestSuite) SetupTest() {
 		defaultCoins:          []string{"BTC", "ETH"},
 		tradingCoins:          []string{},
 		lastResetTime:         time.Now(),
+		dailyPnLBase:          s.config.InitialBalance,
+		peakEquity:            s.config.InitialBalance,
 		startTime:             time.Now(),
 		callCount:             0,
 		isRunning:             false,
@@ -365,8 +367,8 @@ func (s *AutoTraderTestSuite) TestGetCandidateCoins() {
 		s.autoTrader.useCoinPool = true        // 启用 AI500 信号源
 		s.autoTrader.useOITop = true           // 启用 OI Top 信号源
 
-		// Mock pool.GetMergedCoinPool
-		s.patches.ApplyFunc(pool.GetMergedCoinPool, func(ai500Limit int) (*pool.MergedCoinPool, error) {
+		// Mock pool.GetMergedCoinPoolWithOverride
+		s.patches.ApplyFunc(pool.GetMergedCoinPoolWithOverride, func(ai500Limit int, coinPoolURL, oiTopURL string) (*pool.MergedCoinPool, error) {
 			return &pool.MergedCoinPool{
 				AllSymbols: []string{"BTCUSDT", "ETHUSDT"},
 				SymbolSources: map[string][]string{
@@ -502,7 +504,7 @@ func (s *AutoTraderTestSuite) TestExecuteOpenPosition() {
 			}
 			// 空单需要调整止损/止盈方向
 			if tt.action == "open_short" {
-				decision.StopLoss = 52000.0  // 空单止损 > 当前价
+				decision.StopLoss = 52000.0   // 空单止损 > 当前价
 				decision.TakeProfit = 48000.0 // 空单止盈 < 当前价
 			}
 			actionRecord := &logger.DecisionAction{Action: tt.action, Symbol: "BTCUSDT"}
@@ -1242,15 +1244,15 @@ func TestCalculatePnLPercentage_RealWorldScenarios(t *testing.T) {
 // 验证修复 Issue #8：盈亏百分比应该基于开仓价计算保证金，而不是当前价
 func (s *AutoTraderTestSuite) TestGetPositions_UnrealizedPnLPercentageStability() {
 	tests := []struct {
-		name                    string
-		entryPrice              float64
-		markPrice               float64
-		quantity                float64
-		leverage                float64
-		unrealizedPnl           float64
-		expectedMarginUsed      float64
-		expectedPnlPct          float64
-		description             string
+		name               string
+		entryPrice         float64
+		markPrice          float64
+		quantity           float64
+		leverage           float64
+		unrealizedPnl      float64
+		expectedMarginUsed float64
+		expectedPnlPct     float64
+		description        string
 	}{
 		{
 			name:               "价格上涨_百分比应稳定_基于开仓价",
@@ -1259,8 +1261,8 @@ func (s *AutoTraderTestSuite) TestGetPositions_UnrealizedPnLPercentageStability(
 			quantity:           0.1,
 			leverage:           10.0,
 			unrealizedPnl:      100.0,
-			expectedMarginUsed: 500.0,  // 保证金 = 0.1 * 50000 / 10 = 500 (基于开仓价)
-			expectedPnlPct:     20.0,   // 100 / 500 * 100 = 20%
+			expectedMarginUsed: 500.0, // 保证金 = 0.1 * 50000 / 10 = 500 (基于开仓价)
+			expectedPnlPct:     20.0,  // 100 / 500 * 100 = 20%
 			description:        "当价格上涨时，保证金应该基于开仓价(50000)而不是当前价(51000)",
 		},
 		{
@@ -1270,8 +1272,8 @@ func (s *AutoTraderTestSuite) TestGetPositions_UnrealizedPnLPercentageStability(
 			quantity:           0.1,
 			leverage:           10.0,
 			unrealizedPnl:      -100.0,
-			expectedMarginUsed: 500.0,  // 保证金 = 0.1 * 50000 / 10 = 500 (基于开仓价)
-			expectedPnlPct:     -20.0,  // -100 / 500 * 100 = -20%
+			expectedMarginUsed: 500.0, // 保证金 = 0.1 * 50000 / 10 = 500 (基于开仓价)
+			expectedPnlPct:     -20.0, // -100 / 500 * 100 = -20%
 			description:        "当价格下跌时，保证金应该基于开仓价(50000)而不是当前价(49000)",
 		},
 		{
@@ -1281,8 +1283,8 @@ func (s *AutoTraderTestSuite) TestGetPositions_UnrealizedPnLPercentageStability(
 			quantity:           0.1,
 			leverage:           10.0,
 			unrealizedPnl:      500.0,
-			expectedMarginUsed: 500.0,   // 保证金 = 0.1 * 50000 / 10 = 500 (不是 0.1 * 55000 / 10 = 550)
-			expectedPnlPct:     100.0,   // 500 / 500 * 100 = 100%
+			expectedMarginUsed: 500.0, // 保证金 = 0.1 * 50000 / 10 = 500 (不是 0.1 * 55000 / 10 = 550)
+			expectedPnlPct:     100.0, // 500 / 500 * 100 = 100%
 			description:        "即使价格大幅上涨，保证金也应该固定在开仓价计算值",
 		},
 		{
@@ -1292,8 +1294,8 @@ func (s *AutoTraderTestSuite) TestGetPositions_UnrealizedPnLPercentageStability(
 			quantity:           1.0,
 			leverage:           20.0,
 			unrealizedPnl:      100.0,
-			expectedMarginUsed: 150.0,  // 保证金 = 1.0 * 3000 / 20 = 150
-			expectedPnlPct:     66.67,  // 100 / 150 * 100 = 66.67%
+			expectedMarginUsed: 150.0, // 保证金 = 1.0 * 3000 / 20 = 150
+			expectedPnlPct:     66.67, // 100 / 150 * 100 = 66.67%
 			description:        "高杠杆下，保证金计算应该基于开仓价",
 		},
 		{
@@ -1408,4 +1410,45 @@ func (s *AutoTraderTestSuite) TestGetPositions_MarginCalculationRegression() {
 				testPrices[0], testPrices[i], pnlPercentages[0], pnlPercentages[i])
 		}
 	})
+}
+
+func (s *AutoTraderTestSuite) TestEnforceRiskLimits_DailyLossTrigger() {
+	at := s.autoTrader
+	at.config.MaxDailyLoss = 5
+	at.config.StopTradingTime = 30 * time.Minute
+	at.dailyPnLBase = 1000
+	at.needsDailyBaseline = false
+
+	reason, triggered := at.enforceRiskLimits(930)
+	s.True(triggered, "应该触发日亏损限制")
+	s.Contains(reason, "最大亏损")
+	s.True(time.Until(at.stopUntil) > 0, "stopUntil 应该更新为未来时间")
+}
+
+func (s *AutoTraderTestSuite) TestEnforceRiskLimits_DrawdownTrigger() {
+	at := s.autoTrader
+	at.config.MaxDailyLoss = 0
+	at.config.MaxDrawdown = 10
+	at.config.StopTradingTime = 15 * time.Minute
+	at.dailyPnLBase = 1200
+	at.peakEquity = 1200
+	at.needsDailyBaseline = false
+
+	reason, triggered := at.enforceRiskLimits(1000)
+	s.True(triggered, "应该触发回撤限制")
+	s.Contains(reason, "账户回撤")
+	s.True(time.Until(at.stopUntil) > 0, "stopUntil 应该被设定")
+}
+
+func (s *AutoTraderTestSuite) TestEnforceRiskLimits_BaselineSync() {
+	at := s.autoTrader
+	at.config.MaxDailyLoss = 10
+	at.dailyPnLBase = 0
+	at.needsDailyBaseline = true
+
+	reason, triggered := at.enforceRiskLimits(1500)
+	s.False(triggered, "首次同步基准不应触发风控")
+	s.Equal(1500.0, at.dailyPnLBase, "基准应同步为当期净值")
+	s.Equal(0.0, at.dailyPnL, "同步基准后日盈亏应为0")
+	s.Equal("", reason)
 }

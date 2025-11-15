@@ -38,7 +38,7 @@ func NewHyperliquidTestSuite(t *testing.T) *HyperliquidTestSuite {
 	}
 
 	// 创建 mock HTTP 服务器
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 根据不同的请求路径返回不同的 mock 响应
 		var respBody interface{}
 
@@ -326,7 +326,7 @@ func TestNewHyperliquidTrader_Success(t *testing.T) {
 	agentAddr := crypto.PubkeyToAddress(privateKey.PublicKey).Hex()
 
 	// 创建 mock HTTP 服务器
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody map[string]interface{}
 		json.NewDecoder(r.Body).Decode(&reqBody)
 		reqType, _ := reqBody["type"].(string)

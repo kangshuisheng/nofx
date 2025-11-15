@@ -27,7 +27,7 @@ type BinanceFuturesTestSuite struct {
 // NewBinanceFuturesTestSuite 创建币安合约测试套件
 func NewBinanceFuturesTestSuite(t *testing.T) *BinanceFuturesTestSuite {
 	// 创建 mock HTTP 服务器
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 根据不同的 URL 路径返回不同的 mock 响应
 		path := r.URL.Path
 
@@ -374,7 +374,7 @@ func TestFuturesTrader_CommonInterface(t *testing.T) {
 // TestNewFuturesTrader 测试创建币安合约交易器
 func TestNewFuturesTrader(t *testing.T) {
 	// 创建 mock HTTP 服务器
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
 		var respBody interface{}

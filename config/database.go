@@ -1689,14 +1689,14 @@ func (d *Database) UpdateTrader(trader *TraderRecord) error {
 		UPDATE traders SET
 			name = ?, ai_model_id = ?, exchange_id = ?,
 			scan_interval_minutes = ?, btc_eth_leverage = ?, altcoin_leverage = ?,
-			trading_symbols = ?, custom_prompt = ?, override_base_prompt = ?,
+			trading_symbols = ?, use_coin_pool = ?, use_oi_top = ?, custom_prompt = ?, override_base_prompt = ?,
 			system_prompt_template = ?, is_cross_margin = ?, taker_fee_rate = ?, maker_fee_rate = ?,
 			order_strategy = ?, limit_price_offset = ?, limit_timeout_seconds = ?, timeframes = ?,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND user_id = ?
 	`, trader.Name, trader.AIModelID, trader.ExchangeID,
 		trader.ScanIntervalMinutes, trader.BTCETHLeverage, trader.AltcoinLeverage,
-		trader.TradingSymbols, trader.CustomPrompt, trader.OverrideBasePrompt,
+		trader.TradingSymbols, trader.UseCoinPool, trader.UseOITop, trader.CustomPrompt, trader.OverrideBasePrompt,
 		trader.SystemPromptTemplate, trader.IsCrossMargin, trader.TakerFeeRate, trader.MakerFeeRate,
 		trader.OrderStrategy, trader.LimitPriceOffset, trader.LimitTimeoutSeconds, trader.Timeframes,
 		trader.ID, trader.UserID)
@@ -1845,29 +1845,61 @@ func (d *Database) UpdateUserSignalSource(userID, coinPoolURL, oiTopURL string) 
 
 // GetCustomCoins 获取所有交易员自定义币种 / Get all trader-customized currencies
 func (d *Database) GetCustomCoins() []string {
-	var symbol string
+	rows, err := d.db.Query(`
+		SELECT trading_symbols FROM traders
+		WHERE trading_symbols IS NOT NULL AND TRIM(trading_symbols) != '' AND is_running = 1
+	`)
+	if err != nil {
+		log.Printf("⚠️ 查询 trader 自定义币种失败: %v", err)
+		return d.getDefaultCoins()
+	}
+	defer rows.Close()
+
+	symbolSet := make(map[string]struct{})
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			continue
+		}
+		for _, token := range strings.Split(raw, ",") {
+			coin := strings.TrimSpace(token)
+			if coin == "" {
+				continue
+			}
+			normalized := market.Normalize(coin)
+			if normalized == "" {
+				continue
+			}
+			symbolSet[normalized] = struct{}{}
+		}
+	}
+
+	if len(symbolSet) == 0 {
+		return d.getDefaultCoins()
+	}
+
+	symbols := make([]string, 0, len(symbolSet))
+	for s := range symbolSet {
+		symbols = append(symbols, s)
+	}
+	slices.Sort(symbols)
+	return symbols
+}
+
+func (d *Database) getDefaultCoins() []string {
 	var symbols []string
-	_ = d.db.QueryRow(`
-		SELECT GROUP_CONCAT(custom_coins , ',') as symbol
-		FROM main.traders where custom_coins != ''
-	`).Scan(&symbol)
-	// 检测用户是否未配置币种 - 兼容性
-	if symbol == "" {
-		symbolJSON, _ := d.GetSystemConfig("default_coins")
+	symbolJSON, _ := d.GetSystemConfig("default_coins")
+	if symbolJSON != "" {
 		if err := json.Unmarshal([]byte(symbolJSON), &symbols); err != nil {
 			log.Printf("⚠️  解析default_coins配置失败: %v，使用硬编码默认值", err)
 			symbols = []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
 		}
 	}
-	// filter Symbol
-	for _, s := range strings.Split(symbol, ",") {
-		if s == "" {
-			continue
-		}
-		coin := market.Normalize(s)
-		if !slices.Contains(symbols, coin) {
-			symbols = append(symbols, coin)
-		}
+	if len(symbols) == 0 {
+		symbols = []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
+	}
+	for i, coin := range symbols {
+		symbols[i] = market.Normalize(coin)
 	}
 	return symbols
 }

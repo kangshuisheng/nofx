@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	baseURL = "https://fapi.binance.com"
+	defaultBaseURL = "https://fapi.binance.com"
 )
+
+var baseURL = defaultBaseURL
 
 type APIClient struct {
 	client *http.Client
@@ -151,6 +153,11 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// setBaseURLForTesting allows tests to override the Binance API base URL.
+func setBaseURLForTesting(url string) {
+	baseURL = url
 }
 
 func parseKline(kr KlineResponse) (Kline, error) {

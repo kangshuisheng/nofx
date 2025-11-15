@@ -45,7 +45,7 @@ func loadConfigFile() (*ConfigFile, error) {
 	// 检查config.json是否存在
 	if _, err := os.Stat("config.json"); os.IsNotExist(err) {
 		log.Printf("📄 config.json不存在，使用默认配置")
-		return &ConfigFile{}, nil
+		return nil, nil
 	}
 
 	// 读取config.json

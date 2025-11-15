@@ -41,6 +41,7 @@ type AutoTraderConfig struct {
 	AsterPrivateKey string // Aster API钱包私钥
 
 	CoinPoolAPIURL string
+	OITopAPIURL  string
 
 	// AI配置
 	UseQwen     bool
@@ -106,6 +107,8 @@ type AutoTrader struct {
 	decisionLogger        logger.IDecisionLogger // 决策日志记录器
 	initialBalance        float64
 	dailyPnL              float64
+	dailyPnLBase          float64
+	needsDailyBaseline    bool
 	customPrompt          string   // 自定义交易策略prompt
 	overrideBasePrompt    bool     // 是否覆盖基础prompt
 	systemPromptTemplate  string   // 系统提示词模板名称
@@ -114,6 +117,8 @@ type AutoTrader struct {
 	tradingCoins          []string // 实际交易币种列表
 	useCoinPool           bool     // 是否使用 AI500 Coin Pool 信号源
 	useOITop              bool     // 是否使用 OI Top 增长信号源
+	coinPoolAPIURL        string
+	oiTopAPIURL           string
 	lastResetTime         time.Time
 	stopUntil             time.Time
 	isRunning             bool
@@ -127,6 +132,7 @@ type AutoTrader struct {
 	monitorWg             sync.WaitGroup                   // 用于等待监控goroutine结束
 	peakPnLCache          map[string]float64               // 最高收益缓存 (symbol -> 峰值盈亏百分比)
 	peakPnLCacheMutex     sync.RWMutex                     // 缓存读写锁
+	peakEquity            float64                          // 账户峰值净值，用于回撤计算
 	lastBalanceSyncTime   time.Time                        // 上次余额同步时间
 	database              interface{}                      // 数据库引用（用于自动更新余额）
 	userID                string                           // 用户ID
@@ -174,11 +180,6 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		} else {
 			log.Printf("🤖 [%s] 使用DeepSeek AI", config.Name)
 		}
-	}
-
-	// 初始化币种池API
-	if config.CoinPoolAPIURL != "" {
-		pool.SetCoinPoolAPI(config.CoinPoolAPIURL)
 	}
 
 	// 设置默认交易平台
@@ -257,6 +258,9 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		useCoinPool:           config.UseCoinPool,
 		useOITop:              config.UseOITop,
 		lastResetTime:         time.Now(),
+		dailyPnLBase:          config.InitialBalance,
+		needsDailyBaseline:    true,
+		peakEquity:            config.InitialBalance,
 		startTime:             time.Now(),
 		callCount:             0,
 		isRunning:             false,
@@ -271,6 +275,8 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		lastBalanceSyncTime:   time.Now(), // 初始化为当前时间
 		database:              database,
 		userID:                userID,
+		coinPoolAPIURL:        strings.TrimSpace(config.CoinPoolAPIURL),
+		oiTopAPIURL:           strings.TrimSpace(config.OITopAPIURL),
 	}, nil
 }
 
@@ -349,12 +355,8 @@ func (at *AutoTrader) runCycle() error {
 		return nil
 	}
 
-	// 2. 重置日盈亏（每天重置）
-	if time.Since(at.lastResetTime) > 24*time.Hour {
-		at.dailyPnL = 0
-		at.lastResetTime = time.Now()
-		log.Println("📅 日盈亏已重置")
-	}
+	// 2. 重置日盈亏基线（每天一次）
+	at.maybeResetDailyMetrics()
 
 	// 4. 收集交易上下文
 	ctx, err := at.buildTradingContext()
@@ -387,6 +389,15 @@ func (at *AutoTrader) runCycle() error {
 			Leverage:         float64(pos.Leverage),
 			LiquidationPrice: pos.LiquidationPrice,
 		})
+	}
+
+	// 更新盈亏指标并执行账户级风控
+	if reason, triggered := at.enforceRiskLimits(ctx.Account.TotalEquity); triggered {
+		record.Success = false
+		record.ErrorMessage = reason
+		at.decisionLogger.LogDecision(record)
+		log.Printf("⛔ 风险控制触发，暂停交易：%s | 恢复时间: %s", reason, at.stopUntil.Format(time.RFC3339))
+		return nil
 	}
 
 	// 检测被动平仓（止损/止盈/强平/手动）
@@ -552,6 +563,66 @@ func (at *AutoTrader) runCycle() error {
 	}
 
 	return nil
+}
+
+// 每日重置盈亏基线
+func (at *AutoTrader) maybeResetDailyMetrics() {
+	now := time.Now()
+	if at.lastResetTime.IsZero() || !sameDay(at.lastResetTime, now) {
+		at.dailyPnL = 0
+		at.dailyPnLBase = 0
+		at.needsDailyBaseline = true
+		at.lastResetTime = now
+		log.Println("📅 日盈亏已重置，等待新的基准净值")
+	}
+}
+
+func (at *AutoTrader) enforceRiskLimits(currentEquity float64) (string, bool) {
+	at.updatePnLMetrics(currentEquity)
+
+	if limit := at.config.MaxDailyLoss; limit > 0 && at.dailyPnLBase > 0 {
+		maxLoss := -at.dailyPnLBase * limit / 100
+		if at.dailyPnL <= maxLoss {
+			reason := fmt.Sprintf("触发当日最大亏损 %.2f%% (盈亏 %.2f / 基准 %.2f USDT)", limit, at.dailyPnL, at.dailyPnLBase)
+			at.activateRiskStop()
+			return reason, true
+		}
+	}
+
+	if dd := at.config.MaxDrawdown; dd > 0 && at.peakEquity > 0 {
+		drawdownPct := (at.peakEquity - currentEquity) / at.peakEquity * 100
+		if drawdownPct >= dd {
+			reason := fmt.Sprintf("触发账户回撤 %.2f%% (峰值 %.2f → 当前 %.2f)", drawdownPct, at.peakEquity, currentEquity)
+			at.activateRiskStop()
+			return reason, true
+		}
+	}
+
+	return "", false
+}
+
+func (at *AutoTrader) updatePnLMetrics(currentEquity float64) {
+	if at.dailyPnLBase == 0 || at.needsDailyBaseline {
+		at.dailyPnLBase = currentEquity
+		at.dailyPnL = 0
+		at.needsDailyBaseline = false
+		log.Printf("📊 日盈亏基准同步：%.2f USDT", currentEquity)
+	} else {
+		at.dailyPnL = currentEquity - at.dailyPnLBase
+	}
+
+	if currentEquity > at.peakEquity {
+		at.peakEquity = currentEquity
+	}
+}
+
+func (at *AutoTrader) activateRiskStop() {
+	pause := at.config.StopTradingTime
+	if pause <= 0 {
+		pause = 60 * time.Minute
+	}
+	at.stopUntil = time.Now().Add(pause)
+	log.Printf("⚠️ 触发风险暂停，暂停时长: %v，恢复时间: %s", pause, at.stopUntil.Format(time.RFC3339))
 }
 
 // buildTradingContext 构建交易上下文
@@ -1590,6 +1661,12 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 	}, nil
 }
 
+func sameDay(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
+}
+
 // GetPositions 获取持仓列表（用于API）
 func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 	positions, err := at.trader.GetPositions()
@@ -1706,6 +1783,8 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 	// 优先级 2: 信号源扩展模式（合并系统默认 + 信号源）
 	if at.useCoinPool || at.useOITop {
 		symbolMap := make(map[string][]string) // symbol -> sources
+		coinPoolURL := strings.TrimSpace(at.coinPoolAPIURL)
+		oiTopURL := strings.TrimSpace(at.oiTopAPIURL)
 
 		// 2.1 先添加系统默认币种作为基础
 		defaultCount := 0
@@ -1721,7 +1800,7 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 
 		if at.useCoinPool && at.useOITop {
 			// 同时使用 AI500 + OI Top
-			mergedPool, err := pool.GetMergedCoinPool(ai500Limit)
+			mergedPool, err := pool.GetMergedCoinPoolWithOverride(ai500Limit, coinPoolURL, oiTopURL)
 			if err == nil {
 				for _, symbol := range mergedPool.AllSymbols {
 					sources := mergedPool.SymbolSources[symbol]
@@ -1734,10 +1813,18 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 						signalSourceCount++
 					}
 				}
+			} else if err != nil {
+				log.Printf("⚠️  [%s] 获取合并信号源失败: %v", at.name, err)
 			}
 		} else if at.useCoinPool {
 			// 只使用 AI500
-			ai500Pool, err := pool.GetTopRatedCoins(ai500Limit)
+			var ai500Pool []string
+			var err error
+			if coinPoolURL != "" {
+				ai500Pool, err = pool.GetTopRatedCoinsWithURL(ai500Limit, coinPoolURL)
+			} else {
+				ai500Pool, err = pool.GetTopRatedCoins(ai500Limit)
+			}
 			if err == nil {
 				for _, symbol := range ai500Pool {
 					if existingSources, exists := symbolMap[symbol]; exists {
@@ -1747,10 +1834,18 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 						signalSourceCount++
 					}
 				}
+			} else if err != nil {
+				log.Printf("⚠️  [%s] 获取 AI500 信号失败: %v", at.name, err)
 			}
 		} else if at.useOITop {
 			// 只使用 OI Top
-			oiTopPool, err := pool.GetOITopPositions()
+			var oiTopPool []pool.OIPosition
+			var err error
+			if oiTopURL != "" {
+				oiTopPool, err = pool.GetOITopPositionsWithURL(oiTopURL)
+			} else {
+				oiTopPool, err = pool.GetOITopPositions()
+			}
 			if err == nil {
 				limit := 20
 				if len(oiTopPool) < limit {
@@ -1765,6 +1860,8 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 						signalSourceCount++
 					}
 				}
+			} else if err != nil {
+				log.Printf("⚠️  [%s] 获取 OI Top 信号失败: %v", at.name, err)
 			}
 		}
 

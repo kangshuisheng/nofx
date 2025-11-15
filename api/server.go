@@ -84,8 +84,16 @@ func NewServer(traderManager *manager.TraderManager, database *config.Database, 
 		log.Println("    提示：生产环境请设置 ENABLE_CSRF=true")
 	}
 
+	// 控制是否允許客戶端解密 API（預設關閉）
+	enableClientDecrypt := strings.EqualFold(os.Getenv("ENABLE_CLIENT_DECRYPT_API"), "true")
+	if enableClientDecrypt {
+		log.Println("🔐 [Crypto] ENABLE_CLIENT_DECRYPT_API=true，/api/crypto/decrypt 需要 JWT 且會驗證 AAD")
+	} else {
+		log.Println("🔐 [Crypto] 客戶端解密 API 已禁用（ENABLE_CLIENT_DECRYPT_API未開啟）")
+	}
+
 	// 创建加密处理器
-	cryptoHandler := NewCryptoHandler(cryptoService)
+	cryptoHandler := NewCryptoHandler(cryptoService, enableClientDecrypt)
 
 	s := &Server{
 		router:        router,
@@ -157,7 +165,6 @@ func (s *Server) setupRoutes() {
 
 		// 加密相关接口（无需认证）
 		api.GET("/crypto/public-key", s.cryptoHandler.HandleGetPublicKey)
-		api.POST("/crypto/decrypt", s.cryptoHandler.HandleDecryptSensitiveData)
 
 		// CSRF Token 获取（无需认证）
 		api.GET("/csrf-token", s.handleGetCSRFToken)
@@ -190,6 +197,11 @@ func (s *Server) setupRoutes() {
 			// 注销（加入黑名单）
 			protected.POST("/logout", s.handleLogout)
 
+			// 僅在顯式啟用時開放解密端點（需要JWT身份）
+			if s.cryptoHandler.AllowDecryptEndpoint() {
+				protected.POST("/crypto/decrypt", s.cryptoHandler.HandleDecryptSensitiveData)
+			}
+
 			// 服务器IP查询（需要认证，用于白名单配置）
 			protected.GET("/server-ip", s.handleGetServerIP)
 
@@ -215,12 +227,11 @@ func (s *Server) setupRoutes() {
 			protected.GET("/user/signal-sources", s.handleGetUserSignalSource)
 			protected.POST("/user/signal-sources", s.handleSaveUserSignalSource)
 
-
-		// 提示词模板管理（需要认证）
-		protected.POST("/prompt-templates", s.handleCreatePromptTemplate)
-		protected.PUT("/prompt-templates/:name", s.handleUpdatePromptTemplate)
-		protected.DELETE("/prompt-templates/:name", s.handleDeletePromptTemplate)
-		protected.POST("/prompt-templates/reload", s.handleReloadPromptTemplates)
+			// 提示词模板管理（需要认证）
+			protected.POST("/prompt-templates", s.handleCreatePromptTemplate)
+			protected.PUT("/prompt-templates/:name", s.handleUpdatePromptTemplate)
+			protected.DELETE("/prompt-templates/:name", s.handleDeletePromptTemplate)
+			protected.POST("/prompt-templates/reload", s.handleReloadPromptTemplates)
 			// 指定trader的数据（使用query参数 ?trader_id=xxx）
 			protected.GET("/status", s.handleStatus)
 			protected.GET("/account", s.handleAccount)
@@ -923,6 +934,8 @@ type UpdateTraderRequest struct {
 	OverrideBasePrompt   bool    `json:"override_base_prompt"`
 	SystemPromptTemplate string  `json:"system_prompt_template"`
 	IsCrossMargin        *bool   `json:"is_cross_margin"`
+	UseCoinPool          *bool   `json:"use_coin_pool"`
+	UseOITop             *bool   `json:"use_oi_top"`
 	TakerFeeRate         float64 `json:"taker_fee_rate"`        // Taker fee rate
 	MakerFeeRate         float64 `json:"maker_fee_rate"`        // Maker fee rate
 	OrderStrategy        string  `json:"order_strategy"`        // Order strategy
@@ -996,6 +1009,17 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	systemPromptTemplate := req.SystemPromptTemplate
 	if systemPromptTemplate == "" {
 		systemPromptTemplate = existingTrader.SystemPromptTemplate // 如果请求中没有提供，保持原值
+	}
+
+	// 设置信号源开关
+	useCoinPool := existingTrader.UseCoinPool
+	if req.UseCoinPool != nil {
+		useCoinPool = *req.UseCoinPool
+	}
+
+	useOITop := existingTrader.UseOITop
+	if req.UseOITop != nil {
+		useOITop = *req.UseOITop
 	}
 
 	// 设置费率，允许更新
@@ -1127,6 +1151,8 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		BTCETHLeverage:       btcEthLeverage,
 		AltcoinLeverage:      altcoinLeverage,
 		TradingSymbols:       req.TradingSymbols,
+		UseCoinPool:          useCoinPool,
+		UseOITop:             useOITop,
 		CustomPrompt:         req.CustomPrompt,
 		OverrideBasePrompt:   req.OverrideBasePrompt,
 		SystemPromptTemplate: systemPromptTemplate,
@@ -2358,8 +2384,8 @@ func (s *Server) handleCompleteRegistration(c *gin.Context) {
 		return
 	}
 
-	// 生成JWT token
-	token, err := auth.GenerateJWT(user.ID, user.Email)
+	// 生成 Access/Refresh Token
+	tokenPair, err := auth.GenerateTokenPair(user.ID, user.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成token失败"})
 		return
@@ -2372,10 +2398,13 @@ func (s *Server) handleCompleteRegistration(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"token":   token,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"message": "注册完成",
+		"access_token":       tokenPair.AccessToken,
+		"refresh_token":      tokenPair.RefreshToken,
+		"expires_in":         tokenPair.ExpiresIn,
+		"refresh_expires_in": tokenPair.RefreshExpiresIn,
+		"user_id":            user.ID,
+		"email":              user.Email,
+		"message":            "注册完成",
 	})
 }
 
@@ -2448,18 +2477,21 @@ func (s *Server) handleVerifyOTP(c *gin.Context) {
 		return
 	}
 
-	// 生成JWT token
-	token, err := auth.GenerateJWT(user.ID, user.Email)
+	// 生成新的 Token Pair（Access + Refresh）
+	tokenPair, err := auth.GenerateTokenPair(user.ID, user.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成token失败"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"token":   token,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"message": "登录成功",
+		"access_token":       tokenPair.AccessToken,
+		"refresh_token":      tokenPair.RefreshToken,
+		"expires_in":         tokenPair.ExpiresIn,
+		"refresh_expires_in": tokenPair.RefreshExpiresIn,
+		"user_id":            user.ID,
+		"email":              user.Email,
+		"message":            "登录成功",
 	})
 }
 

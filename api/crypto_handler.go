@@ -1,23 +1,33 @@
 package api
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"log"
 	"net/http"
 	"nofx/crypto"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 // CryptoHandler 加密 API 處理器
 type CryptoHandler struct {
-	cryptoService *crypto.CryptoService
+	cryptoService      *crypto.CryptoService
+	allowClientDecrypt bool
 }
 
 // NewCryptoHandler 創建加密處理器
-func NewCryptoHandler(cryptoService *crypto.CryptoService) *CryptoHandler {
+func NewCryptoHandler(cryptoService *crypto.CryptoService, allowClientDecrypt bool) *CryptoHandler {
 	return &CryptoHandler{
-		cryptoService: cryptoService,
+		cryptoService:      cryptoService,
+		allowClientDecrypt: allowClientDecrypt,
 	}
+}
+
+// AllowDecryptEndpoint 是否允許客戶端請求解密
+func (h *CryptoHandler) AllowDecryptEndpoint() bool {
+	return h.allowClientDecrypt
 }
 
 // ==================== 公鑰端點 ====================
@@ -36,9 +46,44 @@ func (h *CryptoHandler) HandleGetPublicKey(c *gin.Context) {
 
 // HandleDecryptSensitiveData 解密客戶端傳送的加密数据
 func (h *CryptoHandler) HandleDecryptSensitiveData(c *gin.Context) {
+	if !h.allowClientDecrypt {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Decrypt API disabled"})
+		return
+	}
+
+	userID := strings.TrimSpace(c.GetString("user_id"))
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	var payload crypto.EncryptedPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	if strings.TrimSpace(payload.AAD) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing AAD metadata"})
+		return
+	}
+
+	aadBytes, err := base64.RawURLEncoding.DecodeString(payload.AAD)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid AAD encoding"})
+		return
+	}
+
+	var aad struct {
+		UserID string `json:"userId"`
+	}
+	if err := json.Unmarshal(aadBytes, &aad); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid AAD payload"})
+		return
+	}
+
+	if strings.TrimSpace(aad.UserID) == "" || aad.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "AAD mismatch: unauthorized decrypt request"})
 		return
 	}
 
