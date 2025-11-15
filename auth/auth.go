@@ -196,8 +196,11 @@ func GenerateTokenPair(userID, email string) (*TokenPair, error) {
 	}
 
 	now := time.Now()
-	accessTokenExpiry := 15 * time.Minute
-	refreshTokenExpiry := 7 * 24 * time.Hour
+	// 為新手用戶優化：延長 Token 有效期以改善用戶體驗
+	// Access Token: 7 天（用戶 7 天免登錄）
+	// Refresh Token: 30 天（提供更長的自動刷新窗口）
+	accessTokenExpiry := 7 * 24 * time.Hour
+	refreshTokenExpiry := 30 * 24 * time.Hour
 
 	// 生成 Access Token
 	accessClaims := Claims{
