@@ -78,6 +78,10 @@ type AutoTraderConfig struct {
 	DefaultCoins []string // 默认币种列表（从数据库获取）
 	TradingCoins []string // 实际交易币种列表
 
+	// 币种池信号源配置
+	UseCoinPool bool // 是否使用 AI500 Coin Pool 信号源
+	UseOITop    bool // 是否使用 OI Top 增长信号源
+
 	// 系统提示词模板
 	SystemPromptTemplate string // 系统提示词模板名称（如 "default", "aggressive"）
 
@@ -104,6 +108,8 @@ type AutoTrader struct {
 	systemPromptTemplate  string   // 系统提示词模板名称
 	defaultCoins          []string // 默认币种列表（从数据库获取）
 	tradingCoins          []string // 实际交易币种列表
+	useCoinPool           bool     // 是否使用 AI500 Coin Pool 信号源
+	useOITop              bool     // 是否使用 OI Top 增长信号源
 	lastResetTime         time.Time
 	stopUntil             time.Time
 	isRunning             bool
@@ -243,6 +249,8 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		systemPromptTemplate:  systemPromptTemplate,
 		defaultCoins:          config.DefaultCoins,
 		tradingCoins:          config.TradingCoins,
+		useCoinPool:           config.UseCoinPool,
+		useOITop:              config.UseOITop,
 		lastResetTime:         time.Now(),
 		startTime:             time.Now(),
 		callCount:             0,
@@ -597,12 +605,12 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		unrealizedPnl := pos["unRealizedProfit"].(float64)
 		liquidationPrice := pos["liquidationPrice"].(float64)
 
-		// 计算占用保证金（估算）
+		// 计算占用保证金（基于开仓价）
 		leverage := 10 // 默认值，实际应该从持仓信息获取
 		if lev, ok := pos["leverage"].(float64); ok {
 			leverage = int(lev)
 		}
-		marginUsed := (quantity * markPrice) / float64(leverage)
+		marginUsed := (quantity * entryPrice) / float64(leverage)
 		totalMarginUsed += marginUsed
 
 		// 计算盈亏百分比（基于保证金，考虑杠杆）
@@ -1470,7 +1478,7 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 	totalMarginUsed := 0.0
 	totalUnrealizedPnLCalculated := 0.0
 	for _, pos := range positions {
-		markPrice := pos["markPrice"].(float64)
+		entryPrice := pos["entryPrice"].(float64)
 		quantity := pos["positionAmt"].(float64)
 		if quantity < 0 {
 			quantity = -quantity
@@ -1482,7 +1490,7 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 		if lev, ok := pos["leverage"].(float64); ok {
 			leverage = int(lev)
 		}
-		marginUsed := (quantity * markPrice) / float64(leverage)
+		marginUsed := (quantity * entryPrice) / float64(leverage)
 		totalMarginUsed += marginUsed
 	}
 
@@ -1551,8 +1559,8 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 			leverage = int(lev)
 		}
 
-		// 计算占用保证金
-		marginUsed := (quantity * markPrice) / float64(leverage)
+		// 计算占用保证金（基于开仓价，而非当前价）
+		marginUsed := (quantity * entryPrice) / float64(leverage)
 
 		// 计算盈亏百分比（基于保证金）
 		pnlPct := calculatePnLPercentage(unrealizedPnl, marginUsed)
@@ -1624,60 +1632,118 @@ func sortDecisionsByPriority(decisions []decision.Decision) []decision.Decision 
 
 // getCandidateCoins 获取交易员的候选币种列表
 func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
-	if len(at.tradingCoins) == 0 {
-		// 使用数据库配置的默认币种列表
-		var candidateCoins []decision.CandidateCoin
-
-		if len(at.defaultCoins) > 0 {
-			// 使用数据库中配置的默认币种
-			for _, coin := range at.defaultCoins {
-				symbol := normalizeSymbol(coin)
-				candidateCoins = append(candidateCoins, decision.CandidateCoin{
-					Symbol:  symbol,
-					Sources: []string{"default"}, // 标记为数据库默认币种
-				})
-			}
-			log.Printf("📋 [%s] 使用数据库默认币种: %d个币种 %v",
-				at.name, len(candidateCoins), at.defaultCoins)
-			return candidateCoins, nil
-		} else {
-			// 如果数据库中没有配置默认币种，则使用AI500+OI Top作为fallback
-			const ai500Limit = 20 // AI500取前20个评分最高的币种
-
-			mergedPool, err := pool.GetMergedCoinPool(ai500Limit)
-			if err != nil {
-				return nil, fmt.Errorf("获取合并币种池失败: %w", err)
-			}
-
-			// 构建候选币种列表（包含来源信息）
-			for _, symbol := range mergedPool.AllSymbols {
-				sources := mergedPool.SymbolSources[symbol]
-				candidateCoins = append(candidateCoins, decision.CandidateCoin{
-					Symbol:  symbol,
-					Sources: sources, // "ai500" 和/或 "oi_top"
-				})
-			}
-
-			log.Printf("📋 [%s] 数据库无默认币种配置，使用AI500+OI Top: AI500前%d + OI_Top20 = 总计%d个候选币种",
-				at.name, ai500Limit, len(candidateCoins))
-			return candidateCoins, nil
-		}
-	} else {
-		// 使用自定义币种列表
+	// 优先级 1: 自定义币种列表（最高优先级）
+	if len(at.tradingCoins) > 0 {
 		var candidateCoins []decision.CandidateCoin
 		for _, coin := range at.tradingCoins {
-			// 确保币种格式正确（转为大写USDT交易对）
 			symbol := normalizeSymbol(coin)
 			candidateCoins = append(candidateCoins, decision.CandidateCoin{
 				Symbol:  symbol,
-				Sources: []string{"custom"}, // 标记为自定义来源
+				Sources: []string{"custom"},
 			})
 		}
-
 		log.Printf("📋 [%s] 使用自定义币种: %d个币种 %v",
 			at.name, len(candidateCoins), at.tradingCoins)
 		return candidateCoins, nil
 	}
+
+	// 优先级 2: 信号源扩展模式（合并系统默认 + 信号源）
+	if at.useCoinPool || at.useOITop {
+		symbolMap := make(map[string][]string) // symbol -> sources
+
+		// 2.1 先添加系统默认币种作为基础
+		defaultCount := 0
+		for _, coin := range at.defaultCoins {
+			symbol := normalizeSymbol(coin)
+			symbolMap[symbol] = []string{"default"}
+			defaultCount++
+		}
+
+		// 2.2 根据配置添加信号源币种（扩展候选范围）
+		const ai500Limit = 20
+		signalSourceCount := 0
+
+		if at.useCoinPool && at.useOITop {
+			// 同时使用 AI500 + OI Top
+			mergedPool, err := pool.GetMergedCoinPool(ai500Limit)
+			if err == nil {
+				for _, symbol := range mergedPool.AllSymbols {
+					sources := mergedPool.SymbolSources[symbol]
+					if existingSources, exists := symbolMap[symbol]; exists {
+						// 币种已存在（来自默认），合并来源标签
+						symbolMap[symbol] = append(existingSources, sources...)
+					} else {
+						// 新币种（来自信号源）
+						symbolMap[symbol] = sources
+						signalSourceCount++
+					}
+				}
+			}
+		} else if at.useCoinPool {
+			// 只使用 AI500
+			ai500Pool, err := pool.GetTopRatedCoins(ai500Limit)
+			if err == nil {
+				for _, symbol := range ai500Pool {
+					if existingSources, exists := symbolMap[symbol]; exists {
+						symbolMap[symbol] = append(existingSources, "ai500")
+					} else {
+						symbolMap[symbol] = []string{"ai500"}
+						signalSourceCount++
+					}
+				}
+			}
+		} else if at.useOITop {
+			// 只使用 OI Top
+			oiTopPool, err := pool.GetOITopPositions()
+			if err == nil {
+				limit := 20
+				if len(oiTopPool) < limit {
+					limit = len(oiTopPool)
+				}
+				for i := 0; i < limit; i++ {
+					symbol := oiTopPool[i].Symbol
+					if existingSources, exists := symbolMap[symbol]; exists {
+						symbolMap[symbol] = append(existingSources, "oi_top")
+					} else {
+						symbolMap[symbol] = []string{"oi_top"}
+						signalSourceCount++
+					}
+				}
+			}
+		}
+
+		// 2.3 构建候选币种列表
+		var candidateCoins []decision.CandidateCoin
+		for symbol, sources := range symbolMap {
+			candidateCoins = append(candidateCoins, decision.CandidateCoin{
+				Symbol:  symbol,
+				Sources: sources,
+			})
+		}
+
+		log.Printf("📋 [%s] 信号源扩展模式: 系统默认%d + 信号源新增%d = 总计%d个候选币种",
+			at.name, defaultCount, signalSourceCount, len(candidateCoins))
+		return candidateCoins, nil
+	}
+
+	// 优先级 3: 只使用系统默认币种（未启用信号源）
+	if len(at.defaultCoins) > 0 {
+		var candidateCoins []decision.CandidateCoin
+		for _, coin := range at.defaultCoins {
+			symbol := normalizeSymbol(coin)
+			candidateCoins = append(candidateCoins, decision.CandidateCoin{
+				Symbol:  symbol,
+				Sources: []string{"default"},
+			})
+		}
+		log.Printf("📋 [%s] 使用系统默认币种: %d个币种 %v",
+			at.name, len(candidateCoins), at.defaultCoins)
+		return candidateCoins, nil
+	}
+
+	// 优先级 4: 都没有配置 - 返回空列表（AI 只管理现有持仓）
+	log.Printf("⚠️  [%s] 无任何币种来源，AI 将只管理现有持仓（不开新仓）", at.name)
+	return []decision.CandidateCoin{}, nil
 }
 
 // normalizeSymbol 标准化币种符号（确保以USDT结尾）

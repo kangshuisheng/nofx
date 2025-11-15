@@ -107,6 +107,13 @@ func Get(symbol string) (*Data, error) {
 		oiData = &OIData{Latest: 0, Average: 0, ActualPeriod: "N/A"}
 	}
 
+	// ⚡ 新增：增強 OI 數據（加入多空比 - 完全免費）
+	// 這不會影響性能，因為 Binance API 無限制且快速
+	if err := EnhanceOIData(symbol, oiData); err != nil {
+		// 多空比獲取失敗不影響整體流程，只記錄警告
+		log.Printf("⚠️  %s 獲取多空比數據失敗: %v", symbol, err)
+	}
+
 	// 获取Funding Rate
 	fundingRate, _ := getFundingRate(symbol)
 
@@ -643,12 +650,23 @@ func Format(data *Data) string {
 	sb.WriteString(fmt.Sprintf("Price: %s | OI Chg(4h): %.2f%% | Funding: %.6f\n\n",
 		priceStr, data.OpenInterest.Change4h, data.FundingRate))
 
-	// --- 新增：更高时间周期上下文 (让AI分析，而非检查) ---
-	// 提供最关键的、用于趋势判断的“原材料”，Token成本极低
-	sb.WriteString("- Higher Timeframe Context:\n")
+	// 2. 市场情绪上下文 (来自z-dev-v2分支的强大新数据)
+	if data.OpenInterest != nil && data.OpenInterest.LongShortRatio > 0 {
+		sb.WriteString("- Market Sentiment Context:\n")
+		longPct := data.OpenInterest.LongShortRatio / (1 + data.OpenInterest.LongShortRatio) * 100
+		shortPct := 100 - longPct
+		sb.WriteString(fmt.Sprintf("  - Market_L/S_Ratio: %.2f (%.1f%% Long / %.1f%% Short)\n",
+			data.OpenInterest.LongShortRatio, longPct, shortPct))
 
-	// 日线关键数据
-	// 增加数据完整性检查，避免索引越界
+		if data.OpenInterest.TopTraderLongShortRatio > 0 {
+			sb.WriteString(fmt.Sprintf("  - Top_Traders_L/S_Ratio: %.2f\n\n", data.OpenInterest.TopTraderLongShortRatio))
+		} else {
+			sb.WriteString("\n")
+		}
+	}
+
+	// 3. 更高时间周期上下文 (来自我们v4.1的精髓)
+	sb.WriteString("- Higher Timeframe Context:\n")
 	if data.DailyContext != nil && len(data.DailyContext.MidPrices) > 0 && len(data.DailyContext.EMA20Values) > 0 && len(data.DailyContext.MACDValues) > 0 {
 		sb.WriteString(fmt.Sprintf("  - Daily_Close: %.4f\n", data.DailyContext.MidPrices[len(data.DailyContext.MidPrices)-1]))
 		sb.WriteString(fmt.Sprintf("  - Daily_EMA20: %.4f\n", data.DailyContext.EMA20Values[len(data.DailyContext.EMA20Values)-1]))
@@ -657,14 +675,11 @@ func Format(data *Data) string {
 		sb.WriteString("  - Daily_Data: N/A\n")
 	}
 
-	// 1小时关键数据
-	// 增加数据完整性检查
 	if data.MidTermSeries1h != nil && len(data.MidTermSeries1h.MACDValues) > 0 {
 		sb.WriteString(fmt.Sprintf("  - H1_MACD:     %.4f\n\n", data.MidTermSeries1h.MACDValues[len(data.MidTermSeries1h.MACDValues)-1]))
 	} else {
 		sb.WriteString("  - H1_Data:     N/A\n\n")
 	}
-	// --- 新增结束 ---
 
 	// 2. 15分钟周期数据 (入场信号核心)
 	if data.MidTermSeries15m != nil {

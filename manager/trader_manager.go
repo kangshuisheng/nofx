@@ -189,10 +189,10 @@ func (tm *TraderManager) addTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		}
 	}
 
-	// 如果没有指定交易币种，使用默认币种
-	if len(tradingCoins) == 0 {
-		tradingCoins = defaultCoins
-	}
+	// ✅ 不再混淆 tradingCoins 和 defaultCoins
+	// tradingCoins = 用戶自定義幣種（可能為空）
+	// defaultCoins = 系統默認幣種（將傳給 AutoTrader）
+	// 讓 AutoTrader.getCandidateCoins() 按優先級處理
 
 	// 根据交易员配置决定是否使用信号源
 	var effectiveCoinPoolURL string
@@ -229,6 +229,8 @@ func (tm *TraderManager) addTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		IsCrossMargin:         traderCfg.IsCrossMargin,
 		DefaultCoins:          defaultCoins,
 		TradingCoins:          tradingCoins,
+		UseCoinPool:           traderCfg.UseCoinPool, // 币种池信号源配置
+		UseOITop:              traderCfg.UseOITop,    // OI Top 信号源配置
 		SystemPromptTemplate:  traderCfg.SystemPromptTemplate, // 系统提示词模板
 		OrderStrategy:         traderCfg.OrderStrategy,        // 订单策略
 		LimitPriceOffset:      traderCfg.LimitPriceOffset,     // 限价偏移
@@ -301,10 +303,10 @@ func (tm *TraderManager) AddTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		}
 	}
 
-	// 如果没有指定交易币种，使用默认币种
-	if len(tradingCoins) == 0 {
-		tradingCoins = defaultCoins
-	}
+	// ✅ 不再混淆 tradingCoins 和 defaultCoins
+	// tradingCoins = 用戶自定義幣種（可能為空）
+	// defaultCoins = 系統默認幣種（將傳給 AutoTrader）
+	// 讓 AutoTrader.getCandidateCoins() 按優先級處理
 
 	// 根据交易员配置决定是否使用信号源
 	var effectiveCoinPoolURL string
@@ -341,6 +343,8 @@ func (tm *TraderManager) AddTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		IsCrossMargin:         traderCfg.IsCrossMargin,
 		DefaultCoins:          defaultCoins,
 		TradingCoins:          tradingCoins,
+		UseCoinPool:           traderCfg.UseCoinPool, // 币种池信号源配置
+		UseOITop:              traderCfg.UseOITop,    // OI Top 信号源配置
 		SystemPromptTemplate:  traderCfg.SystemPromptTemplate, // 系统提示词模板
 		OrderStrategy:         traderCfg.OrderStrategy,        // 订单策略
 		LimitPriceOffset:      traderCfg.LimitPriceOffset,     // 限价偏移
@@ -1082,10 +1086,10 @@ func (tm *TraderManager) loadSingleTrader(traderCfg *config.TraderRecord, aiMode
 		}
 	}
 
-	// 如果没有指定交易币种，使用默认币种
-	if len(tradingCoins) == 0 {
-		tradingCoins = defaultCoins
-	}
+	// ✅ 不再混淆 tradingCoins 和 defaultCoins
+	// tradingCoins = 用戶自定義幣種（可能為空）
+	// defaultCoins = 系統默認幣種（將傳給 AutoTrader）
+	// 讓 AutoTrader.getCandidateCoins() 按優先級處理
 
 	// 根据交易员配置决定是否使用信号源
 	var effectiveCoinPoolURL string

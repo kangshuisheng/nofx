@@ -209,5 +209,9 @@ export interface TraderConfigData {
   scan_interval_minutes: number
   taker_fee_rate: number  // Taker 费率
   maker_fee_rate: number  // Maker 费率
+  timeframes: string         // 时间线选择 (逗号分隔，例如: "1m,4h,1d")
+  order_strategy: string     // Order strategy: "market_only", "conservative_hybrid", "limit_only"
+  limit_price_offset: number // Limit order price offset percentage (e.g., -0.03 for -0.03%)
+  limit_timeout_seconds: number // Timeout in seconds before converting to market order
   is_running: boolean
 }

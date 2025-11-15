@@ -12,6 +12,22 @@ function getShortName(fullName: string): string {
   return parts.length > 1 ? parts[parts.length - 1] : fullName
 }
 
+// 根据扫描间隔智能生成默认时间线
+function getDefaultTimeframes(scanInterval: number): string {
+  const baseFrames = '15m,1h,4h'  // 基础时间线
+
+  // 根据扫描间隔添加智能短周期
+  if (scanInterval <= 2) {
+    return `1m,${baseFrames}`  // ≤2分钟 → 1m,15m,1h,4h
+  } else if (scanInterval >= 3 && scanInterval <= 4) {
+    return `3m,${baseFrames}`  // 3-4分钟 → 3m,15m,1h,4h
+  } else if (scanInterval >= 5 && scanInterval < 15) {
+    return `5m,${baseFrames}`  // 5-14分钟 → 5m,15m,1h,4h
+  } else {
+    return baseFrames          // ≥15分钟 → 15m,1h,4h
+  }
+}
+
 interface TraderConfigData {
   trader_id?: string
   trader_name: string
@@ -84,7 +100,7 @@ export function TraderConfigModal({
     scan_interval_minutes: 2,      // 默认 2 分钟（平衡延遲與成本）
     taker_fee_rate: 0.0004,        // 默认 Binance Taker 费率 (0.04%)
     maker_fee_rate: 0.0002,        // 默认 Binance Maker 费率 (0.02%)
-    timeframes: '4h',              // 默认只勾选 4 小时线
+    timeframes: getDefaultTimeframes(2),  // 智能默认：1m,15m,1h,4h（根据扫描间隔=2分钟）
     order_strategy: 'conservative_hybrid', // 默认使用保守混合策略
     limit_price_offset: -0.03, // 默认 -0.03% 限价偏移
     limit_timeout_seconds: 60, // 默认 60 秒超时
@@ -136,7 +152,7 @@ export function TraderConfigModal({
         scan_interval_minutes: 2, // 默认 2 分钟（平衡延遲與成本）
         taker_fee_rate: 0.0004, // 默认 Binance Taker 费率 (0.04%)
         maker_fee_rate: 0.0002, // 默认 Binance Maker 费率 (0.02%)
-        timeframes: '4h', // 默认只勾选 4 小时线
+        timeframes: getDefaultTimeframes(2),  // 智能默认：1m,15m,1h,4h（根据扫描间隔=2分钟）
         order_strategy: 'conservative_hybrid', // 默认使用保守混合策略
         limit_price_offset: -0.03, // 默认 -0.03%
         limit_timeout_seconds: 60, // 默认 60秒超时
@@ -146,7 +162,7 @@ export function TraderConfigModal({
     if (traderData && traderData.timeframes === undefined) {
       setFormData((prev) => ({
         ...prev,
-        timeframes: '4h',
+        timeframes: getDefaultTimeframes(traderData.scan_interval_minutes || 2),
       }))
     }
     // 确保旧数据也有默认的 system_prompt_template
@@ -214,7 +230,38 @@ export function TraderConfigModal({
   if (!isOpen) return null
 
   const handleInputChange = (field: keyof TraderConfigData, value: any) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+    setFormData((prev) => {
+      const newData = { ...prev, [field]: value }
+
+      // 如果改变了扫描间隔，智能更新 timeframes
+      if (field === 'scan_interval_minutes') {
+        const newInterval = Number(value)
+        const currentTimeframes = prev.timeframes.split(',').filter(t => t)
+        const baseFrames = ['15m', '1h', '4h', '1d']  // 基础时间线
+
+        // 保留用户手动勾选的基础时间线
+        const userSelectedBase = currentTimeframes.filter(t => baseFrames.includes(t))
+
+        // 根据新的扫描间隔生成智能短周期
+        let shortFrame = ''
+        if (newInterval <= 2) {
+          shortFrame = '1m'
+        } else if (newInterval >= 3 && newInterval <= 4) {
+          shortFrame = '3m'
+        } else if (newInterval >= 5 && newInterval < 15) {
+          shortFrame = '5m'
+        }
+
+        // 组合：智能短周期 + 用户选择的基础时间线
+        const newTimeframes = shortFrame
+          ? [shortFrame, ...userSelectedBase].join(',')
+          : userSelectedBase.join(',')
+
+        newData.timeframes = newTimeframes || '15m,1h,4h'  // 确保至少有基础时间线
+      }
+
+      return newData
+    })
 
     // 如果是直接编辑trading_symbols，同步更新selectedCoins
     if (field === 'trading_symbols') {
@@ -564,6 +611,14 @@ export function TraderConfigModal({
                   <p className="text-xs text-gray-500 mt-1">
                     {t('scanIntervalRecommend', language)}
                   </p>
+                  {formData.scan_interval_minutes < 3 && (
+                    <div className="flex items-start gap-2 mt-2 p-2 bg-yellow-900/20 border border-yellow-700/50 rounded">
+                      <span className="text-yellow-500 text-sm flex-shrink-0">⚠️</span>
+                      <p className="text-xs text-yellow-500">
+                        {t('scanIntervalCostWarning', language)}
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div></div>
               </div>
@@ -640,8 +695,8 @@ export function TraderConfigModal({
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
                   {language === 'zh'
-                    ? '根据扫描间隔智能添加短周期线：≤2分钟添加1m，3-4分钟添加3m，5-14分钟添加5m。默认勾选4小时线。'
-                    : 'Smart short-period options: ≤2min adds 1m, 3-4min adds 3m, 5-14min adds 5m. 4h is selected by default.'}
+                    ? '智能时间线：根据扫描间隔自动勾选对应周期（≤2分钟→1m，3-4分钟→3m，5-14分钟→5m）+ 基础时间线（15m,1h,4h）。修改扫描间隔时自动更新。'
+                    : 'Smart timeframes: Auto-select period based on scan interval (≤2min→1m, 3-4min→3m, 5-14min→5m) + base timeframes (15m,1h,4h). Updates automatically when scan interval changes.'}
                 </p>
               </div>
 
