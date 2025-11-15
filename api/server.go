@@ -109,8 +109,11 @@ func NewServer(traderManager *manager.TraderManager, database *config.Database, 
 	return s
 }
 
-// corsMiddleware CORS中间件（白名单模式）
+// corsMiddleware CORS中间件（智能模式：开发环境自动允许私有网络）
 func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
+	// 检测是否为开发环境（默认为开发环境）
+	isDevelopment := os.Getenv("ENVIRONMENT") != "production"
+
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
 
@@ -123,16 +126,30 @@ func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 			}
 		}
 
+		// 如果不在白名单中，但是开发模式下检查是否为私有网络
+		if !allowed && isDevelopment && origin != "" {
+			allowed = isPrivateNetworkOrigin(origin)
+			if allowed {
+				log.Printf("🔓 [CORS] 开发模式：自动允许私有网络来源: %s", origin)
+			}
+		}
+
 		if allowed {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 			c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
 		} else if origin != "" {
-			// 如果有 Origin 但不在白名单中，记录并拒绝
-			log.Printf("⚠️ [CORS] 拒绝来源: %s (允许的来源: %v)", origin, allowedOrigins)
+			// 提供友好的错误信息和配置建议
+			log.Printf("⚠️ [CORS] 拒绝来源: %s", origin)
+			log.Printf("    提示：请在 .env 文件中添加：CORS_ALLOWED_ORIGINS=%s", origin)
+
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error": "Origin not allowed",
+				"origin": origin,
+				"help": "請在 .env 文件中添加此來源到 CORS_ALLOWED_ORIGINS",
+				"example": fmt.Sprintf("CORS_ALLOWED_ORIGINS=%s", origin),
+				"docs": "重啟容器後生效：docker-compose restart",
 			})
 			return
 		}
@@ -144,6 +161,47 @@ func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// isPrivateNetworkOrigin 检查是否为私有网络来源
+// 支持 RFC 1918 私有地址范围：
+// - 10.0.0.0/8 (10.0.0.0 - 10.255.255.255)
+// - 172.16.0.0/12 (172.16.0.0 - 172.31.255.255)
+// - 192.168.0.0/16 (192.168.0.0 - 192.168.255.255)
+func isPrivateNetworkOrigin(origin string) bool {
+	// 解析 origin URL
+	// origin 格式: http://192.168.1.100:3000
+	parts := strings.Split(origin, "://")
+	if len(parts) != 2 {
+		return false
+	}
+
+	hostPort := parts[1]
+	host := strings.Split(hostPort, ":")[0]
+
+	// 解析 IP
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+
+	// 检查是否为私有 IP
+	privateIPBlocks := []*net.IPNet{
+		// 10.0.0.0/8
+		{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(8, 32)},
+		// 172.16.0.0/12
+		{IP: net.ParseIP("172.16.0.0"), Mask: net.CIDRMask(12, 32)},
+		// 192.168.0.0/16
+		{IP: net.ParseIP("192.168.0.0"), Mask: net.CIDRMask(16, 32)},
+	}
+
+	for _, block := range privateIPBlocks {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // setupRoutes 设置路由
@@ -1796,6 +1854,21 @@ func (s *Server) handleTraderList(c *gin.Context) {
 			"is_running":             isRunning,
 			"initial_balance":        trader.InitialBalance,
 			"system_prompt_template": trader.SystemPromptTemplate,
+			"scan_interval_minutes":  trader.ScanIntervalMinutes,
+			"btc_eth_leverage":       trader.BTCETHLeverage,
+			"altcoin_leverage":       trader.AltcoinLeverage,
+			"trading_symbols":        trader.TradingSymbols,
+			"custom_prompt":          trader.CustomPrompt,
+			"override_base_prompt":   trader.OverrideBasePrompt,
+			"is_cross_margin":        trader.IsCrossMargin,
+			"use_coin_pool":          trader.UseCoinPool,
+			"use_oi_top":             trader.UseOITop,
+			"taker_fee_rate":         trader.TakerFeeRate,
+			"maker_fee_rate":         trader.MakerFeeRate,
+			"order_strategy":         trader.OrderStrategy,
+			"limit_price_offset":     trader.LimitPriceOffset,
+			"limit_timeout_seconds":  trader.LimitTimeoutSeconds,
+			"timeframes":             trader.Timeframes,
 		})
 	}
 
@@ -1857,6 +1930,12 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		"use_coin_pool":          traderConfig.UseCoinPool,
 		"use_oi_top":             traderConfig.UseOITop,
 		"is_running":             isRunning,
+		"taker_fee_rate":         traderConfig.TakerFeeRate,
+		"maker_fee_rate":         traderConfig.MakerFeeRate,
+		"order_strategy":         traderConfig.OrderStrategy,
+		"limit_price_offset":     traderConfig.LimitPriceOffset,
+		"limit_timeout_seconds":  traderConfig.LimitTimeoutSeconds,
+		"timeframes":             traderConfig.Timeframes,
 	}
 
 	c.JSON(http.StatusOK, result)
