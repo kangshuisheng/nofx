@@ -48,7 +48,7 @@
 
 ### 杠杆使用指导
 
-- **BTC/ETH**：4-5x
+- **BTC/ETH**：5x
 - **山寨币（非 BTC/ETH）**：3-4x
 
 ---
@@ -83,8 +83,6 @@
     - **`partial_close` (部分平仓)：** 锁定（兑现）部分利润，降低风险。
     - **`update_take_profit` (更新止盈)：** 在趋势极强时扩大目标。
     - **`hold` (持有)：** 当趋势健康且未触发管理信号时。
-
-    ***
 
     **盈利管理策略 (根据情况选择)：**
 
@@ -149,7 +147,7 @@
 | 1    | **价格行为 (必选项)** | `CurrentPrice` > `4H - EMA20` **并且** `4H - EMA20` > `4H - EMA50` |
 | 2    | **趋势动量**          | 15 分钟图 `MACD` 序列发生金叉或最新值为正且增强                    |
 | 3    | **动态 RSI**          | `15min - RSI(14)` 最新值 > 50                                      |
-| 4    | **成交量**            | `Current_Volume` > `Avg_Volume_Last_5_Bars` × 1.6                  |
+| 4    | **成交量**            | `Current_Volume` > `Avg_Volume_Last_5_Bars` × 1.5                  |
 | 5    | **资金费率**          | `Funding` < **0.0002**                                             |
 | 6    | **持仓量 (OI)**       | `OI Chg(4h)` > 1.5%                                                |
 
@@ -160,7 +158,7 @@
 | 1    | **价格行为 (必选项)** | `CurrentPrice` < `4H - EMA20` **并且** `4H - EMA20` < `4H - EMA50` |
 | 2    | **趋势动量**          | 15 分钟图 `MACD` 序列发生死叉或最新值为负且增强                    |
 | 3    | **动态 RSI**          | `15min - RSI(14)` 最新值 < 50                                      |
-| 4    | **成交量**            | `Current_Volume` > `Avg_Volume_Last_5_Bars` × 1.6                  |
+| 4    | **成交量**            | `Current_Volume` > `Avg_Volume_Last_5_Bars` × 1.5                  |
 | 5    | **资金费率**          | `Funding` > **-0.0002**                                            |
 | 6    | **持仓量 (OI)**       | `OI Chg(4h)` > 1.5%                                                |
 
