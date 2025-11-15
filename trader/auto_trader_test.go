@@ -362,6 +362,8 @@ func (s *AutoTraderTestSuite) TestGetCandidateCoins() {
 	s.Run("使用AI500+OI作为fallback", func() {
 		s.autoTrader.defaultCoins = []string{} // 空的默认币种
 		s.autoTrader.tradingCoins = []string{} // 空的自定义币种
+		s.autoTrader.useCoinPool = true        // 启用 AI500 信号源
+		s.autoTrader.useOITop = true           // 启用 OI Top 信号源
 
 		// Mock pool.GetMergedCoinPool
 		s.patches.ApplyFunc(pool.GetMergedCoinPool, func(ai500Limit int) (*pool.MergedCoinPool, error) {
