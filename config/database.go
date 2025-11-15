@@ -1345,12 +1345,18 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 
 		if err == nil {
 			// 找到了现有配置（通过 provider 匹配），更新它
-			log.Printf("⚠️  使用旧版 provider 匹配更新模型: %s -> %s", provider, existingModelID)
+			// 🔧 同時修正 model_id 為正確格式（從 "user123_deepseek" → "deepseek"）
+			log.Printf("⚠️  使用旧版 provider 匹配更新模型: %s -> %s，同時修正 model_id 為: %s", provider, existingModelID, id)
 			_, err = d.db.Exec(`
-				UPDATE ai_models SET enabled = ?, api_key = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
+				UPDATE ai_models SET model_id = ?, enabled = ?, api_key = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
 				WHERE model_id = ? AND user_id = ?
-			`, enabled, encryptedAPIKey, customAPIURL, customModelName, existingModelID, userID)
-			return err
+			`, id, enabled, encryptedAPIKey, customAPIURL, customModelName, existingModelID, userID)
+			if err != nil {
+				log.Printf("❌ [AI Model] 更新並修正 model_id 失敗: %v", err)
+				return err
+			}
+			log.Printf("✅ [AI Model] 已自動修正舊格式 model_id: %s → %s", existingModelID, id)
+			return nil
 		}
 
 		// 没有找到任何现有配置，创建新的
@@ -1410,6 +1416,10 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 
 		if err == nil {
 			// 找到了现有配置（通过 provider 匹配），更新它
+			// ⚠️  舊結構中 id 是 TEXT PRIMARY KEY，無法安全修改
+			// 保持現有 id，功能仍可正常使用（每次通過 provider 匹配）
+			log.Printf("⚠️  [舊結構] 使用 provider 匹配更新模型: %s (id=%s)", id, existingID)
+			log.Printf("    建議：執行數據庫遷移腳本升級到新結構")
 			_, err = d.db.Exec(`
 				UPDATE ai_models SET enabled = ?, api_key = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
 				WHERE id = ? AND user_id = ?
