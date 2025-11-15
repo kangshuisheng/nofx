@@ -1259,6 +1259,9 @@ func (d *Database) GetAIModels(userID string) ([]*AIModelConfig, error) {
 
 // UpdateAIModel 更新AI模型配置，如果不存在则创建用户特定配置
 func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, customAPIURL, customModelName string) error {
+	log.Printf("🔧 [AI Model] UpdateAIModel 開始: userID=%s, id=%s, enabled=%v, apiKeyLen=%d, customURL=%s, customModelName=%s",
+		userID, id, enabled, len(apiKey), customAPIURL, customModelName)
+
 	// 檢查表結構，判斷是否已遷移到自增ID結構
 	var hasModelIDColumn int
 	err := d.db.QueryRow(`
@@ -1266,13 +1269,19 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 		WHERE name = 'model_id'
 	`).Scan(&hasModelIDColumn)
 	if err != nil {
+		log.Printf("❌ [AI Model] 檢查表結構失敗: %v", err)
 		return fmt.Errorf("检查ai_models表结构失败: %w", err)
 	}
+	log.Printf("   表結構檢查: hasModelIDColumn=%d (1=新結構, 0=舊結構)", hasModelIDColumn)
 
 	encryptedAPIKey := d.encryptSensitiveData(apiKey)
+	if apiKey != "" && encryptedAPIKey == "" {
+		log.Printf("⚠️  [AI Model] API Key 加密後為空！原始長度=%d", len(apiKey))
+	}
 
 	if hasModelIDColumn > 0 {
 		// ===== 新結構：有 model_id 列 =====
+		log.Printf("   使用新結構邏輯（有 model_id 列）")
 		// 先尝试精确匹配 model_id
 		var existingModelID string
 		err = d.db.QueryRow(`
@@ -1281,12 +1290,20 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 
 		if err == nil {
 			// 找到了现有配置，更新它
-			_, err = d.db.Exec(`
+			log.Printf("✓ [AI Model] 找到現有配置（model_id匹配）: %s, 執行更新", existingModelID)
+			result, err := d.db.Exec(`
 				UPDATE ai_models SET enabled = ?, api_key = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
 				WHERE model_id = ? AND user_id = ?
 			`, enabled, encryptedAPIKey, customAPIURL, customModelName, existingModelID, userID)
-			return err
+			if err != nil {
+				log.Printf("❌ [AI Model] 更新失敗: %v", err)
+				return err
+			}
+			rowsAffected, _ := result.RowsAffected()
+			log.Printf("✅ [AI Model] 更新成功，影響行數: %d", rowsAffected)
+			return nil
 		}
+		log.Printf("   未找到 model_id 精確匹配，嘗試 provider 匹配...")
 
 		// model_id 不存在，尝试通过 provider 查找（兼容舊邏輯）
 		provider := id
@@ -1325,11 +1342,17 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 		}
 
 		log.Printf("✓ 创建新的 AI 模型配置: ID=%s, Provider=%s, Name=%s", newModelID, provider, name)
-		_, err = d.db.Exec(`
+		result, err := d.db.Exec(`
 			INSERT INTO ai_models (model_id, user_id, name, provider, enabled, api_key, custom_api_url, custom_model_name, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
 		`, newModelID, userID, name, provider, enabled, encryptedAPIKey, customAPIURL, customModelName)
-		return err
+		if err != nil {
+			log.Printf("❌ [AI Model] 創建新配置失敗: %v", err)
+			return err
+		}
+		rowsAffected, _ := result.RowsAffected()
+		log.Printf("✅ [AI Model] 創建新配置成功，影響行數: %d", rowsAffected)
+		return nil
 
 	} else {
 		// ===== 舊結構：沒有 model_id 列，id 是 TEXT PRIMARY KEY =====
