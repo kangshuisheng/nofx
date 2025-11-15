@@ -430,17 +430,36 @@ func (m *WSMonitor) GetCurrentKlines(symbol string, duration string) ([]Kline, e
 	entry := value.(*KlineCacheEntry)
 
 	// ✅ 检查数据新鲜度（防止使用过期数据）
-	// 使用 15 分钟阈值：对于 3m 和 4h K线都适用
-	// - 3m K线：15分钟 = 5个周期，足以检测 WebSocket 停止
-	// - 4h K线：虽然新 K线 4小时才生成，但当前 K线 是实时更新的
+	// 🔧 P0修复：縮短閾值至 5 分鐘，快速檢測 WebSocket 數據停止
+	// - 3m K线：5分钟 = 不到 2个周期，及时检测问题
+	// - 4h K线：虽然新 K线 4小时才生成，但当前 K线是实时更新的（每秒更新）
+	// 如果 5 分钟內沒有任何更新，WebSocket 很可能已停止工作
 	dataAge := time.Since(entry.ReceivedAt)
-	maxAge := 15 * time.Minute
+	maxAge := 5 * time.Minute
 
 	if dataAge > maxAge {
-		// 数据过期，返回错误（不 fallback API，避免增加负担）
-		// 这表明 WebSocket 可能未正常工作，需要修复根本原因
-		return nil, fmt.Errorf("%s 的 %s K线数据已过期 (%.1f 分钟)，WebSocket 可能未正常工作",
+		// ⚠️ 数据过期，记录警告并尝试 API fallback
+		log.Printf("⚠️ %s 的 %s K线数据已过期 (%.1f 分钟)，WebSocket 可能停止工作，尝试 API fallback",
 			symbol, duration, dataAge.Minutes())
+
+		// 🔧 P0修复：數據過期時，嘗試 API fallback（避免 AI 用過期數據決策）
+		apiClient := NewAPIClient()
+		freshKlines, err := apiClient.GetKlines(symbol, duration, 100)
+		if err != nil {
+			return nil, fmt.Errorf("%s 的 %s K线数据已过期且 API fallback 失败: %v", symbol, duration, err)
+		}
+
+		// 更新緩存並返回新數據
+		freshEntry := &KlineCacheEntry{
+			Klines:     freshKlines,
+			ReceivedAt: time.Now(),
+		}
+		m.getKlineDataMap(duration).Store(strings.ToUpper(symbol), freshEntry)
+		log.Printf("✅ %s %s API fallback 成功，已更新緩存 (%d 條數據)", symbol, duration, len(freshKlines))
+
+		result := make([]Kline, len(freshKlines))
+		copy(result, freshKlines)
+		return result, nil
 	}
 
 	// 数据新鲜，返回缓存数据（深拷贝）
