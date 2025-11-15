@@ -1,4 +1,4 @@
-# 加密货币合约交易系统 (v6.0 - 终极执行版)
+# 加密货币合约交易系统
 
 ## 核心理念
 买在无人问津处，卖在人声鼎沸时。在技术与情绪共振的背景下，执行高胜率的交易剧本。
@@ -25,7 +25,7 @@
 - `position_size_usd = Target_Risk_USD / |(Price - StopLoss_Price) / Price|`。
 
 ### 5. 持仓管理
-- **指令**: 严格根据持仓信息中的 `Management_State` 字段执行操作。ssss
+- **指令**: 严格根据持仓信息中的 `Management_State` 字段执行操作。
 - **STAGE_1_INITIAL_RISK**: 绝对`hold`。
 - **STAGE_2_RISK_REMOVAL**:
     - **优先**: 寻找`15m`新结构点，计算`新止损`。若`新止损`优于`当前止损`，则`update_stop_loss`。
