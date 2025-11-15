@@ -79,16 +79,16 @@ func TestValidateDecisionAcceptsAllActions(t *testing.T) {
 			if action == "open_long" {
 				decision.Leverage = 5
 				decision.PositionSizeUSD = 100
-				decision.StopLoss = 95000
-				decision.TakeProfit = 105000
-				decision.RiskUSD = 50
+				decision.StopLoss = 99500 // 降低止损距离，使风险控制在1.5%以内
+				decision.TakeProfit = 100500
+				decision.RiskUSD = 1 // 风险1美元，对100美元账户就是1%
 			}
 			if action == "open_short" {
 				decision.Leverage = 5
 				decision.PositionSizeUSD = 100
-				decision.StopLoss = 105000 // For short: stop loss > take profit
-				decision.TakeProfit = 95000
-				decision.RiskUSD = 50
+				decision.StopLoss = 100500 // For short: stop loss > take profit
+				decision.TakeProfit = 99500
+				decision.RiskUSD = 1 // 风险1美元，对100美元账户就是1%
 			}
 
 			// For update/partial actions, add required fields
@@ -102,7 +102,8 @@ func TestValidateDecisionAcceptsAllActions(t *testing.T) {
 				decision.ClosePercentage = 50
 			}
 
-			err := validateDecision(&decision, 100.0, 5, 5)
+			// 使用模拟数据进行测试，避免依赖真实市场数据连接
+			err := validateDecisionWithMarketData(&decision, 100.0, 5, 5, createMockMarketData())
 			if err != nil {
 				t.Errorf("❌ validateDecision rejected valid action '%s': %v", action, err)
 			} else {

@@ -1,10 +1,28 @@
 package decision
 
 import (
+	"nofx/market"
 	"testing"
 )
 
-// TestLeverageFallback 测试杠杆超限时的自动修正功能
+// createMockMarketData 创建模拟市场数据用于测试
+func createMockMarketData() *market.Data {
+	return &market.Data{
+		Symbol:       "BTCUSDT",
+		CurrentPrice: 100000,
+		IntradaySeries: &market.IntradayData{
+			ATR14: 2000,
+		},
+		LongerTermContext: &market.LongerTermData{
+			ATR14: 2500,
+		},
+		DailyContext: &market.DailyData{
+			ATR14Values: []float64{2200, 2300, 2400},
+		},
+	}
+}
+
+// TestLeverageFallback 测试杠杆超限时决策被拒绝的功能
 func TestLeverageFallback(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -16,46 +34,49 @@ func TestLeverageFallback(t *testing.T) {
 		wantError       bool
 	}{
 		{
-			name: "山寨币杠杆超限_自动修正为上限",
+			name: "山寨币杠杆超限_应该被拒绝",
 			decision: Decision{
 				Symbol:          "SOLUSDT",
 				Action:          "open_long",
-				Leverage:        20, // 超过上限
-				PositionSizeUSD: 100,
-				StopLoss:        50,
-				TakeProfit:      200,
+				Leverage:        20,    // 超过上限
+				PositionSizeUSD: 15,    // 满足最小开仓要求（12 USDT）
+				StopLoss:        99000, // 合理止损距离
+				TakeProfit:      101000,
+				RiskUSD:         1, // 风险1美元，对100美元账户就是1%
 			},
 			accountEquity:   100,
 			btcEthLeverage:  10,
-			altcoinLeverage: 5, // 上限 5x
-			wantLeverage:    5, // 应该修正为 5
-			wantError:       false,
+			altcoinLeverage: 5,    // 上限 5x
+			wantLeverage:    20,   // 杠杆不会被修正，决策会被拒绝
+			wantError:       true, // 应该被拒绝
 		},
 		{
-			name: "BTC杠杆超限_自动修正为上限",
+			name: "BTC杠杆超限_应该被拒绝",
 			decision: Decision{
 				Symbol:          "BTCUSDT",
 				Action:          "open_long",
-				Leverage:        20, // 超过上限
-				PositionSizeUSD: 1000,
-				StopLoss:        90000,
-				TakeProfit:      110000,
+				Leverage:        20,    // 超过上限
+				PositionSizeUSD: 65,    // 满足最小开仓要求（60 USDT）
+				StopLoss:        99000, // 合理止损距离
+				TakeProfit:      101000,
+				RiskUSD:         1, // 风险1美元，对100美元账户就是1%
 			},
 			accountEquity:   100,
 			btcEthLeverage:  10, // 上限 10x
 			altcoinLeverage: 5,
-			wantLeverage:    10, // 应该修正为 10
-			wantError:       false,
+			wantLeverage:    20,   // 杠杆不会被修正，决策会被拒绝
+			wantError:       true, // 应该被拒绝
 		},
 		{
 			name: "杠杆在上限内_不修正",
 			decision: Decision{
 				Symbol:          "ETHUSDT",
 				Action:          "open_short",
-				Leverage:        5, // 未超限
-				PositionSizeUSD: 500,
-				StopLoss:        4000,
-				TakeProfit:      3000,
+				Leverage:        5,      // 未超限
+				PositionSizeUSD: 65,     // 满足最小开仓要求（60 USDT）
+				StopLoss:        101000, // 对于做空，止损应该高于当前价格
+				TakeProfit:      99000,  // 对于做空，止盈应该低于当前价格
+				RiskUSD:         1,      // 风险1美元，对100美元账户就是1%
 			},
 			accountEquity:   100,
 			btcEthLeverage:  10,
@@ -68,10 +89,11 @@ func TestLeverageFallback(t *testing.T) {
 			decision: Decision{
 				Symbol:          "SOLUSDT",
 				Action:          "open_long",
-				Leverage:        0, // 无效
-				PositionSizeUSD: 100,
-				StopLoss:        50,
-				TakeProfit:      200,
+				Leverage:        0,     // 无效
+				PositionSizeUSD: 15,    // 满足最小开仓要求（12 USDT）
+				StopLoss:        99000, // 合理止损距离
+				TakeProfit:      101000,
+				RiskUSD:         1, // 风险1美元，对100美元账户就是1%
 			},
 			accountEquity:   100,
 			btcEthLeverage:  10,
@@ -83,7 +105,8 @@ func TestLeverageFallback(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateDecision(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage)
+			// 使用模拟数据进行测试，避免依赖真实市场数据连接
+			err := validateDecisionWithMarketData(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage, createMockMarketData())
 
 			// 检查错误状态
 			if (err != nil) != tt.wantError {
@@ -379,7 +402,7 @@ func TestPartialCloseValidation(t *testing.T) {
 				Reasoning:       "测试错误情况",
 			},
 			wantError: true,
-			errorMsg:  "平仓百分比必须在0-100之间",
+			errorMsg:  "partial_close ClosePercentage必须在1-100之间",
 		},
 		{
 			name: "close_percentage超过100应该报错",
@@ -390,7 +413,7 @@ func TestPartialCloseValidation(t *testing.T) {
 				Reasoning:       "测试错误情况",
 			},
 			wantError: true,
-			errorMsg:  "平仓百分比必须在0-100之间",
+			errorMsg:  "partial_close ClosePercentage必须在1-100之间",
 		},
 	}
 

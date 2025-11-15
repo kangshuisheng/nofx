@@ -307,7 +307,7 @@ func NewBinanceFuturesTestSuite(t *testing.T) *BinanceFuturesTestSuite {
 		// Mock ServerTime - /fapi/v1/time
 		case path == "/fapi/v1/time":
 			respBody = map[string]interface{}{
-				"serverTime": 1234567890000,
+				"serverTime": int64(1234567890000),
 			}
 
 		// Default: empty response
@@ -382,7 +382,7 @@ func TestNewFuturesTrader(t *testing.T) {
 		switch path {
 		case "/fapi/v1/time":
 			respBody = map[string]interface{}{
-				"serverTime": 1234567890000,
+				"serverTime": int64(1234567890000),
 			}
 		case "/fapi/v1/positionSide/dual":
 			respBody = map[string]interface{}{

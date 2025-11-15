@@ -353,6 +353,15 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString(fmt.Sprintf("4. 杠杆限制: **山寨币最大%dx杠杆** | **BTC/ETH最大%dx杠杆** (⚠️ 严格执行，不可超过)\n", altcoinLeverage, btcEthLeverage))
 	sb.WriteString("5. 保证金: 总使用率 ≤ 90%\n\n")
 
+	// 🚨 增强验证机制说明
+	sb.WriteString("## 🛡️ 增强验证机制\n\n")
+	sb.WriteString("系统现在使用多层验证机制确保交易安全：\n")
+	sb.WriteString("1. **基础验证**: 检查字段完整性、数值范围、杠杆限制\n")
+	sb.WriteString("2. **风险计算**: 精确计算潜在亏损和风险比例\n")
+	sb.WriteString("3. **智能建议**: 提供优化建议和替代方案\n")
+	sb.WriteString("4. **风险评级**: 自动评估交易风险等级 (低/中/高)\n\n")
+	sb.WriteString("⚠️ **重要**: 如果验证失败，系统会返回详细错误信息，请根据建议调整参数\n\n")
+
 	// 6. 开仓金额：根据账户规模动态提示（使用统一的配置规则）
 	minBTCETH := calculateMinPositionSize("BTCUSDT", accountEquity)
 
@@ -379,7 +388,8 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString(fmt.Sprintf("- 山寨币开仓范围：**12 - %.0f USDT** (最大0.75倍净值)\n", accountEquity*0.75))
 	sb.WriteString(fmt.Sprintf("- BTC/ETH开仓范围：**%.0f - %.0f USDT** (最大1.5倍净值)\n", minBTCETH, accountEquity*1.5))
 	sb.WriteString("- ❌ **不要使用市场数据中的任何数字**（如 Open Interest 合约数、Volume、价格等）作为 position_size_usd\n")
-	sb.WriteString("- ✅ **position_size_usd 必须根据账户净值和上述范围计算**\n\n")
+	sb.WriteString("- ✅ **position_size_usd 必须根据账户净值和上述范围计算**\n")
+	sb.WriteString("- ✅ **系统会自动验证所有计算，确保风险控制在安全范围内**\n\n")
 
 	// 3. 输出格式 - 动态生成
 	sb.WriteString("# 输出格式 (严格遵守)\n\n")
@@ -475,10 +485,11 @@ func buildUserPrompt(ctx *Context) string {
 					continue
 				}
 
-				if order.Type == "STOP_MARKET" || order.Type == "STOP" {
+				switch order.Type {
+				case "STOP_MARKET", "STOP":
 					sb.WriteString(fmt.Sprintf("   🛡️ 止损单: %.4f (%s)\n", order.StopPrice, order.Side))
 					hasStopLoss = true
-				} else if order.Type == "TAKE_PROFIT_MARKET" || order.Type == "TAKE_PROFIT" {
+				case "TAKE_PROFIT_MARKET", "TAKE_PROFIT":
 					sb.WriteString(fmt.Sprintf("   🎯 止盈单: %.4f (%s)\n", order.StopPrice, order.Side))
 				}
 			}
@@ -662,7 +673,7 @@ func extractDecisions(response string) ([]Decision, error) {
 
 	// 方法1: 优先尝试从 <decision> 标签中提取
 	var jsonPart string
-	if match := reDecisionTag.FindStringSubmatch(s); match != nil && len(match) > 1 {
+	if match := reDecisionTag.FindStringSubmatch(s); len(match) > 1 {
 		jsonPart = strings.TrimSpace(match[1])
 		log.Printf("✓ 使用 <decision> 标签提取JSON")
 	} else {
@@ -675,7 +686,7 @@ func extractDecisions(response string) ([]Decision, error) {
 	jsonPart = fixMissingQuotes(jsonPart)
 
 	// 1) 优先从 ```json 代码块中提取
-	if m := reJSONFence.FindStringSubmatch(jsonPart); m != nil && len(m) > 1 {
+	if m := reJSONFence.FindStringSubmatch(jsonPart); len(m) > 1 {
 		jsonContent := strings.TrimSpace(m[1])
 		jsonContent = compactArrayOpen(jsonContent) // 把 "[ {" 规整为 "[{"
 		jsonContent = fixMissingQuotes(jsonContent) // 二次修复（防止 regex 提取后还有残留全角）
@@ -930,8 +941,13 @@ func calculateMinPositionSize(symbol string, accountEquity float64) float64 {
 	return absoluteMinimum
 }
 
-// validateDecision 验证单个决策的有效性
+// validateDecision 验证单个决策的有效性（增强版）
 func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
+	return validateDecisionWithMarketData(d, accountEquity, btcEthLeverage, altcoinLeverage, nil)
+}
+
+// validateDecisionWithMarketData 验证单个决策的有效性（支持模拟数据)
+func validateDecisionWithMarketData(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, mockMarketData *market.Data) error {
 	// 验证action
 	validActions := map[string]bool{
 		"open_long":          true,
@@ -951,102 +967,52 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 
 	// 开仓操作必须提供完整参数
 	if d.Action == "open_long" || d.Action == "open_short" {
-		// 仓位价值限制配置：根据币种风险特性设定不同上限
-		// - 山寨币：0.75倍净值（波动性高，风险大，限制更严格）
-		// - BTC/ETH：1.5倍净值（相对稳定，流动性好，允许更大仓位）
-		maxLeverage := altcoinLeverage           // 山寨币使用配置的杠杆
-		maxPositionValue := accountEquity * 0.75 // 山寨币最多0.75倍账户净值
-		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-			maxLeverage = btcEthLeverage           // BTC和ETH使用配置的杠杆
-			maxPositionValue = accountEquity * 1.5 // BTC/ETH最多1.5倍账户净值
-		}
+		// 使用增强版验证器进行详细检查
+		validator := NewEnhancedValidator(accountEquity, btcEthLeverage, altcoinLeverage)
 
-		// =================================================================
-		// 🚨 CRITICAL SAFETY FIX: 核心安全修复 - 基于风险预算的验证
-		// -----------------------------------------------------------------
-		// 此处不再使用简单的仓位价值上限，而是严格计算潜在亏损是否超过账户净值的2%。
-		// 这是防止开出超大风险仓位的最重要防线。
+		// 获取市场数据用于验证
+		var marketData *market.Data
+		var err error
 
-		// 1. 获取当前市价以进行精确计算
-		marketData, err := market.Get(d.Symbol)
-		if err != nil {
-			return fmt.Errorf("无法获取 %s 的当前价格以进行风险校验: %w", d.Symbol, err)
-		}
-		entryPrice := marketData.CurrentPrice
-		if entryPrice <= 0 {
-			return fmt.Errorf("无法计算风险, %s 当前价格为0或无效", d.Symbol)
-		}
-
-		// 2. 计算潜在亏损（美元）
-		var potentialLossUSD float64
-		quantity := d.PositionSizeUSD / entryPrice
-		if d.Action == "open_long" {
-			potentialLossUSD = quantity * (entryPrice - d.StopLoss)
-		} else { // open_short
-			potentialLossUSD = quantity * (d.StopLoss - entryPrice)
-		}
-
-		// 3. 严格执行 1.5% 最大亏损规则
-		maxAllowedLoss := accountEquity * 0.015 // 账户净值的1.5%
-		if potentialLossUSD > maxAllowedLoss {
-			return fmt.Errorf(
-				"风险预算超限 (%.2f USDT > %.2f USDT)。仓位价值 %.2f USDT @ %.4f 止损于 %.4f，已超出最大允许亏损(账户净值的1.5%%)",
-				potentialLossUSD,
-				maxAllowedLoss,
-				d.PositionSizeUSD,
-				entryPrice,
-				d.StopLoss,
-			)
-		}
-		// =================================================================
-		// END OF CRITICAL SAFETY FIX
-		// =================================================================
-
-		// 杠杆检查与修正（使用上面已声明的maxLeverage变量）
-		if d.Leverage <= 0 {
-			return fmt.Errorf("杠杆必须大于0: %d", d.Leverage)
-		}
-		if d.Leverage > maxLeverage {
-			log.Printf("⚠️  [Leverage Fallback] %s 杠杆超限 (%dx > %dx)，自动调整为上限值 %dx",
-				d.Symbol, d.Leverage, maxLeverage, maxLeverage)
-			d.Leverage = maxLeverage // 自动修正为上限值
-		}
-
-		// 最小开仓金额检查
-		minPositionSize := calculateMinPositionSize(d.Symbol, accountEquity)
-		if d.PositionSizeUSD < minPositionSize {
-			return fmt.Errorf("开仓金额过小(%.2f USDT)，必须≥%.2f USDT", d.PositionSizeUSD, minPositionSize)
-		}
-
-		// 验证仓位价值上限（加1%容差以避免浮点数精度问题）
-		tolerance := maxPositionValue * 0.01 // 1%容差
-		if d.PositionSizeUSD > maxPositionValue+tolerance {
-			if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-				return fmt.Errorf("BTC/ETH单币种仓位价值不能超过%.0f USDT（1.5倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
-			} else {
-				return fmt.Errorf("山寨币单币种仓位价值不能超过%.0f USDT（0.75倍账户净值），实际: %.0f", maxPositionValue, d.PositionSizeUSD)
+		if mockMarketData != nil {
+			// 使用提供的模拟数据
+			marketData = mockMarketData
+		} else {
+			// 尝试获取真实市场数据
+			marketData, err = market.Get(d.Symbol)
+			if err != nil {
+				return fmt.Errorf("无法获取 %s 的市场数据: %w", d.Symbol, err)
 			}
 		}
-		if d.StopLoss <= 0 || d.TakeProfit <= 0 {
-			return fmt.Errorf("止损和止盈必须大于0")
+		validator.MarketData[d.Symbol] = marketData
+
+		// 执行增强验证
+		result := validator.ValidateDecision(d)
+
+		// 记录验证详情
+		if len(result.Warnings) > 0 {
+			log.Printf("⚠️ %s 验证警告: %v", d.Symbol, result.Warnings)
+		}
+		if len(result.Suggestions) > 0 {
+			log.Printf("💡 %s 优化建议: %v", d.Symbol, result.Suggestions)
 		}
 
-		// 验证止损止盈的合理性
-		if d.Action == "open_long" {
-			if d.StopLoss >= d.TakeProfit {
-				return fmt.Errorf("做多时止损价 (%.4f) 必须小于止盈价 (%.4f)", d.StopLoss, d.TakeProfit)
+		// 如果有致命错误，返回详细错误信息
+		if !result.IsValid {
+			errorMsg := fmt.Sprintf("决策验证失败 (风险等级: %s, 风险比例: %.2f%%): ",
+				result.RiskLevel, result.RiskPercent)
+			for i, err := range result.Errors {
+				if i > 0 {
+					errorMsg += "; "
+				}
+				errorMsg += err
 			}
-			if d.StopLoss >= entryPrice {
-				return fmt.Errorf("做多时，止损价 (%.4f) 必须低于当前市价 (%.4f)", d.StopLoss, entryPrice)
-			}
-		} else { // open_short
-			if d.StopLoss <= d.TakeProfit {
-				return fmt.Errorf("做空时止损价 (%.4f) 必须大于止盈价 (%.4f)", d.StopLoss, d.TakeProfit)
-			}
-			if d.StopLoss <= entryPrice {
-				return fmt.Errorf("做空时，止损价 (%.4f) 必须高于当前市价 (%.4f)", d.StopLoss, entryPrice)
-			}
+			return fmt.Errorf("%s", errorMsg)
 		}
+
+		// 记录风险控制信息
+		log.Printf("✅ %s 风险控制通过: 风险等级=%s, 风险比例=%.2f%%, 杠杆=%dx, 仓位=$%.2f",
+			d.Symbol, result.RiskLevel, result.RiskPercent, d.Leverage, d.PositionSizeUSD)
 	}
 
 	// 动态调整止损验证
