@@ -251,6 +251,7 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		decisionLogger:        decisionLogger,
 		initialBalance:        config.InitialBalance,
 		systemPromptTemplate:  systemPromptTemplate,
+		timeframes:            config.Timeframes, // K线时间线配置
 		defaultCoins:          config.DefaultCoins,
 		tradingCoins:          config.TradingCoins,
 		useCoinPool:           config.UseCoinPool,
