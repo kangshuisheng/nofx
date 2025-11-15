@@ -86,6 +86,14 @@ func NewDatabase(dbPath string) (*Database, error) {
 		return nil, fmt.Errorf("设置synchronous失败: %w", err)
 	}
 
+	// 🔒 启用外键约束 (SQLite 默认关闭！)
+	// 这是防止数据完整性问题的关键设置
+	// 没有这个设置,即使表定义中有 FOREIGN KEY,也不会强制执行
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("启用外键约束失败: %w", err)
+	}
+
 	database := &Database{
 		db:     db,
 		dbPath: dbPath,
@@ -99,11 +107,17 @@ func NewDatabase(dbPath string) (*Database, error) {
 		return nil, fmt.Errorf("清理遗留列失败: %w", err)
 	}
 
+	// 檢查數據庫完整性（外鍵約束）
+	// 這個檢查不會中斷啟動，只記錄警告
+	if err := database.checkDataIntegrity(); err != nil {
+		log.Printf("⚠️  數據完整性檢查出現問題（不影響啟動）: %v", err)
+	}
+
 	if err := database.initDefaultData(); err != nil {
 		return nil, fmt.Errorf("初始化默认数据失败: %w", err)
 	}
 
-	log.Printf("✅ 数据库已启用 WAL 模式和 FULL 同步,数据持久性得到保证")
+	log.Printf("✅ 数据库已启用 WAL 模式、FULL 同步和外键约束,数据完整性得到保证")
 	return database, nil
 }
 
@@ -2242,5 +2256,133 @@ func (d *Database) cleanupLegacyColumns() error {
 	}
 
 	log.Printf("✅ Successfully cleaned up legacy _old columns")
+	return nil
+}
+
+// checkDataIntegrity 檢查數據庫完整性（外鍵約束）
+// 這個函數在啟動時執行，檢測並報告孤立的記錄
+// 不會中斷啟動，只記錄警告信息
+func (d *Database) checkDataIntegrity() error {
+	log.Printf("🔍 [啟動檢查] 開始數據庫完整性檢查...")
+
+	var totalIssues int
+
+	// 1. 檢查孤立的 traders（引用不存在的 exchange_id）
+	var orphanedTradersCount int
+	err := d.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM traders t
+		WHERE NOT EXISTS (
+			SELECT 1 FROM exchanges e WHERE e.id = t.exchange_id
+		)
+	`).Scan(&orphanedTradersCount)
+	if err != nil {
+		log.Printf("⚠️  [完整性檢查] 檢查孤立 traders 失敗: %v", err)
+	} else if orphanedTradersCount > 0 {
+		totalIssues += orphanedTradersCount
+		log.Printf("⚠️  [完整性檢查] 發現 %d 個 traders 引用不存在的交易所", orphanedTradersCount)
+
+		// 列出前 5 個孤立的 traders
+		rows, err := d.db.Query(`
+			SELECT t.id, t.name, t.exchange_id
+			FROM traders t
+			WHERE NOT EXISTS (
+				SELECT 1 FROM exchanges e WHERE e.id = t.exchange_id
+			)
+			LIMIT 5
+		`)
+		if err == nil {
+			defer rows.Close()
+			log.Printf("    示例（前5個）：")
+			for rows.Next() {
+				var id, name string
+				var exchangeID int
+				if err := rows.Scan(&id, &name, &exchangeID); err == nil {
+					log.Printf("      - Trader '%s' (ID=%s) → 缺失的 exchange_id=%d", name, id, exchangeID)
+				}
+			}
+		}
+
+		log.Printf("    💡 修復方法：docker exec -it nofx-api-1 bash -c 'cd /app/scripts && ./fix_missing_exchange_references.sh'")
+	}
+
+	// 2. 檢查孤立的 traders（引用不存在的 ai_model_id）
+	var orphanedTradersAICount int
+	err = d.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM traders t
+		WHERE NOT EXISTS (
+			SELECT 1 FROM ai_models a WHERE a.id = t.ai_model_id
+		)
+	`).Scan(&orphanedTradersAICount)
+	if err != nil {
+		log.Printf("⚠️  [完整性檢查] 檢查孤立 traders (AI模型) 失敗: %v", err)
+	} else if orphanedTradersAICount > 0 {
+		totalIssues += orphanedTradersAICount
+		log.Printf("⚠️  [完整性檢查] 發現 %d 個 traders 引用不存在的 AI 模型", orphanedTradersAICount)
+
+		rows, err := d.db.Query(`
+			SELECT t.id, t.name, t.ai_model_id
+			FROM traders t
+			WHERE NOT EXISTS (
+				SELECT 1 FROM ai_models a WHERE a.id = t.ai_model_id
+			)
+			LIMIT 5
+		`)
+		if err == nil {
+			defer rows.Close()
+			log.Printf("    示例（前5個）：")
+			for rows.Next() {
+				var id, name string
+				var aiModelID int
+				if err := rows.Scan(&id, &name, &aiModelID); err == nil {
+					log.Printf("      - Trader '%s' (ID=%s) → 缺失的 ai_model_id=%d", name, id, aiModelID)
+				}
+			}
+		}
+	}
+
+	// 3. 檢查孤立的 exchanges（引用不存在的 user_id）
+	var orphanedExchangesCount int
+	err = d.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM exchanges e
+		WHERE e.user_id != 'default' AND NOT EXISTS (
+			SELECT 1 FROM users u WHERE u.id = e.user_id
+		)
+	`).Scan(&orphanedExchangesCount)
+	if err != nil {
+		log.Printf("⚠️  [完整性檢查] 檢查孤立 exchanges 失敗: %v", err)
+	} else if orphanedExchangesCount > 0 {
+		totalIssues += orphanedExchangesCount
+		log.Printf("⚠️  [完整性檢查] 發現 %d 個 exchanges 引用不存在的用戶", orphanedExchangesCount)
+	}
+
+	// 4. 檢查孤立的 ai_models（引用不存在的 user_id）
+	var orphanedAIModelsCount int
+	err = d.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM ai_models a
+		WHERE a.user_id != 'default' AND NOT EXISTS (
+			SELECT 1 FROM users u WHERE u.id = a.user_id
+		)
+	`).Scan(&orphanedAIModelsCount)
+	if err != nil {
+		log.Printf("⚠️  [完整性檢查] 檢查孤立 ai_models 失敗: %v", err)
+	} else if orphanedAIModelsCount > 0 {
+		totalIssues += orphanedAIModelsCount
+		log.Printf("⚠️  [完整性檢查] 發現 %d 個 AI 模型引用不存在的用戶", orphanedAIModelsCount)
+	}
+
+	// 總結
+	if totalIssues == 0 {
+		log.Printf("✅ [完整性檢查] 數據庫完整性良好，沒有發現孤立記錄")
+	} else {
+		log.Printf("⚠️  [完整性檢查] 共發現 %d 個完整性問題", totalIssues)
+		log.Printf("    注意：這些問題不會影響系統啟動，但建議盡快修復")
+		log.Printf("    💡 新的外鍵約束已啟用，未來不會再出現這類問題")
+	}
+
+	// 不中斷啟動，只記錄警告
 	return nil
 }
