@@ -1,6 +1,3 @@
-# Coolify-specific Frontend Dockerfile
-# Based on the original Dockerfile.frontend for simplicity and correctness.
-
 ARG NODE_VERSION=20-alpine
 ARG NGINX_VERSION=alpine
 
