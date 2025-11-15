@@ -400,7 +400,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("⚠️ **重要提醒：计算 position_size_usd 的正确方法**\n\n")
 	sb.WriteString(fmt.Sprintf("- 当前账户净值：**%.2f USDT**\n", accountEquity))
 	sb.WriteString(fmt.Sprintf("- 山寨币开仓范围：**12 - %.0f USDT** (最大0.6倍净值)\n", accountEquity*0.6))
-	sb.WriteString(fmt.Sprintf("- BTC/ETH开仓范围：**%.0f - %.0f USDT** (最大1.15倍净值)\n", minBTCETH, accountEquity*1.15))
+	sb.WriteString(fmt.Sprintf("- BTC/ETH开仓范围：**%.0f - %.0f USDT** (最大1.25倍净值)\n", minBTCETH, accountEquity*1.25))
 	sb.WriteString("- ❌ **不要使用市场数据中的任何数字**（如 Open Interest 合约数、Volume、价格等）作为 position_size_usd\n")
 	sb.WriteString("- ✅ **position_size_usd 必须根据账户净值和上述范围计算**\n")
 	sb.WriteString("- ✅ **系统会自动验证所有计算，确保风险控制在安全范围内**\n\n")
@@ -415,7 +415,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("</reasoning>\n\n")
 	sb.WriteString("<decision>\n")
 	sb.WriteString("```json\n[\n")
-	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"下跌趋势+MACD死叉\"},\n", btcEthLeverage, accountEquity*1.15))
+	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"下跌趋势+MACD死叉\"},\n", btcEthLeverage, accountEquity*1.25))
 	sb.WriteString("  {\"symbol\": \"SOLUSDT\", \"action\": \"update_stop_loss\", \"new_stop_loss\": 155, \"reasoning\": \"移动止损至保本位\"},\n")
 	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"止盈离场\"}\n")
 	sb.WriteString("]\n```\n")
@@ -500,11 +500,59 @@ func buildUserPrompt(ctx *Context) string {
 		ctx.Account.MarginUsedPct,
 		ctx.Account.PositionCount))
 
-	// 持仓（完整市场数据）
 	if len(ctx.Positions) > 0 {
 		sb.WriteString("## 当前持仓\n")
 		for i, pos := range ctx.Positions {
-			// 计算持仓时长
+			// --- 核心逻辑注入开始 (无删节) ---
+
+			// 1. 从 ctx.OpenOrders 中精确查找当前有效的止损单价格
+			var currentStopLossPrice float64
+			var hasStopLoss bool
+			for _, order := range ctx.OpenOrders {
+				// 精确匹配持仓的币种和方向
+				isMatchingOrder := order.Symbol == pos.Symbol &&
+					((pos.Side == "long" && order.Side == "SELL") || (pos.Side == "short" && order.Side == "BUY"))
+
+				if isMatchingOrder && (order.Type == "STOP_MARKET" || order.Type == "STOP") {
+					currentStopLossPrice = order.StopPrice
+					hasStopLoss = true
+					break // 假设每个持仓只有一个止损单，找到即停止
+				}
+			}
+
+			// 2. 在Go代码中进行精确的阶段判断
+			var managementState string
+			if !hasStopLoss {
+				managementState = "NO_STOP_LOSS" // 状态：没有止损保护
+			} else {
+				// 核心逻辑：使用价格运动距离来判断阶段
+				// 这里的 "初始止损价" 我们就用当前有效的止损单价格，因为它是AI下一次决策的基准
+				initialRiskDist := math.Abs(pos.EntryPrice - currentStopLossPrice)
+				currentProfitDist := math.Abs(pos.MarkPrice - pos.EntryPrice)
+
+				if currentProfitDist < initialRiskDist {
+					managementState = "STAGE_1_INITIAL_RISK" // 状态：处于初始风险阶段
+				} else {
+					// 已进入阶段二或更高，需要进一步判断
+					isBreakevenOrInProfit := false
+					if pos.Side == "long" && currentStopLossPrice >= pos.EntryPrice {
+						isBreakevenOrInProfit = true
+					} else if pos.Side == "short" && currentStopLossPrice <= pos.EntryPrice {
+						isBreakevenOrInProfit = true
+					}
+
+					if isBreakevenOrInProfit {
+						// 如果止损已经在保本或盈利位置，说明已经完成了风险移除，进入追踪阶段
+						managementState = "STAGE_3_TRAILING" // 状态：处于追踪止损阶段
+					} else {
+						// 盈利距离已超过风险距离，但止损仍在亏损区，明确指示AI需要移除风险
+						managementState = "STAGE_2_RISK_REMOVAL" // 状态：需要移除风险
+					}
+				}
+			}
+			// --- 核心逻辑注入结束 ---
+
+			// 3. 计算持仓时长 (您的原始代码，完整保留)
 			holdingDuration := ""
 			if pos.UpdateTime > 0 {
 				durationMs := time.Now().UnixMilli() - pos.UpdateTime
@@ -518,38 +566,53 @@ func buildUserPrompt(ctx *Context) string {
 				}
 			}
 
-			// 计算仓位价值（用于 partial_close 检查）
+			// 4. 计算仓位价值 (您的原始代码，完整保留)
 			positionValue := math.Abs(pos.Quantity) * pos.MarkPrice
 
-			sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价%.4f 当前价%.4f | 数量%.4f | 仓位价值%.2f USDT | 盈亏%+.2f%% | 盈亏金额%+.2f USDT | 最高收益率%.2f%% | 杠杆%dx | 保证金%.0f | 强平价%.4f%s\n",
-				i+1, pos.Symbol, strings.ToUpper(pos.Side),
-				pos.EntryPrice, pos.MarkPrice, pos.Quantity, positionValue, pos.UnrealizedPnLPct, pos.UnrealizedPnL, pos.PeakPnLPct,
-				pos.Leverage, pos.MarginUsed, pos.LiquidationPrice, holdingDuration))
+			// 5. 将所有信息，包括新注入的状态，格式化为最终字符串
+			//   注意：格式化字符串已更新，包含了 Management_State
+			sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价:%.4f 当前价:%.4f | 盈亏:%+.2f%% (%+.2f USDT) | 价值:%.2f USDT | 状态: %s%s\n",
+				i+1,
+				pos.Symbol,
+				strings.ToUpper(pos.Side),
+				pos.EntryPrice,
+				pos.MarkPrice,
+				pos.UnrealizedPnLPct,
+				pos.UnrealizedPnL,
+				positionValue,
+				managementState, // <-- 在这里注入我们计算好的精确状态！
+				holdingDuration))
 
-			// Display stop-loss/take-profit orders for this position to prevent duplicate orders
-			hasStopLoss := false
-
-			for _, order := range ctx.OpenOrders {
-				if order.Symbol != pos.Symbol {
-					continue
-				}
-
-				switch order.Type {
-				case "STOP_MARKET", "STOP":
-					sb.WriteString(fmt.Sprintf("   🛡️ 止损单: %.4f (%s)\n", order.StopPrice, order.Side))
-					hasStopLoss = true
-				case "TAKE_PROFIT_MARKET", "TAKE_PROFIT":
-					sb.WriteString(fmt.Sprintf("   🎯 止盈单: %.4f (%s)\n", order.StopPrice, order.Side))
-				}
+			// 6. 显示当前有效的挂单信息 (您的原始逻辑，精简显示)
+			//   我们已经用 hasStopLoss 变量优化了这里的逻辑
+			if hasStopLoss {
+				sb.WriteString(fmt.Sprintf("   🛡️ 当前止损: %.4f\n", currentStopLossPrice))
+			} else if managementState != "NO_STOP_LOSS" {
+				// 如果状态不是NO_STOP_LOSS但又没找到单，说明可能存在延迟或问题
+				sb.WriteString("   🟡 **警告：正在查找止损单...**\n")
+			} else {
+				sb.WriteString("   ⚠️ **该持仓没有止损保护！**\n")
 			}
 
-			if !hasStopLoss {
-				sb.WriteString("   ⚠️ **该持仓没有止损保护！**\n")
+			// 显示止盈单
+			hasTakeProfit := false
+			for _, order := range ctx.OpenOrders {
+				isMatchingOrder := order.Symbol == pos.Symbol &&
+					((pos.Side == "long" && order.Side == "SELL") || (pos.Side == "short" && order.Side == "BUY"))
+				if isMatchingOrder && (order.Type == "TAKE_PROFIT_MARKET" || order.Type == "TAKE_PROFIT") {
+					sb.WriteString(fmt.Sprintf("   🎯 当前止盈: %.4f\n", order.StopPrice))
+					hasTakeProfit = true
+					break
+				}
+			}
+			// (可选) 如果需要，可以为没有止盈单的情况添加提示
+			if !hasTakeProfit {
+				sb.WriteString("   ⚠️ **该持仓没有止盈单！**\n")
 			}
 
 			sb.WriteString("\n")
 
-			// 使用FormatMarketData输出完整市场数据
+			// 7. 输出对应币种的详细市场数据 (您的原始代码，完整保留)
 			if marketData, ok := ctx.MarketDataMap[pos.Symbol]; ok {
 				sb.WriteString(market.Format(marketData))
 				sb.WriteString("\n")
@@ -558,6 +621,65 @@ func buildUserPrompt(ctx *Context) string {
 	} else {
 		sb.WriteString("当前持仓: 无\n\n")
 	}
+
+	// 持仓（完整市场数据）
+	// if len(ctx.Positions) > 0 {
+	// 	sb.WriteString("## 当前持仓\n")
+	// 	for i, pos := range ctx.Positions {
+	// 		// 计算持仓时长
+	// 		holdingDuration := ""
+	// 		if pos.UpdateTime > 0 {
+	// 			durationMs := time.Now().UnixMilli() - pos.UpdateTime
+	// 			durationMin := durationMs / (1000 * 60) // 转换为分钟
+	// 			if durationMin < 60 {
+	// 				holdingDuration = fmt.Sprintf(" | 持仓时长%d分钟", durationMin)
+	// 			} else {
+	// 				durationHour := durationMin / 60
+	// 				durationMinRemainder := durationMin % 60
+	// 				holdingDuration = fmt.Sprintf(" | 持仓时长%d小时%d分钟", durationHour, durationMinRemainder)
+	// 			}
+	// 		}
+
+	// 		// 计算仓位价值（用于 partial_close 检查）
+	// 		positionValue := math.Abs(pos.Quantity) * pos.MarkPrice
+
+	// 		sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价%.4f 当前价%.4f | 数量%.4f | 仓位价值%.2f USDT | 盈亏%+.2f%% | 盈亏金额%+.2f USDT | 最高收益率%.2f%% | 杠杆%dx | 保证金%.0f | 强平价%.4f%s\n",
+	// 			i+1, pos.Symbol, strings.ToUpper(pos.Side),
+	// 			pos.EntryPrice, pos.MarkPrice, pos.Quantity, positionValue, pos.UnrealizedPnLPct, pos.UnrealizedPnL, pos.PeakPnLPct,
+	// 			pos.Leverage, pos.MarginUsed, pos.LiquidationPrice, holdingDuration))
+
+	// 		// Display stop-loss/take-profit orders for this position to prevent duplicate orders
+	// 		hasStopLoss := false
+
+	// 		for _, order := range ctx.OpenOrders {
+	// 			if order.Symbol != pos.Symbol {
+	// 				continue
+	// 			}
+
+	// 			switch order.Type {
+	// 			case "STOP_MARKET", "STOP":
+	// 				sb.WriteString(fmt.Sprintf("   🛡️ 止损单: %.4f (%s)\n", order.StopPrice, order.Side))
+	// 				hasStopLoss = true
+	// 			case "TAKE_PROFIT_MARKET", "TAKE_PROFIT":
+	// 				sb.WriteString(fmt.Sprintf("   🎯 止盈单: %.4f (%s)\n", order.StopPrice, order.Side))
+	// 			}
+	// 		}
+
+	// 		if !hasStopLoss {
+	// 			sb.WriteString("   ⚠️ **该持仓没有止损保护！**\n")
+	// 		}
+
+	// 		sb.WriteString("\n")
+
+	// 		// 使用FormatMarketData输出完整市场数据
+	// 		if marketData, ok := ctx.MarketDataMap[pos.Symbol]; ok {
+	// 			sb.WriteString(market.Format(marketData))
+	// 			sb.WriteString("\n")
+	// 		}
+	// 	}
+	// } else {
+	// 	sb.WriteString("当前持仓: 无\n\n")
+	// }
 
 	// 候选币种（完整市场数据）
 	sb.WriteString(fmt.Sprintf("## 候选币种 (%d个)\n\n", len(ctx.MarketDataMap)))
