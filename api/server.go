@@ -161,16 +161,9 @@ func NewServer(traderManager *manager.TraderManager, database *config.Database, 
 func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 	// 检查是否完全禁用 CORS（用于内网环境或开发环境）
 	disableCORS := strings.EqualFold(os.Getenv("DISABLE_CORS"), "true")
-	if disableCORS {
-		log.Println("⚠️  [CORS] CORS 检查已完全禁用 (DISABLE_CORS=true)")
-		log.Println("    警告：这将允许所有来源访问 API，仅在安全的内网环境使用！")
-	}
 
 	// 检测是否为开发环境（默认为开发环境）
 	isDevelopment := os.Getenv("ENVIRONMENT") != "production"
-	if isDevelopment {
-		log.Println("🔧 [CORS] 开发模式：自动允许 localhost、.local 域名和私有网络 IP")
-	}
 
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
