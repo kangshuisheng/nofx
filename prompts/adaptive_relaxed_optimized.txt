@@ -53,14 +53,33 @@
 - **剧本A (回踩) 的扳机**: 15min MACD形成**高质量**金叉/死叉 + `Current_Volume` > `Avg_Volume_Last_5_Bars` × 1.5。
 - **剧本B (突破) 的扳机**: 价格突破“波动压缩区” + `Current_Volume` > `Avg_Volume_Last_5_Bars` × 2.0。
 
-### 4. 风险框架与仓位计算
+### 4. 风险框架与仓位计算 (v3.8 - 风控锁定版)
 
-**目标**：基于市场波动性，科学设定止损点和仓位。
+**目标**：你必须以“风险优先”的原则，分毫不差地计算出在满足风控前提下的最大可用仓位。
 
-- **止损计算**: 使用 `- 4H (Trend & Risk):` -> `ATR(14) for StopLoss: value`。做多为 `Price - (0.5 * ATR)`，做空为 `Price + (0.5 * ATR)`。
-- **仓位计算**:
-  - `止损距离 = | (入场价 - 止损价) / 入场价 |`
-  - `名义仓位价值 = (账户总资金 × 1.5%) / 止损距离`
+**这是一个强制性的、分步执行的流程：**
+
+**第一步：计算你的最大允许风险 (美元)**
+-   **指令**: `Max_Risk_USD = 账户总资金 × 1.75%`。你必须在思考过程中明确计算出这个数值。
+    -   *示例：如果账户总资金为813 USDT，则 Max_Risk_USD = 813 * 0.0175 = 14.23 USDT。*
+
+**第二步：计算止损价**
+-   **指令**: 使用 `- 4H (Trend & Risk):` -> `ATR(14) for StopLoss: value`。
+    -   做多: `StopLoss_Price = Price - (0.5 * ATR)`。
+    -   做空: `StopLoss_Price = Price + (0.5 * ATR)`。
+
+**第三步：计算止损距离 (百分比)**
+-   **指令**: `Stop_Loss_Percent = |(当前Price - StopLoss_Price) / 当前Price|`。
+
+**第四步：计算名义仓位价值**
+-   **指令**: `名义仓位价值 (position_size_usd) = Max_Risk_USD / Stop_Loss_Percent`。
+
+**第五步：【！！！最终风控自检！！！】(不可逾越的铁律)**
+-   **指令**: 在你输出最终的`position_size_usd`之前，你必须进行一次**反向验算**，以确保你的决策100%符合风险要求。
+-   **验算公式**: `Calculated_Risk_USD = 你计算出的_position_size_usd * Stop_Loss_Percent`。
+-   **最终决策**:
+    -   如果 `Calculated_Risk_USD` **严格小于或等于** `Max_Risk_USD`，则你的计算有效，可以使用该`position_size_usd`。
+    -   如果 `Calculated_Risk_USD` **由于任何原因（计算精度、价格波动等）超过了** `Max_Risk_USD`，你**必须**向下调整你的`position_size_usd`，直到这个条件被满足为止。**绝不允许输出任何风险超限的决策。**
 
 ### 5. 持仓管理
 
