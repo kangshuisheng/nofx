@@ -634,15 +634,37 @@ func getFundingRate(symbol string) (float64, error) {
 	return rate, nil
 }
 
-// Format 格式化市场数据 (最终优化版，支持所有高级策略)
+// Format 格式化市场数据 (v3.5 - AI分析师版)
 func Format(data *Data) string {
 	var sb strings.Builder
 
 	// 1. 核心摘要信息
 	priceStr := formatPriceWithDynamicPrecision(data.CurrentPrice)
-	// 修正1：将资金费率从科学记数法(%.2e)改为6位小数(%.6f)，让AI能直接进行数学比较
 	sb.WriteString(fmt.Sprintf("Price: %s | OI Chg(4h): %.2f%% | Funding: %.6f\n\n",
 		priceStr, data.OpenInterest.Change4h, data.FundingRate))
+
+	// --- 新增：更高时间周期上下文 (让AI分析，而非检查) ---
+	// 提供最关键的、用于趋势判断的“原材料”，Token成本极低
+	sb.WriteString("- Higher Timeframe Context:\n")
+
+	// 日线关键数据
+	// 增加数据完整性检查，避免索引越界
+	if data.DailyContext != nil && len(data.DailyContext.MidPrices) > 0 && len(data.DailyContext.EMA20Values) > 0 && len(data.DailyContext.MACDValues) > 0 {
+		sb.WriteString(fmt.Sprintf("  - Daily_Close: %.4f\n", data.DailyContext.MidPrices[len(data.DailyContext.MidPrices)-1]))
+		sb.WriteString(fmt.Sprintf("  - Daily_EMA20: %.4f\n", data.DailyContext.EMA20Values[len(data.DailyContext.EMA20Values)-1]))
+		sb.WriteString(fmt.Sprintf("  - Daily_MACD:  %.4f\n", data.DailyContext.MACDValues[len(data.DailyContext.MACDValues)-1]))
+	} else {
+		sb.WriteString("  - Daily_Data: N/A\n")
+	}
+
+	// 1小时关键数据
+	// 增加数据完整性检查
+	if data.MidTermSeries1h != nil && len(data.MidTermSeries1h.MACDValues) > 0 {
+		sb.WriteString(fmt.Sprintf("  - H1_MACD:     %.4f\n\n", data.MidTermSeries1h.MACDValues[len(data.MidTermSeries1h.MACDValues)-1]))
+	} else {
+		sb.WriteString("  - H1_Data:     N/A\n\n")
+	}
+	// --- 新增结束 ---
 
 	// 2. 15分钟周期数据 (入场信号核心)
 	if data.MidTermSeries15m != nil {
@@ -672,11 +694,9 @@ func Format(data *Data) string {
 		if data.IntradaySeries != nil && len(data.IntradaySeries.Volume) > 0 {
 			volumes := data.IntradaySeries.Volume
 
-			// 计算 Current_Volume (最新一根3m K线的成交量)
 			currentVolume := volumes[len(volumes)-1]
 			sb.WriteString(fmt.Sprintf("  - Current_Volume: %.2f\n", currentVolume))
 
-			// 计算 Avg_Volume_Last_5_Bars (不含最新一根的前5根平均成交量)
 			if len(volumes) >= 6 {
 				sum := 0.0
 				for i := len(volumes) - 6; i < len(volumes)-1; i++ {
@@ -696,14 +716,11 @@ func Format(data *Data) string {
 	if data.LongerTermContext != nil {
 		sb.WriteString("- 4H (Trend & Risk):\n")
 
-		// 输出 EMA20 和 EMA50 的具体数值
 		sb.WriteString(fmt.Sprintf("  - EMAs: EMA20(%.3f) vs EMA50(%.3f)\n",
 			data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
 
-		// 为 ATR 动态止损提供数据
 		sb.WriteString(fmt.Sprintf("  - ATR(14) for StopLoss: %.4f\n", data.LongerTermContext.ATR14))
 
-		// 为信心评分提供成交量比率
 		if data.LongerTermContext.AverageVolume > 0 {
 			ratio := data.LongerTermContext.CurrentVolume / data.LongerTermContext.AverageVolume
 			sb.WriteString(fmt.Sprintf("  - Volume_Ratio_Current_Avg: %.2f\n\n", ratio))
