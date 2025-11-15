@@ -176,6 +176,14 @@ export function TraderConfigModal({
         limit_timeout_seconds: 60,
       }))
     }
+    // 确保旧数据也有默认的费率配置
+    if (traderData && (traderData.taker_fee_rate === undefined || traderData.maker_fee_rate === undefined)) {
+      setFormData((prev) => ({
+        ...prev,
+        taker_fee_rate: traderData.taker_fee_rate ?? 0.0004,  // 默认 0.04%
+        maker_fee_rate: traderData.maker_fee_rate ?? 0.0002,  // 默认 0.02%
+      }))
+    }
   }, [traderData, isEditMode, availableModels, availableExchanges])
 
   // 获取系统配置中的币种列表
@@ -649,8 +657,12 @@ export function TraderConfigModal({
                           type="button"
                           onClick={() => {
                             if (isSelected) {
-                              // 取消勾选
+                              // 取消勾选 - 防止取消最后一个时间线
                               const newFrames = selectedFrames.filter(t => t !== frame.value)
+                              if (newFrames.length === 0) {
+                                toast.error(language === 'zh' ? '至少需要选择一个时间线' : 'At least one timeframe is required')
+                                return
+                              }
                               handleInputChange('timeframes', newFrames.join(','))
                             } else {
                               // 勾选
