@@ -107,6 +107,13 @@ func Get(symbol string) (*Data, error) {
 		oiData = &OIData{Latest: 0, Average: 0, ActualPeriod: "N/A"}
 	}
 
+	// ⚡ 新增：增強 OI 數據（加入多空比 - 完全免費）
+	// 這不會影響性能，因為 Binance API 無限制且快速
+	if err := EnhanceOIData(symbol, oiData); err != nil {
+		// 多空比獲取失敗不影響整體流程，只記錄警告
+		log.Printf("⚠️  %s 獲取多空比數據失敗: %v", symbol, err)
+	}
+
 	// 获取Funding Rate
 	fundingRate, _ := getFundingRate(symbol)
 
@@ -670,6 +677,40 @@ func Format(data *Data) string {
 
 		sb.WriteString(fmt.Sprintf("Open Interest: Latest: %s | Average: %s | %s\n\n",
 			oiLatestStr, oiAverageStr, changeLabel))
+
+		// ⚡ 新增：輸出多空比數據（免費數據源：Binance Futures API）
+		if data.OpenInterest.LongShortRatio > 0 {
+			longPct := data.OpenInterest.LongShortRatio / (1 + data.OpenInterest.LongShortRatio) * 100
+			shortPct := 100 - longPct
+			sb.WriteString(fmt.Sprintf("Market Sentiment (Long/Short Ratio): %.2f (%.1f%% long vs %.1f%% short)\n",
+				data.OpenInterest.LongShortRatio, longPct, shortPct))
+
+			if data.OpenInterest.TopTraderLongShortRatio > 0 {
+				sb.WriteString(fmt.Sprintf("Top Traders Positioning: %.2f", data.OpenInterest.TopTraderLongShortRatio))
+				if data.OpenInterest.TopTraderLongShortRatio > 1.2 {
+					sb.WriteString(" (top traders bullish)")
+				} else if data.OpenInterest.TopTraderLongShortRatio < 0.8 {
+					sb.WriteString(" (top traders bearish)")
+				} else {
+					sb.WriteString(" (neutral)")
+				}
+				sb.WriteString("\n")
+			}
+
+			if data.OpenInterest.Sentiment != "" {
+				sentimentLabel := data.OpenInterest.Sentiment
+				switch sentimentLabel {
+				case "bullish":
+					sentimentLabel = "Bullish (market favors longs)"
+				case "bearish":
+					sentimentLabel = "Bearish (market favors shorts)"
+				case "neutral":
+					sentimentLabel = "Neutral (balanced)"
+				}
+				sb.WriteString(fmt.Sprintf("Overall Sentiment: %s\n", sentimentLabel))
+			}
+			sb.WriteString("\n")
+		}
 	}
 
 	sb.WriteString(fmt.Sprintf("Funding Rate: %.2e\n\n", data.FundingRate))

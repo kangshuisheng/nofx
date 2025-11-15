@@ -21,6 +21,9 @@ type Data struct {
 	MidTermSeries1h   *MidTermData1h  // 1小时数据 - 中期趋势
 	LongerTermContext *LongerTermData // 4小时数据 - 长期趋势
 	DailyContext      *DailyData      // 日线数据 - 长期趋势和极端位置判断
+
+	// ⚡ 新增：宏觀市場情緒（免費來源：Yahoo Finance API、Alpha Vantage）
+	MarketSentiment *MarketSentiment // VIX 恐慌指數、美股狀態等
 }
 
 // OIData Open Interest数据
@@ -30,6 +33,11 @@ type OIData struct {
 	Change4h     float64      // 4小时变化率（百分比），P0修复：用于AI验证"近4小时上升>+3%"
 	ActualPeriod string       // P0修复：实际使用的时间段（例如 "4h", "2.5h", "N/A"）
 	Historical   []OISnapshot // 历史数据（用于计算变化率）
+
+	// ⚡ 新增：多空情緒數據（免費來源：Binance Futures API）
+	LongShortRatio          float64 // 全市場多空持倉人數比（>1 表示多頭占優）
+	TopTraderLongShortRatio float64 // 大戶多空持倉量比（>1 表示大戶做多）
+	Sentiment               string  // 市場情緒簡化標籤："bullish", "bearish", "neutral"
 }
 
 // OISnapshot OI历史快照
@@ -218,4 +226,28 @@ var config = Config{
 		CheckInterval:     5 * time.Minute,
 	},
 	UpdateInterval: 60, // 1 minute
+}
+
+// ========== 新增：宏觀市場情緒數據結構 ==========
+
+// MarketSentiment 市場情緒與風險指標（免費來源）
+type MarketSentiment struct {
+	// VIX 恐慌指數（來源：Yahoo Finance API - 免費）
+	VIX           float64 // 當前 VIX 值
+	FearLevel     string  // 恐慌等級："low"(<15), "moderate"(15-20), "high"(20-30), "extreme"(>30)
+	Recommendation string  // 建議："normal", "cautious", "defensive", "avoid_new_positions"
+
+	// 美股狀態（來源：Alpha Vantage API - 免費）
+	USMarket *USMarketStatus // 美股狀態（僅在交易時段有意義）
+
+	// 更新時間
+	UpdatedAt time.Time
+}
+
+// USMarketStatus 美股市場狀態
+type USMarketStatus struct {
+	IsOpen   bool    // 是否在交易時段（美東時間 9:30-16:00）
+	SPXTrend string  // S&P 500 趨勢："up", "down", "neutral"（基於 1 小時變化）
+	SPXChange1h float64 // S&P 500 過去 1 小時變化百分比
+	Warning   string  // 警告訊息（如大跌 >2%）
 }

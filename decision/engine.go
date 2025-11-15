@@ -9,6 +9,7 @@ import (
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/pool"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -103,6 +104,9 @@ type Context struct {
 	AltcoinLeverage int                     `json:"-"` // 山寨币杠杆倍数（从配置读取）
 	TakerFeeRate    float64                 `json:"-"` // Taker fee rate (from config, default 0.0004)
 	MakerFeeRate    float64                 `json:"-"` // Maker fee rate (from config, default 0.0002)
+
+	// ⚡ 新增：全局市場情緒數據（VIX 恐慌指數 + 美股狀態）
+	GlobalSentiment *market.MarketSentiment `json:"-"` // 全局風險情緒（免費來源：Yahoo Finance + Alpha Vantage）
 }
 
 // Decision AI的交易决策
@@ -148,6 +152,16 @@ func GetFullDecisionWithCustomPrompt(ctx *Context, mcpClient mcp.AIClient, custo
 	// 1. 为所有币种获取市场数据
 	if err := fetchMarketDataForContext(ctx); err != nil {
 		return nil, fmt.Errorf("获取市场数据失败: %w", err)
+	}
+
+	// 1.5. ⚡ 獲取全局市場情緒（VIX + 美股，免費來源）
+	alphaVantageKey := os.Getenv("ALPHA_VANTAGE_API_KEY") // 可選，用於美股數據（免費 500 calls/day）
+	sentiment, err := market.FetchMarketSentiment(alphaVantageKey)
+	if err != nil {
+		// 非關鍵數據，失敗不阻塞主流程
+		log.Printf("⚠️  獲取全局市場情緒失敗（不影響交易）: %v", err)
+	} else {
+		ctx.GlobalSentiment = sentiment
 	}
 
 	// 2. 构建 System Prompt（固定规则）和 User Prompt（动态数据）
@@ -429,6 +443,41 @@ func buildUserPrompt(ctx *Context) string {
 		sb.WriteString(fmt.Sprintf("BTC: %.2f (1h: %+.2f%%, 4h: %+.2f%%) | MACD: %.4f | RSI: %.2f\n\n",
 			btcData.CurrentPrice, btcData.PriceChange1h, btcData.PriceChange4h,
 			btcData.CurrentMACD, btcData.CurrentRSI7))
+	}
+
+	// ⚡ 全局市場情緒（VIX 恐慌指數 + 美股狀態）
+	if ctx.GlobalSentiment != nil {
+		sb.WriteString("## 📊 全局市場風險情緒\n\n")
+
+		// VIX 恐慌指數
+		if ctx.GlobalSentiment.VIX > 0 {
+			sb.WriteString(fmt.Sprintf("VIX 恐慌指數: %.2f (%s)\n",
+				ctx.GlobalSentiment.VIX, ctx.GlobalSentiment.FearLevel))
+
+			// 根據建議給出風控提示
+			switch ctx.GlobalSentiment.Recommendation {
+			case "normal":
+				sb.WriteString("  → 市場平穩，正常交易\n")
+			case "cautious":
+				sb.WriteString("  → ⚠️  市場輕度恐慌，建議降低槓桿至 5-10x\n")
+			case "defensive":
+				sb.WriteString("  → ⚠️  市場恐慌，建議收緊止損，避免激進操作\n")
+			case "avoid_new_positions":
+				sb.WriteString("  → 🚨 極度恐慌，強烈建議觀望，不要新開倉\n")
+			}
+		}
+
+		// 美股狀態（僅在交易時段顯示）
+		if ctx.GlobalSentiment.USMarket != nil && ctx.GlobalSentiment.USMarket.IsOpen {
+			sb.WriteString(fmt.Sprintf("美股狀態: %s (S&P 500 過去 1h: %+.2f%%)\n",
+				ctx.GlobalSentiment.USMarket.SPXTrend, ctx.GlobalSentiment.USMarket.SPXChange1h))
+
+			if ctx.GlobalSentiment.USMarket.Warning != "" {
+				sb.WriteString(fmt.Sprintf("  %s\n", ctx.GlobalSentiment.USMarket.Warning))
+			}
+		}
+
+		sb.WriteString("\n")
 	}
 
 	// 账户
