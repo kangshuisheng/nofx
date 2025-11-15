@@ -38,6 +38,7 @@ type WSMonitor struct {
 	filterSymbols   sync.Map // 使用sync.Map来存储需要监控的币种和其状态
 	symbolStats     sync.Map // 存储币种统计信息
 	FilterSymbol    []string //经过筛选的币种
+	dsManager       *DataSourceManager // 多数据源管理器（用于故障转移）
 }
 type SymbolStats struct {
 	LastActiveTime   time.Time
@@ -56,7 +57,7 @@ type KlineCacheEntry struct {
 
 var WSMonitorCli *WSMonitor
 
-func NewWSMonitor(batchSize int, timeframes []string) *WSMonitor {
+func NewWSMonitor(batchSize int, timeframes []string, dsManager *DataSourceManager) *WSMonitor {
 	// 如果没有指定时间线，使用默认值
 	if len(timeframes) == 0 {
 		timeframes = []string{"15m", "1h", "4h"}
@@ -68,9 +69,18 @@ func NewWSMonitor(batchSize int, timeframes []string) *WSMonitor {
 		alertsChan:     make(chan Alert, 1000),
 		batchSize:      batchSize,
 		timeframes:     timeframes,
+		dsManager:      dsManager, // 设置数据源管理器
 	}
 	log.Printf("📊 WSMonitor 初始化，使用时间线: %v", timeframes)
+	if dsManager != nil {
+		log.Printf("✅ WSMonitor 已连接多数据源管理器（故障转移已启用）")
+	}
 	return WSMonitorCli
+}
+
+// GetDSManager 获取数据源管理器（供其他模块使用，如价格验证）
+func (m *WSMonitor) GetDSManager() *DataSourceManager {
+	return m.dsManager
 }
 
 func (m *WSMonitor) Initialize(coins []string) error {

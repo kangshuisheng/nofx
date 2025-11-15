@@ -848,6 +848,23 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 		return err
 	}
 
+	// 🔍 价格一致性验证（防止单交易所价格异常导致误判）
+	if market.WSMonitorCli != nil && market.WSMonitorCli.GetDSManager() != nil {
+		consistent, prices, err := market.WSMonitorCli.GetDSManager().VerifyPriceConsistency(decision.Symbol, 0.02) // 2% 偏差阈值
+		if err != nil {
+			log.Printf("⚠️  %s 价格验证失败（数据源不足），继续交易: %v", decision.Symbol, err)
+		} else if !consistent {
+			priceDetails := ""
+			for source, price := range prices {
+				priceDetails += fmt.Sprintf("%s: %.2f, ", source, price)
+			}
+			return fmt.Errorf("❌ 价格异常：%s 在多个数据源间偏差过大（>2%%），拒绝开仓以防止误判。价格: %s",
+				decision.Symbol, priceDetails)
+		} else {
+			log.Printf("✅ %s 价格验证通过（多数据源一致性检查）", decision.Symbol)
+		}
+	}
+
 	// 计算数量
 	quantity := decision.PositionSizeUSD / marketData.CurrentPrice
 	actionRecord.Quantity = quantity
@@ -953,6 +970,23 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	marketData, err := market.Get(decision.Symbol, at.timeframes)
 	if err != nil {
 		return err
+	}
+
+	// 🔍 价格一致性验证（防止单交易所价格异常导致误判）
+	if market.WSMonitorCli != nil && market.WSMonitorCli.GetDSManager() != nil {
+		consistent, prices, err := market.WSMonitorCli.GetDSManager().VerifyPriceConsistency(decision.Symbol, 0.02) // 2% 偏差阈值
+		if err != nil {
+			log.Printf("⚠️  %s 价格验证失败（数据源不足），继续交易: %v", decision.Symbol, err)
+		} else if !consistent {
+			priceDetails := ""
+			for source, price := range prices {
+				priceDetails += fmt.Sprintf("%s: %.2f, ", source, price)
+			}
+			return fmt.Errorf("❌ 价格异常：%s 在多个数据源间偏差过大（>2%%），拒绝开仓以防止误判。价格: %s",
+				decision.Symbol, priceDetails)
+		} else {
+			log.Printf("✅ %s 价格验证通过（多数据源一致性检查）", decision.Symbol)
+		}
 	}
 
 	// 计算数量
