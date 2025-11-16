@@ -26,7 +26,7 @@ services:
       - ASTER_SIGNER=${ASTER_SIGNER}
       - ASTER_PRIVATE_KEY=${ASTER_PRIVATE_KEY}
     volumes:
-      - nofx-data:/app/data
+      - nofx-app-data:/app
       - nofx-decision-logs:/app/decision_logs
     networks:
       - nofx-network
@@ -81,5 +81,5 @@ networks:
     driver: bridge
 
 volumes:
-  nofx-data:
+  nofx-app-data:
   nofx-decision-logs:
