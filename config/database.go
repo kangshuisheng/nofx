@@ -442,8 +442,8 @@ func (d *Database) initDefaultData() error {
 			if count == 0 {
 				// 不存在則插入，讓 id 自動遞增
 				_, err = d.db.Exec(`
-					INSERT INTO ai_models (user_id, model_id, name, provider, enabled)
-					VALUES ('default', ?, ?, ?, 0)
+					INSERT INTO ai_models (model_id, user_id, name, provider, enabled)
+					VALUES (?, 'default', ?, ?, 0)
 				`, model.modelID, model.name, model.provider)
 				if err != nil {
 					return fmt.Errorf("初始化AI模型失败: %w", err)
@@ -478,7 +478,7 @@ func (d *Database) initDefaultData() error {
 	_, err = d.db.Exec(`
 		DELETE FROM exchanges
 		WHERE user_id = 'default'
-		AND id IN ('1', '2', '3')
+		AND exchange_id IN ('1', '2', '3')
 	`)
 	if err != nil {
 		log.Printf("⚠️ 清理舊交易所記錄失敗（可忽略）: %v", err)
@@ -492,56 +492,25 @@ func (d *Database) initDefaultData() error {
 		{"aster", "Aster DEX", "aster"},
 	}
 
-	// 檢查表結構，判斷是否已遷移到自增ID結構
-	var hasExchangeIDColumn int
-	err = d.db.QueryRow(`
-		SELECT COUNT(*) FROM pragma_table_info('exchanges')
-		WHERE name = 'exchange_id'
-	`).Scan(&hasExchangeIDColumn)
-	if err != nil {
-		return fmt.Errorf("检查exchanges表结构失败: %w", err)
-	}
-
 	for _, exchange := range exchanges {
 		var count int
 
-		if hasExchangeIDColumn > 0 {
-			// 新結構：使用 exchange_id
-			err = d.db.QueryRow(`
-				SELECT COUNT(*) FROM exchanges
-				WHERE exchange_id = ? AND user_id = 'default'
-			`, exchange.exchangeID).Scan(&count)
-			if err != nil {
-				return fmt.Errorf("检查交易所失败: %w", err)
-			}
+		// 檢查是否已存在該交易所
+		err = d.db.QueryRow(`
+			SELECT COUNT(*) FROM exchanges
+			WHERE exchange_id = ? AND user_id = 'default'
+		`, exchange.exchangeID).Scan(&count)
+		if err != nil {
+			return fmt.Errorf("检查交易所失败: %w", err)
+		}
 
-			if count == 0 {
-				_, err = d.db.Exec(`
-					INSERT INTO exchanges (user_id, exchange_id, name, type, enabled)
-					VALUES ('default', ?, ?, ?, 0)
-				`, exchange.exchangeID, exchange.name, exchange.typ)
-				if err != nil {
-					return fmt.Errorf("初始化交易所失败: %w", err)
-				}
-			}
-		} else {
-			// 舊結構：使用 id
-			err = d.db.QueryRow(`
-				SELECT COUNT(*) FROM exchanges
-				WHERE id = ? AND user_id = 'default'
-			`, exchange.exchangeID).Scan(&count)
+		if count == 0 {
+			_, err = d.db.Exec(`
+				INSERT INTO exchanges (exchange_id, user_id, name, type, enabled)
+				VALUES (?, 'default', ?, ?, 0)
+			`, exchange.exchangeID, exchange.name, exchange.typ)
 			if err != nil {
-				return fmt.Errorf("检查交易所失败: %w", err)
-			}
-
-			if count == 0 {
-				_, err = d.db.Exec(`
-					INSERT INTO exchanges (user_id, id, name, type, enabled)
-					VALUES ('default', ?, ?, ?, 0)
-				`, exchange.exchangeID, exchange.name, exchange.typ)
-				if err != nil {
-					return fmt.Errorf("初始化交易所失败: %w", err)
-				}
+				return fmt.Errorf("初始化交易所失败: %w", err)
 			}
 		}
 	}
