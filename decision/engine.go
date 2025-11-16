@@ -383,7 +383,6 @@ func buildSystemPromptWithCustom(accountEquity float64, btcEthLeverage, altcoinL
 func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage int, templateName string) string {
 	var sb strings.Builder
 
-	// 1. 加载提示词模板（核心交易策略部分）
 	if templateName == "" {
 		templateName = "default"
 	}
