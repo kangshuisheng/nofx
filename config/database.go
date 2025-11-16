@@ -1676,16 +1676,17 @@ func (d *Database) UpdateExchange(userID, id string, enabled bool, apiKey, secre
 
 		// 根据交易所ID确定基本信息
 		var name, typ string
-		if id == "binance" {
+		switch id {
+		case "binance":
 			name = "Binance Futures"
 			typ = "cex"
-		} else if id == "hyperliquid" {
+		case "hyperliquid":
 			name = "Hyperliquid"
 			typ = "dex"
-		} else if id == "aster" {
+		case "aster":
 			name = "Aster DEX"
 			typ = "dex"
-		} else {
+		default:
 			name = id + " Exchange"
 			typ = "cex"
 		}
