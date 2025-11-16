@@ -343,6 +343,7 @@ func (s *Server) setupRoutes() {
 			authGroup.POST("/login", s.handleLogin)
 			authGroup.POST("/verify-otp", s.handleVerifyOTP)
 			authGroup.POST("/complete-registration", s.handleCompleteRegistration)
+			authGroup.POST("/reset-password", s.handleResetPassword)
 			authGroup.POST("/refresh-token", s.handleRefreshToken)
 		}
 
