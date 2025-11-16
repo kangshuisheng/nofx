@@ -90,10 +90,23 @@ export interface TraderInfo {
   ai_model: string
   exchange_id?: string
   is_running?: boolean
+  initial_balance?: number
+  system_prompt_template?: string
+  scan_interval_minutes?: number
+  btc_eth_leverage?: number
+  altcoin_leverage?: number
+  trading_symbols?: string
   custom_prompt?: string
+  override_base_prompt?: boolean
+  is_cross_margin?: boolean
   use_coin_pool?: boolean
   use_oi_top?: boolean
-  system_prompt_template?: string
+  taker_fee_rate?: number
+  maker_fee_rate?: number
+  order_strategy?: string
+  limit_price_offset?: number
+  limit_timeout_seconds?: number
+  timeframes?: string
 }
 
 export interface AIModel {
