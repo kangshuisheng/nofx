@@ -387,10 +387,70 @@ func (d *Database) createTables() error {
 
 // initDefaultData 初始化默认数据
 func (d *Database) initDefaultData() error {
+	// 🔧 在初始化之前，先清理可能违反外键约束的数据
+	log.Printf("🧹 [初始化前清理] 开始清理可能违反外键约束的数据...")
+
+	// 删除引用不存在用户的AI模型记录
+	_, err := d.db.Exec(`
+		DELETE FROM ai_models
+		WHERE user_id NOT IN (SELECT id FROM users)
+	`)
+	if err != nil {
+		log.Printf("⚠️  [初始化前清理] 清理孤立AI模型失败（继续执行）: %v", err)
+	} else {
+		log.Printf("✅ [初始化前清理] 已清理孤立AI模型记录")
+	}
+
+	// 删除引用不存在用户的交易所记录
+	_, err = d.db.Exec(`
+		DELETE FROM exchanges
+		WHERE user_id NOT IN (SELECT id FROM users)
+	`)
+	if err != nil {
+		log.Printf("⚠️  [初始化前清理] 清理孤立交易所失败（继续执行）: %v", err)
+	} else {
+		log.Printf("✅ [初始化前清理] 已清理孤立交易所记录")
+	}
+
+	// 删除引用不存在用户的交易员记录
+	_, err = d.db.Exec(`
+		DELETE FROM traders
+		WHERE user_id NOT IN (SELECT id FROM users)
+	`)
+	if err != nil {
+		log.Printf("⚠️  [初始化前清理] 清理孤立交易员失败（继续执行）: %v", err)
+	} else {
+		log.Printf("✅ [初始化前清理] 已清理孤立交易员记录")
+	}
+
+	// 删除引用不存在交易所的交易员记录
+	_, err = d.db.Exec(`
+		DELETE FROM traders
+		WHERE exchange_id NOT IN (SELECT id FROM exchanges)
+	`)
+	if err != nil {
+		log.Printf("⚠️  [初始化前清理] 清理引用不存在交易所的交易员失败（继续执行）: %v", err)
+	} else {
+		log.Printf("✅ [初始化前清理] 已清理引用不存在交易所的交易员记录")
+	}
+
+	// 删除引用不存在AI模型的交易员记录
+	_, err = d.db.Exec(`
+		DELETE FROM traders
+		WHERE ai_model_id NOT IN (SELECT id FROM ai_models)
+	`)
+	if err != nil {
+		log.Printf("⚠️  [初始化前清理] 清理引用不存在AI模型的交易员失败（继续执行）: %v", err)
+	} else {
+		log.Printf("✅ [初始化前清理] 已清理引用不存在AI模型的交易员记录")
+	}
+
+	log.Printf("✅ [初始化前清理] 数据清理完成")
+
 	// 🔧 首先创建默认用户（避免外键约束失败）
 	// 检查是否已存在default用户
 	var userCount int
-	err := d.db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = 'default'`).Scan(&userCount)
+	err = d.db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = 'default'`).Scan(&userCount)
 	if err != nil {
 		return fmt.Errorf("检查默认用户失败: %w", err)
 	}
