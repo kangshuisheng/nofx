@@ -507,13 +507,11 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 						pnl = actualQuantity * (openPrice - action.Price)
 					}
 
-					// ⚠️ 扣除交易手续费（开仓 + 平仓各一次）
-					// 获取交易所费率（从record中获取，如果没有则使用默认值）
+					// 🔧 BUG FIX: 只扣除平倉手續費，不重複扣除開倉手續費
+					// 開倉手續費已經在開倉時從帳戶餘額中扣除，不應在計算已實現盈虧時再次扣除
 					feeRate := getTakerFeeRate(record.Exchange)
-					openFee := actualQuantity * openPrice * feeRate     // 开仓手续费
 					closeFee := actualQuantity * action.Price * feeRate // 平仓手续费
-					totalFees := openFee + closeFee
-					pnl -= totalFees // 从盈亏中扣除手续费
+					pnl -= closeFee                                     // 从盈亏中扣除平仓手续费
 
 					// 🔧 BUG FIX：處理 partial_close 聚合邏輯
 					if action.Action == "partial_close" {

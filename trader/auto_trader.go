@@ -241,7 +241,30 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		systemPromptTemplate = "adaptive"
 	}
 
-	return &AutoTrader{
+	// 🔧 P0修復：從數據庫恢復狀態（Docker 重啟後）
+	restoredCallCount := 0
+	restoredPeakEquity := config.InitialBalance
+	restoredLastResetTime := time.Now()
+
+	if db, ok := database.(interface {
+		LoadTraderState(string) (int, float64, int64, string, error)
+		GetOpenPositionsFromHistory(string) (map[string]map[string]interface{}, error)
+	}); ok {
+		// 恢復狀態
+		callCount, peakEquity, lastResetTimeUnix, _, err := db.LoadTraderState(config.ID)
+		if err == nil {
+			restoredCallCount = callCount
+			if peakEquity > 0 {
+				restoredPeakEquity = peakEquity
+			}
+			if lastResetTimeUnix > 0 {
+				restoredLastResetTime = time.UnixMilli(lastResetTimeUnix)
+			}
+			log.Printf("✅ [%s] 從數據庫恢復狀態: 調用次數=%d, 峰值淨值=%.2f", config.Name, callCount, peakEquity)
+		}
+	}
+
+	at := &AutoTrader{
 		id:                    config.ID,
 		name:                  config.Name,
 		aiModel:               config.AIModel,
@@ -257,12 +280,12 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		tradingCoins:          config.TradingCoins,
 		useCoinPool:           config.UseCoinPool,
 		useOITop:              config.UseOITop,
-		lastResetTime:         time.Now(),
+		lastResetTime:         restoredLastResetTime,
 		dailyPnLBase:          config.InitialBalance,
 		needsDailyBaseline:    true,
-		peakEquity:            config.InitialBalance,
+		peakEquity:            restoredPeakEquity,
 		startTime:             time.Now(),
-		callCount:             0,
+		callCount:             restoredCallCount,
 		isRunning:             false,
 		positionFirstSeenTime: make(map[string]int64),
 		lastPositions:         make(map[string]decision.PositionInfo),
@@ -277,7 +300,30 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		userID:                userID,
 		coinPoolAPIURL:        strings.TrimSpace(config.CoinPoolAPIURL),
 		oiTopAPIURL:           strings.TrimSpace(config.OITopAPIURL),
-	}, nil
+	}
+
+	// 🔧 P0修復：恢復持倉記錄（從交易歷史重建）
+	if db, ok := database.(interface {
+		GetOpenPositionsFromHistory(string) (map[string]map[string]interface{}, error)
+	}); ok {
+		positions, err := db.GetOpenPositionsFromHistory(config.ID)
+		if err == nil && len(positions) > 0 {
+			for key, pos := range positions {
+				if firstSeenTime, ok := pos["first_seen_time"].(int64); ok {
+					at.positionFirstSeenTime[key] = firstSeenTime
+				}
+				if stopLoss, ok := pos["stop_loss"].(float64); ok && stopLoss > 0 {
+					at.positionStopLoss[key] = stopLoss
+				}
+				if takeProfit, ok := pos["take_profit"].(float64); ok && takeProfit > 0 {
+					at.positionTakeProfit[key] = takeProfit
+				}
+			}
+			log.Printf("✅ [%s] 從數據庫恢復 %d 個持倉記錄", config.Name, len(positions))
+		}
+	}
+
+	return at, nil
 }
 
 // Run 运行自动交易主循环
