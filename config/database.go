@@ -543,6 +543,15 @@ func (d *Database) initDefaultData() error {
 	return nil
 }
 
+// ensureDefaultUser 确保系统保留的 default 用户存在
+func (d *Database) ensureDefaultUser() error {
+	_, err := d.db.Exec(`
+		INSERT OR IGNORE INTO users (id, email, password_hash, otp_secret, otp_verified)
+		VALUES ('default', 'default@system.local', '', '', 1)
+	`)
+	return err
+}
+
 // migrateExchangesTable 迁移exchanges表支持多用户
 func (d *Database) migrateExchangesTable() error {
 	// 检查表是否已经有 exchange_id 欄位（表示已經是新結構或已遷移）
@@ -2554,4 +2563,93 @@ func (db *Database) GetOpenPositionsFromHistory(traderID string) (map[string]map
 	}
 
 	return positions, nil
+}
+
+// GetLastOpenTrade 獲取最後一筆未配對的開倉記錄（用於計算 PnL）
+// 🔧 階段1修復#1: 解決 lastPositions 為空導致 PnL 計算錯誤
+func (db *Database) GetLastOpenTrade(traderID, symbol, side string) (entryPrice, quantity float64, err error) {
+	query := `
+		SELECT price, quantity
+		FROM trade_history
+		WHERE trader_id = ?
+		  AND symbol = ?
+		  AND side = ?
+		  AND action = 'OPEN'
+		  AND id NOT IN (
+			  -- 排除已配對的開倉記錄
+			  SELECT open_id FROM (
+				  SELECT
+					  o.id as open_id,
+					  ROW_NUMBER() OVER (PARTITION BY o.symbol, o.side ORDER BY o.timestamp, c.timestamp) as rn
+				  FROM trade_history o
+				  LEFT JOIN trade_history c
+					  ON c.trader_id = o.trader_id
+					  AND c.symbol = o.symbol
+					  AND c.side = o.side
+					  AND c.action IN ('CLOSE', 'PARTIAL_CLOSE', 'EMERGENCY_CLOSE', 'AUTO_CLOSE')
+					  AND c.timestamp > o.timestamp
+				  WHERE o.trader_id = ?
+					AND o.symbol = ?
+					AND o.side = ?
+					AND o.action = 'OPEN'
+					AND c.id IS NOT NULL
+			  )
+		  )
+		ORDER BY timestamp DESC
+		LIMIT 1
+	`
+
+	err = db.db.QueryRow(query, traderID, symbol, side, traderID, symbol, side).Scan(&entryPrice, &quantity)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, 0, fmt.Errorf("未找到未配對的開倉記錄: %s %s", symbol, side)
+		}
+		return 0, 0, err
+	}
+
+	return entryPrice, quantity, nil
+}
+
+// GetOpenPositions 獲取所有未平倉的持倉鍵值（用於同步檢測）
+// 🔧 階段1修復#4: 檢測交易所自動平倉
+func (db *Database) GetOpenPositions(traderID string) ([]string, error) {
+	query := `
+		SELECT DISTINCT symbol || '_' || side as position_key
+		FROM trade_history
+		WHERE trader_id = ?
+		  AND action = 'OPEN'
+		  AND id NOT IN (
+			  -- 排除已配對的開倉記錄
+			  SELECT open_id FROM (
+				  SELECT
+					  o.id as open_id
+				  FROM trade_history o
+				  INNER JOIN trade_history c
+					  ON c.trader_id = o.trader_id
+					  AND c.symbol = o.symbol
+					  AND c.side = o.side
+					  AND c.action IN ('CLOSE', 'PARTIAL_CLOSE', 'EMERGENCY_CLOSE', 'AUTO_CLOSE')
+					  AND c.timestamp > o.timestamp
+				  WHERE o.trader_id = ?
+					AND o.action = 'OPEN'
+			  )
+		  )
+	`
+
+	rows, err := db.db.Query(query, traderID, traderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+
+	return keys, nil
 }

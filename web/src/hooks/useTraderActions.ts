@@ -187,6 +187,12 @@ export function useTraderActions({
         is_cross_margin: data.is_cross_margin,
         use_coin_pool: data.use_coin_pool,
         use_oi_top: data.use_oi_top,
+        taker_fee_rate: data.taker_fee_rate,
+        maker_fee_rate: data.maker_fee_rate,
+        timeframes: data.timeframes,
+        order_strategy: data.order_strategy,
+        limit_price_offset: data.limit_price_offset,
+        limit_timeout_seconds: data.limit_timeout_seconds,
       }
 
       await toast.promise(api.updateTrader(editingTrader.trader_id, request), {

@@ -90,10 +90,23 @@ export interface TraderInfo {
   ai_model: string
   exchange_id?: string
   is_running?: boolean
+  initial_balance?: number
+  system_prompt_template?: string
+  scan_interval_minutes?: number
+  btc_eth_leverage?: number
+  altcoin_leverage?: number
+  trading_symbols?: string
   custom_prompt?: string
+  override_base_prompt?: boolean
+  is_cross_margin?: boolean
   use_coin_pool?: boolean
   use_oi_top?: boolean
-  system_prompt_template?: string
+  taker_fee_rate?: number
+  maker_fee_rate?: number
+  order_strategy?: string
+  limit_price_offset?: number
+  limit_timeout_seconds?: number
+  timeframes?: string
 }
 
 export interface AIModel {
@@ -140,7 +153,9 @@ export interface CreateTraderRequest {
   taker_fee_rate?: number // Taker 费率 (默认 0.0004 = 0.04%)
   maker_fee_rate?: number // Maker 费率 (默认 0.0002 = 0.02%)
   timeframes?: string // 时间线选择 (逗号分隔，例如: "1m,4h,1d")
-  order_strategy?: string // 订单策略 (adaptive, moderate, aggressive 等)
+  order_strategy?: string // 订单策略 (market, limit, conservative_hybrid 等)
+  limit_price_offset?: number // 限价单价格偏移 (默认 0.0005 = 0.05%)
+  limit_timeout_seconds?: number // 限价单超时时间 (默认 300 = 5分钟)
 }
 
 export interface UpdateModelConfigRequest {
