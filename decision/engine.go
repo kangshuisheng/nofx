@@ -469,7 +469,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("</decision>\n\n")
 	sb.WriteString("## 字段说明\n\n")
 	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | update_stop_loss | update_take_profit | partial_close | hold | wait\n")
-	sb.WriteString("- `confidence`: 0-100（开仓建议≥75）\n")
+	sb.WriteString("- `confidence`: 0-100（开仓建议≥80）\n")
 	sb.WriteString("- 开仓时必填: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning\n")
 	sb.WriteString("- update_stop_loss 时必填: new_stop_loss (注意是 new_stop_loss，不是 stop_loss)\n")
 	sb.WriteString("- update_take_profit 时必填: new_take_profit (注意是 new_take_profit，不是 take_profit)\n")
@@ -550,117 +550,105 @@ func buildUserPrompt(ctx *Context) string {
 	if len(ctx.Positions) > 0 {
 		sb.WriteString("## 当前持仓\n")
 		for i, pos := range ctx.Positions {
-			// --- 核心逻辑注入开始 (无删节) ---
 
-			// 1. 从 ctx.OpenOrders 中精确查找当前有效的止损单价格
+			// 1. 从ctx.OpenOrders中精确查找当前有效的止损单和止盈单
 			var currentStopLossPrice float64
+			var currentTakeProfitPrice float64
 			var hasStopLoss bool
+			var hasTakeProfit bool
+
 			for _, order := range ctx.OpenOrders {
-				// 精确匹配持仓的币种和方向
 				isMatchingOrder := order.Symbol == pos.Symbol &&
 					((pos.Side == "long" && order.Side == "SELL") || (pos.Side == "short" && order.Side == "BUY"))
 
-				if isMatchingOrder && (order.Type == "STOP_MARKET" || order.Type == "STOP") {
+				if !isMatchingOrder {
+					continue
+				}
+
+				switch order.Type {
+				case "STOP_MARKET", "STOP":
 					currentStopLossPrice = order.StopPrice
 					hasStopLoss = true
-					break // 假设每个持仓只有一个止损单，找到即停止
+				case "TAKE_PROFIT_MARKET", "TAKE_PROFIT":
+					currentTakeProfitPrice = order.StopPrice
+					hasTakeProfit = true
+				}
+
+				// 如果都找到了，可以提前退出循环
+				if hasStopLoss && hasTakeProfit {
+					break
 				}
 			}
 
 			// 2. 在Go代码中进行精确的阶段判断
 			var managementState string
+			marketData, hasMarketData := ctx.MarketDataMap[pos.Symbol]
 			if !hasStopLoss {
-				managementState = "NO_STOP_LOSS" // 状态：没有止损保护
-			} else {
-				// 核心逻辑：使用价格运动距离来判断阶段
-				// 这里的 "初始止损价" 我们就用当前有效的止损单价格，因为它是AI下一次决策的基准
-				initialRiskDist := math.Abs(pos.EntryPrice - currentStopLossPrice)
-				currentProfitDist := math.Abs(pos.MarkPrice - pos.EntryPrice)
+				managementState = "NO_STOP_LOSS"
+			} else if hasMarketData && marketData.LongerTermContext != nil && marketData.LongerTermContext.ATR14 > 0 {
+				profitDist := math.Abs(pos.MarkPrice - pos.EntryPrice)
+				atrThreshold := 1.5 * marketData.LongerTermContext.ATR14
 
-				if currentProfitDist < initialRiskDist {
-					managementState = "STAGE_1_INITIAL_RISK" // 状态：处于初始风险阶段
+				if profitDist < atrThreshold {
+					managementState = "STAGE_1_INITIAL_RISK"
 				} else {
-					// 已进入阶段二或更高，需要进一步判断
-					isBreakevenOrInProfit := false
-					if pos.Side == "long" && currentStopLossPrice >= pos.EntryPrice {
-						isBreakevenOrInProfit = true
-					} else if pos.Side == "short" && currentStopLossPrice <= pos.EntryPrice {
-						isBreakevenOrInProfit = true
-					}
-
+					isBreakevenOrInProfit := (pos.Side == "long" && currentStopLossPrice >= pos.EntryPrice) ||
+						(pos.Side == "short" && currentStopLossPrice <= pos.EntryPrice)
 					if isBreakevenOrInProfit {
-						// 如果止损已经在保本或盈利位置，说明已经完成了风险移除，进入追踪阶段
-						managementState = "STAGE_3_TRAILING" // 状态：处于追踪止损阶段
+						managementState = "STAGE_3_TRAILING"
 					} else {
-						// 盈利距离已超过风险距离，但止损仍在亏损区，明确指示AI需要移除风险
-						managementState = "STAGE_2_RISK_REMOVAL" // 状态：需要移除风险
+						managementState = "STAGE_2_RISK_REMOVAL"
 					}
 				}
+			} else {
+				managementState = "CALC_PENDING" // 数据不足
 			}
-			// --- 核心逻辑注入结束 ---
 
-			// 3. 计算持仓时长 (您的原始代码，完整保留)
+			// 3. 计算持仓时长
 			holdingDuration := ""
 			if pos.UpdateTime > 0 {
 				durationMs := time.Now().UnixMilli() - pos.UpdateTime
-				durationMin := durationMs / (1000 * 60) // 转换为分钟
+				durationMin := durationMs / (1000 * 60)
 				if durationMin < 60 {
-					holdingDuration = fmt.Sprintf(" | 持仓时长%d分钟", durationMin)
+					holdingDuration = fmt.Sprintf(" | 时长:%dm", durationMin)
 				} else {
 					durationHour := durationMin / 60
 					durationMinRemainder := durationMin % 60
-					holdingDuration = fmt.Sprintf(" | 持仓时长%d小时%d分钟", durationHour, durationMinRemainder)
+					holdingDuration = fmt.Sprintf(" | 时长:%dh%dm", durationHour, durationMinRemainder)
 				}
 			}
 
-			// 4. 计算仓位价值 (您的原始代码，完整保留)
+			// 4. 计算仓位价值
 			positionValue := math.Abs(pos.Quantity) * pos.MarkPrice
 
 			// 5. 将所有信息，包括新注入的状态，格式化为最终字符串
-			//   注意：格式化字符串已更新，包含了 Management_State
-			sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价:%.4f 当前价:%.4f | 盈亏:%+.2f%% (%+.2f USDT) | 价值:%.2f USDT | 状态: %s%s\n",
-				i+1,
-				pos.Symbol,
-				strings.ToUpper(pos.Side),
-				pos.EntryPrice,
-				pos.MarkPrice,
-				pos.UnrealizedPnLPct,
-				pos.UnrealizedPnL,
-				positionValue,
-				managementState, // <-- 在这里注入我们计算好的精确状态！
+			sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价:%.4f 当前价:%.4f | 盈亏:%+.2f%% (%+.2f USDT) | 价值:%.2f USDT | 状态:%s%s\n",
+				i+1, pos.Symbol, strings.ToUpper(pos.Side),
+				pos.EntryPrice, pos.MarkPrice, pos.UnrealizedPnLPct, pos.UnrealizedPnL, positionValue,
+				managementState,
 				holdingDuration))
 
-			// 6. 显示当前有效的挂单信息 (您的原始逻辑，精简显示)
-			//   我们已经用 hasStopLoss 变量优化了这里的逻辑
+			// 6. 显示当前有效的挂单信息 (完整版)
 			if hasStopLoss {
 				sb.WriteString(fmt.Sprintf("   🛡️ 当前止损: %.4f\n", currentStopLossPrice))
-			} else if managementState != "NO_STOP_LOSS" {
-				// 如果状态不是NO_STOP_LOSS但又没找到单，说明可能存在延迟或问题
-				sb.WriteString("   🟡 **警告：正在查找止损单...**\n")
 			} else {
 				sb.WriteString("   ⚠️ **该持仓没有止损保护！**\n")
 			}
 
-			// 显示止盈单
-			hasTakeProfit := false
-			for _, order := range ctx.OpenOrders {
-				isMatchingOrder := order.Symbol == pos.Symbol &&
-					((pos.Side == "long" && order.Side == "SELL") || (pos.Side == "short" && order.Side == "BUY"))
-				if isMatchingOrder && (order.Type == "TAKE_PROFIT_MARKET" || order.Type == "TAKE_PROFIT") {
-					sb.WriteString(fmt.Sprintf("   🎯 当前止盈: %.4f\n", order.StopPrice))
-					hasTakeProfit = true
-					break
-				}
-			}
-			// (可选) 如果需要，可以为没有止盈单的情况添加提示
-			if !hasTakeProfit {
-				sb.WriteString("   ⚠️ **该持仓没有止盈单！**\n")
+			// --- 恢复并优化止盈单显示 ---
+			if hasTakeProfit {
+				sb.WriteString(fmt.Sprintf("   🎯 当前止盈: %.4f\n", currentTakeProfitPrice))
+			} else {
+				// 只有在趋势市，没有止盈单才是正常的（让利润奔跑）
+				// 在震荡市，没有止盈单需要警告
+				// (为简化，我们先统一提示)
+				sb.WriteString("   ℹ️ (提示: 未设置固定止盈目标)\n")
 			}
 
 			sb.WriteString("\n")
 
-			// 7. 输出对应币种的详细市场数据 (您的原始代码，完整保留)
-			if marketData, ok := ctx.MarketDataMap[pos.Symbol]; ok {
+			// 7. 输出详细市场数据
+			if marketData != nil {
 				sb.WriteString(market.Format(marketData))
 				sb.WriteString("\n")
 			}
