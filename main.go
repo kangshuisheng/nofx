@@ -418,12 +418,12 @@ func main() {
 	dataSourceManager := market.NewDataSourceManager(60 * time.Second)
 
 	// 添加 Binance 数据源
-	binanceSource := market.NewBinanceDataSource()
-	dataSourceManager.AddSource(binanceSource)
+	// binanceSource := market.NewBinanceDataSource()
+	// dataSourceManager.AddSource(binanceSource)
 
 	// 添加 Hyperliquid 数据源（主网）
-	hyperliquidSource := market.NewHyperliquidDataSource(false)
-	dataSourceManager.AddSource(hyperliquidSource)
+	// hyperliquidSource := market.NewHyperliquidDataSource(false)
+	// dataSourceManager.AddSource(hyperliquidSource)
 
 	// 启动健康检查
 	dataSourceManager.Start()
