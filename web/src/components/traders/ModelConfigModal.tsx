@@ -35,9 +35,10 @@ export function ModelConfigModal({
   const [modelName, setModelName] = useState('')
 
   // 获取当前编辑的模型信息 - 编辑时从已配置的模型中查找,新建时从所有支持的模型中查找
+  // 注意：後端返回的是 model_id (如 "deepseek")，而不是數字 id
   const selectedModel = editingModelId
-    ? configuredModels?.find((m) => m.id === selectedModelId)
-    : allModels?.find((m) => m.id === selectedModelId)
+    ? configuredModels?.find((m: any) => m.model_id === selectedModelId)
+    : allModels?.find((m: any) => m.model_id === selectedModelId)
 
   // 如果是编辑现有模型,初始化API Key、Base URL和Model Name
   useEffect(() => {
