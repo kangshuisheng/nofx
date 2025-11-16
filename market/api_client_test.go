@@ -251,13 +251,13 @@ func handleMockOpenInterest(w http.ResponseWriter, r *http.Request, mu *sync.Mut
 			"symbol":               symbol,
 			"sumOpenInterest":      "12345.67",
 			"sumOpenInterestValue": "890123.45",
-			"timestamp":            1609459200000,
+			"timestamp":            int64(1609459200000),
 		},
 		{
 			"symbol":               symbol,
 			"sumOpenInterest":      "12500.00",
 			"sumOpenInterestValue": "900000.00",
-			"timestamp":            1609459260000,
+			"timestamp":            int64(1609459260000),
 		},
 	}
 
