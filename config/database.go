@@ -1492,9 +1492,10 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 		// 沒有找到，創建新的（舊結構）
 		provider := id
 		name := provider + " AI"
-		if provider == "deepseek" {
+		switch provider {
+		case "deepseek":
 			name = "DeepSeek AI"
-		} else if provider == "qwen" {
+		case "qwen":
 			name = "Qwen AI"
 		}
 
