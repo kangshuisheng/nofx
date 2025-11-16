@@ -235,6 +235,41 @@ func (d *Database) createTables() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 
+		// 交易历史记录表（P0修复：Docker 重启后恢复交易状态）
+		`CREATE TABLE IF NOT EXISTS trade_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			trader_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			symbol TEXT NOT NULL,
+			side TEXT NOT NULL,           -- 'LONG' or 'SHORT'
+			action TEXT NOT NULL,          -- 'OPEN' or 'CLOSE'
+			quantity REAL NOT NULL,
+			price REAL NOT NULL,
+			timestamp INTEGER NOT NULL,    -- Unix timestamp (milliseconds)
+			reason TEXT DEFAULT '',        -- AI 决策原因
+			stop_loss REAL DEFAULT 0,      -- 止损价格
+			take_profit REAL DEFAULT 0,    -- 止盈价格
+			pnl REAL DEFAULT 0,            -- 盈亏（仅 CLOSE 时有值）
+			pnl_percent REAL DEFAULT 0,    -- 盈亏百分比（仅 CLOSE 时有值）
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
+		// 创建索引以加速查询
+		`CREATE INDEX IF NOT EXISTS idx_trade_history_trader_id ON trade_history(trader_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_trade_history_symbol ON trade_history(symbol)`,
+		`CREATE INDEX IF NOT EXISTS idx_trade_history_timestamp ON trade_history(timestamp)`,
+
+		// 交易员状态表（P0修复：持久化内存状态）
+		`CREATE TABLE IF NOT EXISTS trader_state (
+			trader_id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			call_count INTEGER DEFAULT 0,           -- AI 调用次数
+			peak_equity REAL DEFAULT 0,             -- 峰值净值
+			last_reset_time INTEGER DEFAULT 0,      -- 上次重置时间（Unix timestamp）
+			state_json TEXT DEFAULT '{}',           -- 其他状态的 JSON 序列化
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
 		// 触发器：自动更新 updated_at
 		`CREATE TRIGGER IF NOT EXISTS update_users_updated_at
 			AFTER UPDATE ON users
@@ -252,6 +287,12 @@ func (d *Database) createTables() error {
 			AFTER UPDATE ON exchanges
 			BEGIN
 				UPDATE exchanges SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+			END`,
+
+		`CREATE TRIGGER IF NOT EXISTS update_trader_state_updated_at
+			AFTER UPDATE ON trader_state
+			BEGIN
+				UPDATE trader_state SET updated_at = CURRENT_TIMESTAMP WHERE trader_id = NEW.trader_id;
 			END`,
 
 		`CREATE TRIGGER IF NOT EXISTS update_traders_updated_at
@@ -2413,4 +2454,112 @@ func (d *Database) checkDataIntegrity() error {
 
 	// 不中斷啟動，只記錄警告
 	return nil
+}
+
+// ============================================================
+// P0修復：交易狀態持久化函數（防止 Docker 重啟後丟失數據）
+// ============================================================
+
+// RecordTrade 記錄交易事件到數據庫
+func (db *Database) RecordTrade(traderID, userID, symbol, side, action string, quantity, price float64, reason string, stopLoss, takeProfit, pnl, pnlPercent float64) error {
+	timestamp := time.Now().UnixMilli()
+	
+	query := `INSERT INTO trade_history 
+		(trader_id, user_id, symbol, side, action, quantity, price, timestamp, reason, stop_loss, take_profit, pnl, pnl_percent) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	
+	_, err := db.db.Exec(query, traderID, userID, symbol, side, action, quantity, price, timestamp, reason, stopLoss, takeProfit, pnl, pnlPercent)
+	if err != nil {
+		log.Printf("❌ 記錄交易事件失敗: %v", err)
+		return err
+	}
+	
+	log.Printf("✅ 記錄交易事件: %s %s %s %.4f @ %.2f", traderID, action, symbol, quantity, price)
+	return nil
+}
+
+// SaveTraderState 保存交易員狀態到數據庫
+func (db *Database) SaveTraderState(traderID, userID string, callCount int, peakEquity float64, lastResetTime int64, stateJSON string) error {
+	query := `INSERT OR REPLACE INTO trader_state 
+		(trader_id, user_id, call_count, peak_equity, last_reset_time, state_json) 
+		VALUES (?, ?, ?, ?, ?, ?)`
+	
+	_, err := db.db.Exec(query, traderID, userID, callCount, peakEquity, lastResetTime, stateJSON)
+	if err != nil {
+		log.Printf("❌ 保存交易員狀態失敗: %v", err)
+		return err
+	}
+	
+	return nil
+}
+
+// LoadTraderState 從數據庫恢復交易員狀態
+func (db *Database) LoadTraderState(traderID string) (callCount int, peakEquity float64, lastResetTime int64, stateJSON string, err error) {
+	query := `SELECT call_count, peak_equity, last_reset_time, state_json FROM trader_state WHERE trader_id = ?`
+	
+	err = db.db.QueryRow(query, traderID).Scan(&callCount, &peakEquity, &lastResetTime, &stateJSON)
+	if err == sql.ErrNoRows {
+		// 沒有記錄，返回默認值
+		return 0, 0, 0, "{}", nil
+	}
+	if err != nil {
+		log.Printf("❌ 加載交易員狀態失敗: %v", err)
+		return 0, 0, 0, "{}", err
+	}
+	
+	log.Printf("✅ 恢復交易員狀態: %s (調用次數: %d, 峰值淨值: %.2f)", traderID, callCount, peakEquity)
+	return callCount, peakEquity, lastResetTime, stateJSON, nil
+}
+
+// GetOpenPositionsFromHistory 從交易歷史中獲取當前未平倉的持倉
+// 通過分析 OPEN 和 CLOSE 事件來重建持倉狀態
+func (db *Database) GetOpenPositionsFromHistory(traderID string) (map[string]map[string]interface{}, error) {
+	query := `
+		SELECT symbol, side, 
+			   SUM(CASE WHEN action = 'OPEN' THEN quantity ELSE -quantity END) as net_quantity,
+			   AVG(CASE WHEN action = 'OPEN' THEN price ELSE NULL END) as avg_entry_price,
+			   MAX(CASE WHEN action = 'OPEN' THEN stop_loss ELSE 0 END) as stop_loss,
+			   MAX(CASE WHEN action = 'OPEN' THEN take_profit ELSE 0 END) as take_profit,
+			   MIN(CASE WHEN action = 'OPEN' THEN timestamp ELSE NULL END) as first_seen_time
+		FROM trade_history 
+		WHERE trader_id = ? 
+		GROUP BY symbol, side
+		HAVING net_quantity > 0.0001
+	`
+	
+	rows, err := db.db.Query(query, traderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	positions := make(map[string]map[string]interface{})
+	
+	for rows.Next() {
+		var symbol, side string
+		var netQuantity, avgPrice, stopLoss, takeProfit float64
+		var firstSeenTime int64
+		
+		err = rows.Scan(&symbol, &side, &netQuantity, &avgPrice, &stopLoss, &takeProfit, &firstSeenTime)
+		if err != nil {
+			continue
+		}
+		
+		key := symbol + "_" + side
+		positions[key] = map[string]interface{}{
+			"symbol":          symbol,
+			"side":            side,
+			"quantity":        netQuantity,
+			"entry_price":     avgPrice,
+			"stop_loss":       stopLoss,
+			"take_profit":     takeProfit,
+			"first_seen_time": firstSeenTime,
+		}
+	}
+	
+	if len(positions) > 0 {
+		log.Printf("✅ 從數據庫恢復 %d 個持倉記錄", len(positions))
+	}
+	
+	return positions, nil
 }

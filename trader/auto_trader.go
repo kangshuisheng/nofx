@@ -241,7 +241,30 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		systemPromptTemplate = "adaptive"
 	}
 
-	return &AutoTrader{
+	// 🔧 P0修復：從數據庫恢復狀態（Docker 重啟後）
+	restoredCallCount := 0
+	restoredPeakEquity := config.InitialBalance
+	restoredLastResetTime := time.Now()
+
+	if db, ok := database.(interface {
+		LoadTraderState(string) (int, float64, int64, string, error)
+		GetOpenPositionsFromHistory(string) (map[string]map[string]interface{}, error)
+	}); ok {
+		// 恢復狀態
+		callCount, peakEquity, lastResetTimeUnix, _, err := db.LoadTraderState(config.ID)
+		if err == nil {
+			restoredCallCount = callCount
+			if peakEquity > 0 {
+				restoredPeakEquity = peakEquity
+			}
+			if lastResetTimeUnix > 0 {
+				restoredLastResetTime = time.UnixMilli(lastResetTimeUnix)
+			}
+			log.Printf("✅ [%s] 從數據庫恢復狀態: 調用次數=%d, 峰值淨值=%.2f", config.Name, callCount, peakEquity)
+		}
+	}
+
+	at := &AutoTrader{
 		id:                    config.ID,
 		name:                  config.Name,
 		aiModel:               config.AIModel,
@@ -257,12 +280,12 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		tradingCoins:          config.TradingCoins,
 		useCoinPool:           config.UseCoinPool,
 		useOITop:              config.UseOITop,
-		lastResetTime:         time.Now(),
+		lastResetTime:         restoredLastResetTime,
 		dailyPnLBase:          config.InitialBalance,
 		needsDailyBaseline:    true,
-		peakEquity:            config.InitialBalance,
+		peakEquity:            restoredPeakEquity,
 		startTime:             time.Now(),
-		callCount:             0,
+		callCount:             restoredCallCount,
 		isRunning:             false,
 		positionFirstSeenTime: make(map[string]int64),
 		lastPositions:         make(map[string]decision.PositionInfo),
@@ -277,7 +300,30 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		userID:                userID,
 		coinPoolAPIURL:        strings.TrimSpace(config.CoinPoolAPIURL),
 		oiTopAPIURL:           strings.TrimSpace(config.OITopAPIURL),
-	}, nil
+	}
+
+	// 🔧 P0修復：恢復持倉記錄（從交易歷史重建）
+	if db, ok := database.(interface {
+		GetOpenPositionsFromHistory(string) (map[string]map[string]interface{}, error)
+	}); ok {
+		positions, err := db.GetOpenPositionsFromHistory(config.ID)
+		if err == nil && len(positions) > 0 {
+			for key, pos := range positions {
+				if firstSeenTime, ok := pos["first_seen_time"].(int64); ok {
+					at.positionFirstSeenTime[key] = firstSeenTime
+				}
+				if stopLoss, ok := pos["stop_loss"].(float64); ok && stopLoss > 0 {
+					at.positionStopLoss[key] = stopLoss
+				}
+				if takeProfit, ok := pos["take_profit"].(float64); ok && takeProfit > 0 {
+					at.positionTakeProfit[key] = takeProfit
+				}
+			}
+			log.Printf("✅ [%s] 從數據庫恢復 %d 個持倉記錄", config.Name, len(positions))
+		}
+	}
+
+	return at, nil
 }
 
 // Run 运行自动交易主循环
@@ -560,6 +606,23 @@ func (at *AutoTrader) runCycle() error {
 	// 10. 保存决策记录
 	if err := at.decisionLogger.LogDecision(record); err != nil {
 		log.Printf("⚠ 保存决策记录失败: %v", err)
+	}
+
+	// 🔧 P0修復：每個週期結束後保存狀態到數據庫
+	if db, ok := at.database.(interface {
+		SaveTraderState(string, string, int, float64, int64, string) error
+	}); ok {
+		stateJSON := "{}" // 預留給未來擴展
+		if err := db.SaveTraderState(
+			at.config.ID,
+			at.userID,
+			at.callCount,
+			at.peakEquity,
+			at.lastResetTime.UnixMilli(),
+			stateJSON,
+		); err != nil {
+			log.Printf("⚠️ 保存狀態到數據庫失敗: %v", err)
+		}
 	}
 
 	return nil
@@ -933,6 +996,32 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 
 	log.Printf("  ✓ 开仓成功，订单ID: %v, 数量: %.4f", order["orderId"], quantity)
 
+	// 🔧 P0修復：持久化開倉記錄到數據庫
+	if db, ok := at.database.(interface {
+		RecordTrade(string, string, string, string, string, float64, float64, string, float64, float64, float64, float64) error
+	}); ok {
+		reason := decision.Reasoning
+		if len(reason) > 500 {
+			reason = reason[:500] // 限制長度
+		}
+		if err := db.RecordTrade(
+			at.config.ID,
+			at.userID,
+			decision.Symbol,
+			"LONG",
+			"OPEN",
+			quantity,
+			marketData.CurrentPrice,
+			reason,
+			decision.StopLoss,
+			decision.TakeProfit,
+			0, // 開倉時 PnL 為 0
+			0, // 開倉時 PnL% 為 0
+		); err != nil {
+			log.Printf("  ⚠️ 記錄開倉到數據庫失敗: %v", err)
+		}
+	}
+
 	// 记录开仓时间
 	posKey := decision.Symbol + "_long"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
@@ -1057,6 +1146,32 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 
 	log.Printf("  ✓ 开仓成功，订单ID: %v, 数量: %.4f", order["orderId"], quantity)
 
+	// 🔧 P0修復：持久化開倉記錄到數據庫
+	if db, ok := at.database.(interface {
+		RecordTrade(string, string, string, string, string, float64, float64, string, float64, float64, float64, float64) error
+	}); ok {
+		reason := decision.Reasoning
+		if len(reason) > 500 {
+			reason = reason[:500] // 限制長度
+		}
+		if err := db.RecordTrade(
+			at.config.ID,
+			at.userID,
+			decision.Symbol,
+			"SHORT",
+			"OPEN",
+			quantity,
+			marketData.CurrentPrice,
+			reason,
+			decision.StopLoss,
+			decision.TakeProfit,
+			0, // 開倉時 PnL 為 0
+			0, // 開倉時 PnL% 為 0
+		); err != nil {
+			log.Printf("  ⚠️ 記錄開倉到數據庫失敗: %v", err)
+		}
+	}
+
 	// 记录开仓时间
 	posKey := decision.Symbol + "_short"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
@@ -1087,6 +1202,15 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	}
 	actionRecord.Price = marketData.CurrentPrice
 
+	// 🔧 P0修復：平倉前獲取持倉信息以計算 PnL
+	posKey := decision.Symbol + "_long"
+	var entryPrice float64 = 0
+	var quantity float64 = 0
+	if lastPos, exists := at.lastPositions[posKey]; exists {
+		entryPrice = lastPos.EntryPrice
+		quantity = lastPos.Quantity
+	}
+
 	// 平仓
 	order, err := at.trader.CloseLong(decision.Symbol, 0) // 0 = 全部平仓
 	if err != nil {
@@ -1099,6 +1223,44 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	}
 
 	log.Printf("  ✓ 平仓成功")
+
+	// 🔧 P0修復：持久化平倉記錄到數據庫（含 PnL）
+	if db, ok := at.database.(interface {
+		RecordTrade(string, string, string, string, string, float64, float64, string, float64, float64, float64, float64) error
+	}); ok {
+		// 計算 PnL
+		pnl := 0.0
+		pnlPercent := 0.0
+		if entryPrice > 0 && quantity > 0 {
+			pnl = (marketData.CurrentPrice - entryPrice) * quantity
+			pnlPercent = ((marketData.CurrentPrice - entryPrice) / entryPrice) * 100
+		}
+
+		reason := decision.Reasoning
+		if len(reason) > 500 {
+			reason = reason[:500]
+		}
+
+		if err := db.RecordTrade(
+			at.config.ID,
+			at.userID,
+			decision.Symbol,
+			"LONG",
+			"CLOSE",
+			quantity,
+			marketData.CurrentPrice,
+			reason,
+			0, // 平倉時止損已失效
+			0, // 平倉時止盈已失效
+			pnl,
+			pnlPercent,
+		); err != nil {
+			log.Printf("  ⚠️ 記錄平倉到數據庫失敗: %v", err)
+		} else if pnl != 0 {
+			log.Printf("  💰 PnL: %.2f USDT (%.2f%%)", pnl, pnlPercent)
+		}
+	}
+
 	return nil
 }
 
@@ -1113,6 +1275,15 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	}
 	actionRecord.Price = marketData.CurrentPrice
 
+	// 🔧 P0修復：平倉前獲取持倉信息以計算 PnL
+	posKey := decision.Symbol + "_short"
+	var entryPrice float64 = 0
+	var quantity float64 = 0
+	if lastPos, exists := at.lastPositions[posKey]; exists {
+		entryPrice = lastPos.EntryPrice
+		quantity = lastPos.Quantity
+	}
+
 	// 平仓
 	order, err := at.trader.CloseShort(decision.Symbol, 0) // 0 = 全部平仓
 	if err != nil {
@@ -1125,6 +1296,44 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	}
 
 	log.Printf("  ✓ 平仓成功")
+
+	// 🔧 P0修復：持久化平倉記錄到數據庫（含 PnL）
+	if db, ok := at.database.(interface {
+		RecordTrade(string, string, string, string, string, float64, float64, string, float64, float64, float64, float64) error
+	}); ok {
+		// 計算 PnL（空單：入場價 - 平倉價）
+		pnl := 0.0
+		pnlPercent := 0.0
+		if entryPrice > 0 && quantity > 0 {
+			pnl = (entryPrice - marketData.CurrentPrice) * quantity
+			pnlPercent = ((entryPrice - marketData.CurrentPrice) / entryPrice) * 100
+		}
+
+		reason := decision.Reasoning
+		if len(reason) > 500 {
+			reason = reason[:500]
+		}
+
+		if err := db.RecordTrade(
+			at.config.ID,
+			at.userID,
+			decision.Symbol,
+			"SHORT",
+			"CLOSE",
+			quantity,
+			marketData.CurrentPrice,
+			reason,
+			0, // 平倉時止損已失效
+			0, // 平倉時止盈已失效
+			pnl,
+			pnlPercent,
+		); err != nil {
+			log.Printf("  ⚠️ 記錄平倉到數據庫失敗: %v", err)
+		} else if pnl != 0 {
+			log.Printf("  💰 PnL: %.2f USDT (%.2f%%)", pnl, pnlPercent)
+		}
+	}
+
 	return nil
 }
 
