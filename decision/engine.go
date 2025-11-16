@@ -12,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -104,6 +105,7 @@ type Context struct {
 	AltcoinLeverage int                     `json:"-"` // 山寨币杠杆倍数（从配置读取）
 	TakerFeeRate    float64                 `json:"-"` // Taker fee rate (from config, default 0.0004)
 	MakerFeeRate    float64                 `json:"-"` // Maker fee rate (from config, default 0.0002)
+	Timeframes      []string                `json:"-"` // K线时间线配置（从trader配置读取）
 
 	// ⚡ 新增：全局市場情緒數據（VIX 恐慌指數 + 美股狀態）
 	GlobalSentiment *market.MarketSentiment `json:"-"` // 全局風險情緒（免費來源：Yahoo Finance + Alpha Vantage）
@@ -150,9 +152,12 @@ func GetFullDecision(ctx *Context, mcpClient mcp.AIClient) (*FullDecision, error
 // GetFullDecisionWithCustomPrompt 获取AI的完整交易决策（支持自定义prompt和模板选择）
 func GetFullDecisionWithCustomPrompt(ctx *Context, mcpClient mcp.AIClient, customPrompt string, overrideBase bool, templateName string) (*FullDecision, error) {
 	// 1. 为所有币种获取市场数据
+	fetchStart := time.Now()
 	if err := fetchMarketDataForContext(ctx); err != nil {
 		return nil, fmt.Errorf("获取市场数据失败: %w", err)
 	}
+	fetchDuration := time.Since(fetchStart).Seconds()
+	log.Printf("⏱️  市場數據獲取耗時: %.2fs（%d 個幣種）", fetchDuration, len(ctx.MarketDataMap))
 
 	// 1.5. ⚡ 獲取全局市場情緒（VIX + 美股，免費來源）
 	alphaVantageKey := os.Getenv("ALPHA_VANTAGE_API_KEY") // 可選，用於美股數據（免費 500 calls/day）
@@ -219,39 +224,83 @@ func fetchMarketDataForContext(ctx *Context) error {
 		symbolSet[coin.Symbol] = true
 	}
 
-	// 并发获取市场数据
+	// ✅ 优化：并发获取市场数据（提升性能 5-10x）
 	// 持仓币种集合（用于判断是否跳过OI检查）
 	positionSymbols := make(map[string]bool)
 	for _, pos := range ctx.Positions {
 		positionSymbols[pos.Symbol] = true
 	}
 
+	// 并发获取市场数据
+	type marketDataResult struct {
+		symbol string
+		data   *market.Data
+		err    error
+	}
+
+	resultChan := make(chan marketDataResult, len(symbolSet))
+	var wg sync.WaitGroup
+
 	for symbol := range symbolSet {
-		data, err := market.Get(symbol)
-		if err != nil {
-			// 单个币种失败不影响整体，只记录错误
+		wg.Add(1)
+		go func(sym string) {
+			defer wg.Done()
+			data, err := market.Get(sym, ctx.Timeframes)
+			resultChan <- marketDataResult{symbol: sym, data: data, err: err}
+		}(symbol)
+	}
+
+	// 等待所有 goroutine 完成
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 收集结果并应用过滤
+	const minOIThresholdMillions = 15.0 // 可調整：15M(保守) / 10M(平衡) / 8M(寬鬆) / 5M(激進)
+
+	// ✅ 錯誤統計
+	failedSymbols := []string{}
+	filteredSymbols := []string{}
+
+	for result := range resultChan {
+		if result.err != nil {
+			// 收集失敗的幣種（稍後統一報告）
+			failedSymbols = append(failedSymbols, result.symbol)
 			continue
 		}
+
+		data := result.data
+		symbol := result.symbol
 
 		// ⚠️ 流动性过滤：持仓价值低于阈值的币种不做（多空都不做）
 		// 持仓价值 = 持仓量 × 当前价格
 		// 但现有持仓必须保留（需要决策是否平仓）
-		// 💡 OI 門檻配置：用戶可根據風險偏好調整
-		const minOIThresholdMillions = 15.0 // 可調整：15M(保守) / 10M(平衡) / 8M(寬鬆) / 5M(激進)
-
 		isExistingPosition := positionSymbols[symbol]
 		if !isExistingPosition && data.OpenInterest != nil && data.CurrentPrice > 0 {
 			// 计算持仓价值（USD）= 持仓量 × 当前价格
 			oiValue := data.OpenInterest.Latest * data.CurrentPrice
 			oiValueInMillions := oiValue / 1_000_000 // 转换为百万美元单位
 			if oiValueInMillions < minOIThresholdMillions {
-				log.Printf("⚠️  %s 持仓价值过低(%.2fM USD < %.1fM)，跳过此币种 [持仓量:%.0f × 价格:%.4f]",
-					symbol, oiValueInMillions, minOIThresholdMillions, data.OpenInterest.Latest, data.CurrentPrice)
+				filteredSymbols = append(filteredSymbols, symbol)
 				continue
 			}
 		}
 
 		ctx.MarketDataMap[symbol] = data
+	}
+
+	// ✅ 統一報告結果
+	totalSymbols := len(symbolSet)
+	successCount := len(ctx.MarketDataMap)
+	log.Printf("📊 市場數據獲取完成：成功 %d/%d", successCount, totalSymbols)
+
+	if len(failedSymbols) > 0 {
+		log.Printf("⚠️  數據獲取失敗 (%d): %v", len(failedSymbols), failedSymbols)
+	}
+
+	if len(filteredSymbols) > 0 {
+		log.Printf("🔍 流動性過濾 (%d): %v", len(filteredSymbols), filteredSymbols)
 	}
 
 	// 加载OI Top数据（不影响主流程）

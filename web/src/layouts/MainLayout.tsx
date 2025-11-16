@@ -16,7 +16,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
 
   // 根据路径自动判断当前页面
-  const getCurrentPage = (): 'competition' | 'traders' | 'trader' | 'faq' | 'prompts' => {
+  const getCurrentPage = ():
+    | 'competition'
+    | 'traders'
+    | 'trader'
+    | 'faq'
+    | 'prompts' => {
     if (location.pathname === '/faq') return 'faq'
     if (location.pathname === '/traders') return 'traders'
     if (location.pathname === '/dashboard') return 'trader'

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -77,6 +78,9 @@ func (client *Client) CallWithMessages(systemPrompt, userPrompt string) (string,
 	if client.APIKey == "" {
 		return "", fmt.Errorf("AI API密钥未设置，请先调用 SetAPIKey")
 	}
+
+	// Token 限制檢查（第一次調用時檢查）
+	checkTokenLimits(systemPrompt, userPrompt, client.Model)
 
 	// 重试配置
 	maxRetries := 3
@@ -239,4 +243,165 @@ func isRetryableError(err error) bool {
 		}
 	}
 	return false
+}
+
+// ModelLimits AI模型的token限制
+type ModelLimits struct {
+	SystemPromptLimit int // System prompt 最大 tokens
+	TotalLimit        int // System + User prompt 總和限制
+	Model             string
+}
+
+// getModelLimits 獲取指定模型的token限制
+func getModelLimits(modelName string) ModelLimits {
+	modelLower := strings.ToLower(modelName)
+
+	// Qwen 系列
+	if strings.Contains(modelLower, "qwen") {
+		if strings.Contains(modelLower, "max") {
+			// Qwen3-Max: 個人API Key限制較嚴格
+			return ModelLimits{
+				SystemPromptLimit: 8192,  // 個人版限制
+				TotalLimit:        32768, // 總限制
+				Model:             "Qwen3-Max (個人版)",
+			}
+		}
+		return ModelLimits{
+			SystemPromptLimit: 16000,
+			TotalLimit:        32000,
+			Model:             "Qwen",
+		}
+	}
+
+	// DeepSeek 系列
+	if strings.Contains(modelLower, "deepseek") {
+		// DeepSeek-V3/V2: 128K context window
+		if strings.Contains(modelLower, "v3") || strings.Contains(modelLower, "v2") {
+			return ModelLimits{
+				SystemPromptLimit: 100000, // 留28K buffer給輸出
+				TotalLimit:        128000, // 128K context
+				Model:             "DeepSeek-V3/V2",
+			}
+		}
+		// deepseek-chat（舊版本）: 32K context
+		return ModelLimits{
+			SystemPromptLimit: 24000, // 留8K buffer給輸出
+			TotalLimit:        32000, // 32K context
+			Model:             "DeepSeek-Chat",
+		}
+	}
+
+	// GPT 系列
+	if strings.Contains(modelLower, "gpt-4") {
+		if strings.Contains(modelLower, "turbo") || strings.Contains(modelLower, "128k") {
+			return ModelLimits{
+				SystemPromptLimit: 100000,
+				TotalLimit:        128000,
+				Model:             "GPT-4-Turbo",
+			}
+		}
+		return ModelLimits{
+			SystemPromptLimit: 8192,
+			TotalLimit:        8192,
+			Model:             "GPT-4",
+		}
+	}
+
+	// 默認（保守估計）
+	return ModelLimits{
+		SystemPromptLimit: 8000,
+		TotalLimit:        16000,
+		Model:             "Unknown (保守估計)",
+	}
+}
+
+// estimateTokens 粗略估算文本的token數量
+// 估算規則：
+//   - 中文：約1.5-2字符 = 1 token
+//   - 英文：約4字符 = 1 token
+//   - 混合文本：用2.5字符 = 1 token（保守估計）
+func estimateTokens(text string) int {
+	if text == "" {
+		return 0
+	}
+
+	// 計算字符數（Unicode字符）
+	chars := utf8.RuneCountInString(text)
+
+	// 粗略估算：2.5 字符 ≈ 1 token（保守估計）
+	return chars / 2
+}
+
+// checkTokenLimits 檢查並警告token使用情況
+func checkTokenLimits(systemPrompt, userPrompt, modelName string) {
+	systemTokens := estimateTokens(systemPrompt)
+	userTokens := estimateTokens(userPrompt)
+	totalTokens := systemTokens + userTokens
+
+	limits := getModelLimits(modelName)
+
+	// 檢查 System Prompt 限制
+	if systemTokens > limits.SystemPromptLimit {
+		log.Println("")
+		log.Println("╔═══════════════════════════════════════════════════════════════════╗")
+		log.Printf("║  🚨 警告：System Prompt Token 超限！                              ║")
+		log.Println("╟───────────────────────────────────────────────────────────────────╢")
+		log.Printf("║  模型：%-58s║", limits.Model)
+		log.Printf("║  System Prompt：%d tokens（限制：%d tokens）%-15s║",
+			systemTokens, limits.SystemPromptLimit, "")
+		log.Printf("║  超出：%d tokens (%.1f%%)%-41s║",
+			systemTokens-limits.SystemPromptLimit,
+			float64(systemTokens-limits.SystemPromptLimit)/float64(limits.SystemPromptLimit)*100, "")
+		log.Println("║                                                                   ║")
+		log.Println("║  ⚠️  預期影響：                                                   ║")
+		log.Println("║    • Qwen3-Max: 會靜默截斷 User Prompt 尾部                      ║")
+		log.Println("║    • 其他模型: 可能返回 400 錯誤或不完整響應                     ║")
+		log.Println("║    • 關鍵交易數據可能丟失，導致錯誤決策                          ║")
+		log.Println("║                                                                   ║")
+		log.Println("║  🔧 解決方案：                                                    ║")
+		log.Println("║    1. 切換到更小的 Prompt 模板（如 default.txt）                 ║")
+		log.Println("║    2. 使用更大的模型（DeepSeek-V3 或 GPT-4-Turbo）              ║")
+		log.Println("║    3. 聯繫管理員優化 Prompt 內容                                 ║")
+		log.Println("╚═══════════════════════════════════════════════════════════════════╝")
+		log.Println("")
+	}
+
+	// 檢查總 Token 限制
+	if totalTokens > limits.TotalLimit {
+		log.Println("")
+		log.Println("╔═══════════════════════════════════════════════════════════════════╗")
+		log.Printf("║  🔴 嚴重：總 Token 數超限！                                       ║")
+		log.Println("╟───────────────────────────────────────────────────────────────────╢")
+		log.Printf("║  模型：%-58s║", limits.Model)
+		log.Printf("║  System Prompt：%d tokens%-40s║", systemTokens, "")
+		log.Printf("║  User Prompt：  %d tokens%-40s║", userTokens, "")
+		log.Printf("║  總計：%-10d tokens（限制：%d tokens）%-17s║",
+			totalTokens, limits.TotalLimit, "")
+		log.Printf("║  超出：%d tokens (%.1f%%)%-41s║",
+			totalTokens-limits.TotalLimit,
+			float64(totalTokens-limits.TotalLimit)/float64(limits.TotalLimit)*100, "")
+		log.Println("║                                                                   ║")
+		log.Println("║  ⚠️  這會導致：                                                   ║")
+		log.Println("║    • API 靜默截斷數據（Qwen3-Max）                               ║")
+		log.Println("║    • 候選幣種數據不完整                                           ║")
+		log.Println("║    • AI 基於錯誤信息做決策                                        ║")
+		log.Println("║    • 錯過交易機會或錯誤交易                                       ║")
+		log.Println("║                                                                   ║")
+		log.Println("║  🔧 緊急解決方案：                                                ║")
+		log.Println("║    1. 減少候選幣種數量（AI500 或 OI_Top，不要同時開啟）         ║")
+		log.Println("║    2. 切換到 DeepSeek-V3 (64K context window)                    ║")
+		log.Println("║    3. 使用更小的 Prompt 模板                                      ║")
+		log.Println("╚═══════════════════════════════════════════════════════════════════╝")
+		log.Println("")
+	} else if totalTokens > int(float64(limits.TotalLimit)*0.8) {
+		// 接近限制（80%以上）時給予提示
+		log.Printf("⚠️  [Token] 接近限制：System %d + User %d = %d tokens (限制: %d, 使用率: %.1f%%)",
+			systemTokens, userTokens, totalTokens, limits.TotalLimit,
+			float64(totalTokens)/float64(limits.TotalLimit)*100)
+	} else {
+		// 正常情況下也記錄，便於調試
+		log.Printf("✓ [Token] System %d + User %d = %d tokens (限制: %d, 使用率: %.1f%%)",
+			systemTokens, userTokens, totalTokens, limits.TotalLimit,
+			float64(totalTokens)/float64(limits.TotalLimit)*100)
+	}
 }

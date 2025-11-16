@@ -41,6 +41,7 @@ type AutoTraderConfig struct {
 	AsterPrivateKey string // Aster API钱包私钥
 
 	CoinPoolAPIURL string
+	OITopAPIURL    string
 
 	// AI配置
 	UseQwen     bool
@@ -89,6 +90,9 @@ type AutoTraderConfig struct {
 	OrderStrategy       string  // Order strategy: "market_only", "conservative_hybrid", "limit_only"
 	LimitPriceOffset    float64 // Limit order price offset percentage (e.g., -0.03 for -0.03%)
 	LimitTimeoutSeconds int     // Timeout in seconds before converting to market order
+
+	// K线时间线配置
+	Timeframes []string // K线时间线选择，例如: ["1m", "15m", "1h", "4h"]
 }
 
 // AutoTrader 自动交易器
@@ -103,13 +107,18 @@ type AutoTrader struct {
 	decisionLogger        logger.IDecisionLogger // 决策日志记录器
 	initialBalance        float64
 	dailyPnL              float64
+	dailyPnLBase          float64
+	needsDailyBaseline    bool
 	customPrompt          string   // 自定义交易策略prompt
 	overrideBasePrompt    bool     // 是否覆盖基础prompt
 	systemPromptTemplate  string   // 系统提示词模板名称
+	timeframes            []string // K线时间线配置
 	defaultCoins          []string // 默认币种列表（从数据库获取）
 	tradingCoins          []string // 实际交易币种列表
 	useCoinPool           bool     // 是否使用 AI500 Coin Pool 信号源
 	useOITop              bool     // 是否使用 OI Top 增长信号源
+	coinPoolAPIURL        string
+	oiTopAPIURL           string
 	lastResetTime         time.Time
 	stopUntil             time.Time
 	isRunning             bool
@@ -123,6 +132,7 @@ type AutoTrader struct {
 	monitorWg             sync.WaitGroup                   // 用于等待监控goroutine结束
 	peakPnLCache          map[string]float64               // 最高收益缓存 (symbol -> 峰值盈亏百分比)
 	peakPnLCacheMutex     sync.RWMutex                     // 缓存读写锁
+	peakEquity            float64                          // 账户峰值净值，用于回撤计算
 	lastBalanceSyncTime   time.Time                        // 上次余额同步时间
 	database              interface{}                      // 数据库引用（用于自动更新余额）
 	userID                string                           // 用户ID
@@ -170,11 +180,6 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		} else {
 			log.Printf("🤖 [%s] 使用DeepSeek AI", config.Name)
 		}
-	}
-
-	// 初始化币种池API
-	if config.CoinPoolAPIURL != "" {
-		pool.SetCoinPoolAPI(config.CoinPoolAPIURL)
 	}
 
 	// 设置默认交易平台
@@ -247,11 +252,15 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		decisionLogger:        decisionLogger,
 		initialBalance:        config.InitialBalance,
 		systemPromptTemplate:  systemPromptTemplate,
+		timeframes:            config.Timeframes, // K线时间线配置
 		defaultCoins:          config.DefaultCoins,
 		tradingCoins:          config.TradingCoins,
 		useCoinPool:           config.UseCoinPool,
 		useOITop:              config.UseOITop,
 		lastResetTime:         time.Now(),
+		dailyPnLBase:          config.InitialBalance,
+		needsDailyBaseline:    true,
+		peakEquity:            config.InitialBalance,
 		startTime:             time.Now(),
 		callCount:             0,
 		isRunning:             false,
@@ -266,6 +275,8 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		lastBalanceSyncTime:   time.Now(), // 初始化为当前时间
 		database:              database,
 		userID:                userID,
+		coinPoolAPIURL:        strings.TrimSpace(config.CoinPoolAPIURL),
+		oiTopAPIURL:           strings.TrimSpace(config.OITopAPIURL),
 	}, nil
 }
 
@@ -344,12 +355,8 @@ func (at *AutoTrader) runCycle() error {
 		return nil
 	}
 
-	// 2. 重置日盈亏（每天重置）
-	if time.Since(at.lastResetTime) > 24*time.Hour {
-		at.dailyPnL = 0
-		at.lastResetTime = time.Now()
-		log.Println("📅 日盈亏已重置")
-	}
+	// 2. 重置日盈亏基线（每天一次）
+	at.maybeResetDailyMetrics()
 
 	// 4. 收集交易上下文
 	ctx, err := at.buildTradingContext()
@@ -382,6 +389,15 @@ func (at *AutoTrader) runCycle() error {
 			Leverage:         float64(pos.Leverage),
 			LiquidationPrice: pos.LiquidationPrice,
 		})
+	}
+
+	// 更新盈亏指标并执行账户级风控
+	if reason, triggered := at.enforceRiskLimits(ctx.Account.TotalEquity); triggered {
+		record.Success = false
+		record.ErrorMessage = reason
+		at.decisionLogger.LogDecision(record)
+		log.Printf("⛔ 风险控制触发，暂停交易：%s | 恢复时间: %s", reason, at.stopUntil.Format(time.RFC3339))
+		return nil
 	}
 
 	// 检测被动平仓（止损/止盈/强平/手动）
@@ -549,6 +565,66 @@ func (at *AutoTrader) runCycle() error {
 	return nil
 }
 
+// 每日重置盈亏基线
+func (at *AutoTrader) maybeResetDailyMetrics() {
+	now := time.Now()
+	if at.lastResetTime.IsZero() || !sameDay(at.lastResetTime, now) {
+		at.dailyPnL = 0
+		at.dailyPnLBase = 0
+		at.needsDailyBaseline = true
+		at.lastResetTime = now
+		log.Println("📅 日盈亏已重置，等待新的基准净值")
+	}
+}
+
+func (at *AutoTrader) enforceRiskLimits(currentEquity float64) (string, bool) {
+	at.updatePnLMetrics(currentEquity)
+
+	if limit := at.config.MaxDailyLoss; limit > 0 && at.dailyPnLBase > 0 {
+		maxLoss := -at.dailyPnLBase * limit / 100
+		if at.dailyPnL <= maxLoss {
+			reason := fmt.Sprintf("触发当日最大亏损 %.2f%% (盈亏 %.2f / 基准 %.2f USDT)", limit, at.dailyPnL, at.dailyPnLBase)
+			at.activateRiskStop()
+			return reason, true
+		}
+	}
+
+	if dd := at.config.MaxDrawdown; dd > 0 && at.peakEquity > 0 {
+		drawdownPct := (at.peakEquity - currentEquity) / at.peakEquity * 100
+		if drawdownPct >= dd {
+			reason := fmt.Sprintf("触发账户回撤 %.2f%% (峰值 %.2f → 当前 %.2f)", drawdownPct, at.peakEquity, currentEquity)
+			at.activateRiskStop()
+			return reason, true
+		}
+	}
+
+	return "", false
+}
+
+func (at *AutoTrader) updatePnLMetrics(currentEquity float64) {
+	if at.dailyPnLBase == 0 || at.needsDailyBaseline {
+		at.dailyPnLBase = currentEquity
+		at.dailyPnL = 0
+		at.needsDailyBaseline = false
+		log.Printf("📊 日盈亏基准同步：%.2f USDT", currentEquity)
+	} else {
+		at.dailyPnL = currentEquity - at.dailyPnLBase
+	}
+
+	if currentEquity > at.peakEquity {
+		at.peakEquity = currentEquity
+	}
+}
+
+func (at *AutoTrader) activateRiskStop() {
+	pause := at.config.StopTradingTime
+	if pause <= 0 {
+		pause = 60 * time.Minute
+	}
+	at.stopUntil = time.Now().Add(pause)
+	log.Printf("⚠️ 触发风险暂停，暂停时长: %v，恢复时间: %s", pause, at.stopUntil.Format(time.RFC3339))
+}
+
 // buildTradingContext 构建交易上下文
 func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 	// 1. 获取账户信息
@@ -707,6 +783,7 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		AltcoinLeverage: at.config.AltcoinLeverage, // 使用配置的杠杆倍数
 		TakerFeeRate:    at.config.TakerFeeRate,    // Use configured taker fee rate
 		MakerFeeRate:    at.config.MakerFeeRate,    // Use configured maker fee rate
+		Timeframes:      at.timeframes,             // K线时间线配置
 		Account: decision.AccountInfo{
 			TotalEquity:      totalEquity,
 			AvailableBalance: availableBalance,
@@ -766,9 +843,26 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	}
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(decision.Symbol, at.timeframes)
 	if err != nil {
 		return err
+	}
+
+	// 🔍 价格一致性验证（防止单交易所价格异常导致误判）
+	if market.WSMonitorCli != nil && market.WSMonitorCli.GetDSManager() != nil {
+		consistent, prices, err := market.WSMonitorCli.GetDSManager().VerifyPriceConsistency(decision.Symbol, 0.02) // 2% 偏差阈值
+		if err != nil {
+			log.Printf("⚠️  %s 价格验证失败（数据源不足），继续交易: %v", decision.Symbol, err)
+		} else if !consistent {
+			priceDetails := ""
+			for source, price := range prices {
+				priceDetails += fmt.Sprintf("%s: %.2f, ", source, price)
+			}
+			return fmt.Errorf("❌ 价格异常：%s 在多个数据源间偏差过大（>2%%），拒绝开仓以防止误判。价格: %s",
+				decision.Symbol, priceDetails)
+		} else {
+			log.Printf("✅ %s 价格验证通过（多数据源一致性检查）", decision.Symbol)
+		}
 	}
 
 	// 计算数量
@@ -795,6 +889,29 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	if totalRequired > availableBalance {
 		return fmt.Errorf("❌ 保证金不足: 需要 %.2f USDT（保证金 %.2f + 手续费 %.2f），可用 %.2f USDT",
 			totalRequired, requiredMargin, estimatedFee, availableBalance)
+	}
+
+	// ⚡ 严格验证止损/止盈价格（防止开仓后无法设置保护，导致仓位风险）
+	// 修复 Issue: 开仓成功但止损/止盈设置失败，仓位失去保护
+	if decision.StopLoss <= 0 || decision.TakeProfit <= 0 {
+		return fmt.Errorf("❌ 多单开仓失败：止损价 %.2f 和止盈价 %.2f 必须大于 0。"+
+			"建议：AI 必须为每个开仓决策设置合理的止损和止盈价格",
+			decision.StopLoss, decision.TakeProfit)
+	}
+
+	// 多单：止损必须 < 当前价，止盈必须 > 当前价
+	if decision.StopLoss >= marketData.CurrentPrice {
+		priceGapPct := ((decision.StopLoss - marketData.CurrentPrice) / marketData.CurrentPrice) * 100
+		return fmt.Errorf("❌ 多单止损价不合理：止损价 %.2f 必须低于当前价 %.2f (当前高出 %.2f%%)。"+
+			"建议：AI 应设置低于当前价的止损价，例如 %.2f",
+			decision.StopLoss, marketData.CurrentPrice, priceGapPct, marketData.CurrentPrice*0.98)
+	}
+
+	if decision.TakeProfit <= marketData.CurrentPrice {
+		priceGapPct := ((marketData.CurrentPrice - decision.TakeProfit) / marketData.CurrentPrice) * 100
+		return fmt.Errorf("❌ 多单止盈价不合理：止盈价 %.2f 必须高于当前价 %.2f (当前低于 %.2f%%)。"+
+			"建议：AI 应设置高于当前价的止盈价，例如 %.2f",
+			decision.TakeProfit, marketData.CurrentPrice, priceGapPct, marketData.CurrentPrice*1.02)
 	}
 
 	// 设置仓位模式
@@ -850,9 +967,26 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	}
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(decision.Symbol, at.timeframes)
 	if err != nil {
 		return err
+	}
+
+	// 🔍 价格一致性验证（防止单交易所价格异常导致误判）
+	if market.WSMonitorCli != nil && market.WSMonitorCli.GetDSManager() != nil {
+		consistent, prices, err := market.WSMonitorCli.GetDSManager().VerifyPriceConsistency(decision.Symbol, 0.02) // 2% 偏差阈值
+		if err != nil {
+			log.Printf("⚠️  %s 价格验证失败（数据源不足），继续交易: %v", decision.Symbol, err)
+		} else if !consistent {
+			priceDetails := ""
+			for source, price := range prices {
+				priceDetails += fmt.Sprintf("%s: %.2f, ", source, price)
+			}
+			return fmt.Errorf("❌ 价格异常：%s 在多个数据源间偏差过大（>2%%），拒绝开仓以防止误判。价格: %s",
+				decision.Symbol, priceDetails)
+		} else {
+			log.Printf("✅ %s 价格验证通过（多数据源一致性检查）", decision.Symbol)
+		}
 	}
 
 	// 计算数量
@@ -879,6 +1013,29 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	if totalRequired > availableBalance {
 		return fmt.Errorf("❌ 保证金不足: 需要 %.2f USDT（保证金 %.2f + 手续费 %.2f），可用 %.2f USDT",
 			totalRequired, requiredMargin, estimatedFee, availableBalance)
+	}
+
+	// ⚡ 严格验证止损/止盈价格（防止开仓后无法设置保护，导致仓位风险）
+	// 修复 Issue: 开仓成功但止损/止盈设置失败，仓位失去保护
+	if decision.StopLoss <= 0 || decision.TakeProfit <= 0 {
+		return fmt.Errorf("❌ 空单开仓失败：止损价 %.2f 和止盈价 %.2f 必须大于 0。"+
+			"建议：AI 必须为每个开仓决策设置合理的止损和止盈价格",
+			decision.StopLoss, decision.TakeProfit)
+	}
+
+	// 空单：止损必须 > 当前价，止盈必须 < 当前价
+	if decision.StopLoss <= marketData.CurrentPrice {
+		priceGapPct := ((marketData.CurrentPrice - decision.StopLoss) / marketData.CurrentPrice) * 100
+		return fmt.Errorf("❌ 空单止损价不合理：止损价 %.2f 必须高于当前价 %.2f (当前低于 %.2f%%)。"+
+			"建议：AI 应设置高于当前价的止损价，例如 %.2f",
+			decision.StopLoss, marketData.CurrentPrice, priceGapPct, marketData.CurrentPrice*1.02)
+	}
+
+	if decision.TakeProfit >= marketData.CurrentPrice {
+		priceGapPct := ((decision.TakeProfit - marketData.CurrentPrice) / marketData.CurrentPrice) * 100
+		return fmt.Errorf("❌ 空单止盈价不合理：止盈价 %.2f 必须低于当前价 %.2f (当前高出 %.2f%%)。"+
+			"建议：AI 应设置低于当前价的止盈价，例如 %.2f",
+			decision.TakeProfit, marketData.CurrentPrice, priceGapPct, marketData.CurrentPrice*0.98)
 	}
 
 	// 设置仓位模式
@@ -924,7 +1081,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 	log.Printf("  🔄 平多仓: %s", decision.Symbol)
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(decision.Symbol, at.timeframes)
 	if err != nil {
 		return err
 	}
@@ -950,7 +1107,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	log.Printf("  🔄 平空仓: %s", decision.Symbol)
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(decision.Symbol, at.timeframes)
 	if err != nil {
 		return err
 	}
@@ -976,7 +1133,7 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *decision.Decisio
 	log.Printf("  🎯 调整止损: %s → %.2f", decision.Symbol, decision.NewStopLoss)
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(decision.Symbol, at.timeframes)
 	if err != nil {
 		return err
 	}
@@ -1027,35 +1184,21 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *decision.Decisio
 	positionSide := strings.ToUpper(side)
 	positionAmt, _ := targetPosition["positionAmt"].(float64)
 
-	// ⚡ 智能验证新止损价格合理性（考虑价格波动容差）
+	// ⚡ 严格验证新止损价格合理性（防止 "Order would immediately trigger" 错误）
 	priceGap := 0.0
 	if positionSide == "LONG" {
 		priceGap = decision.NewStopLoss - marketData.CurrentPrice
 		if priceGap > 0 {
-			// 多单止损价高于当前价 - 可能是延迟导致的异常
-			priceGapPct := (priceGap / marketData.CurrentPrice) * 100
-			if priceGapPct > 0.5 {
-				// 差距超过 0.5%，明显异常
-				return fmt.Errorf("多单止损价异常偏高 (当前: %.2f, 新止损: %.2f, 差距: %.2f%%)",
-					marketData.CurrentPrice, decision.NewStopLoss, priceGapPct)
-			}
-			// 差距 <= 0.5%，可能是价格波动 + AI 延迟，允许通过但警告
-			log.Printf("  ⚠️  止损价 %.2f 略高于市价 %.2f (差距 %.2f%%)，可能是价格快速波动导致",
-				decision.NewStopLoss, marketData.CurrentPrice, priceGapPct)
+			// ❌ 多单止损价高于当前价 - 会立即触发，交易所会拒绝
+			return fmt.Errorf("多单止损必须低于当前价格 (当前: %.2f, 止损: %.2f)",
+				marketData.CurrentPrice, decision.NewStopLoss)
 		}
 	} else {
 		priceGap = marketData.CurrentPrice - decision.NewStopLoss
 		if priceGap > 0 {
-			// 空单止损价低于当前价 - 可能是延迟导致的异常
-			priceGapPct := (priceGap / marketData.CurrentPrice) * 100
-			if priceGapPct > 0.5 {
-				// 差距超过 0.5%，明显异常
-				return fmt.Errorf("空单止损价异常偏低 (当前: %.2f, 新止损: %.2f, 差距: %.2f%%)",
-					marketData.CurrentPrice, decision.NewStopLoss, priceGapPct)
-			}
-			// 差距 <= 0.5%，可能是价格波动 + AI 延迟，允许通过但警告
-			log.Printf("  ⚠️  止损价 %.2f 略低于市价 %.2f (差距 %.2f%%)，可能是价格快速波动导致",
-				decision.NewStopLoss, marketData.CurrentPrice, priceGapPct)
+			// ❌ 空单止损价低于当前价 - 会立即触发，交易所会拒绝
+			return fmt.Errorf("空单止损必须高于当前价格 (当前: %.2f, 止损: %.2f)",
+				marketData.CurrentPrice, decision.NewStopLoss)
 		}
 	}
 
@@ -1105,7 +1248,7 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *decision.Decis
 	log.Printf("  🎯 调整止盈: %s → %.2f", decision.Symbol, decision.NewTakeProfit)
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(decision.Symbol, at.timeframes)
 	if err != nil {
 		return err
 	}
@@ -1156,35 +1299,21 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *decision.Decis
 	positionSide := strings.ToUpper(side)
 	positionAmt, _ := targetPosition["positionAmt"].(float64)
 
-	// ⚡ 智能验证新止盈价格合理性（考虑价格波动容差）
+	// ⚡ 严格验证新止盈价格合理性（防止 "Order would immediately trigger" 错误）
 	priceGap := 0.0
 	if positionSide == "LONG" {
 		priceGap = marketData.CurrentPrice - decision.NewTakeProfit
 		if priceGap > 0 {
-			// 多单止盈价低于当前价 - 可能是延迟导致的异常
-			priceGapPct := (priceGap / marketData.CurrentPrice) * 100
-			if priceGapPct > 0.5 {
-				// 差距超过 0.5%，明显异常
-				return fmt.Errorf("多单止盈价异常偏低 (当前: %.2f, 新止盈: %.2f, 差距: %.2f%%)",
-					marketData.CurrentPrice, decision.NewTakeProfit, priceGapPct)
-			}
-			// 差距 <= 0.5%，可能是价格波动 + AI 延迟，允许通过但警告
-			log.Printf("  ⚠️  止盈价 %.2f 略低于市价 %.2f (差距 %.2f%%)，可能是价格快速波动导致",
-				decision.NewTakeProfit, marketData.CurrentPrice, priceGapPct)
+			// ❌ 多单止盈价低于当前价 - 会立即触发，交易所会拒绝
+			return fmt.Errorf("多单止盈必须高于当前价格 (当前: %.2f, 止盈: %.2f)",
+				marketData.CurrentPrice, decision.NewTakeProfit)
 		}
 	} else {
 		priceGap = decision.NewTakeProfit - marketData.CurrentPrice
 		if priceGap > 0 {
-			// 空单止盈价高于当前价 - 可能是延迟导致的异常
-			priceGapPct := (priceGap / marketData.CurrentPrice) * 100
-			if priceGapPct > 0.5 {
-				// 差距超过 0.5%，明显异常
-				return fmt.Errorf("空单止盈价异常偏高 (当前: %.2f, 新止盈: %.2f, 差距: %.2f%%)",
-					marketData.CurrentPrice, decision.NewTakeProfit, priceGapPct)
-			}
-			// 差距 <= 0.5%，可能是价格波动 + AI 延迟，允许通过但警告
-			log.Printf("  ⚠️  止盈价 %.2f 略高于市价 %.2f (差距 %.2f%%)，可能是价格快速波动导致",
-				decision.NewTakeProfit, marketData.CurrentPrice, priceGapPct)
+			// ❌ 空单止盈价高于当前价 - 会立即触发，交易所会拒绝
+			return fmt.Errorf("空单止盈必须低于当前价格 (当前: %.2f, 止盈: %.2f)",
+				marketData.CurrentPrice, decision.NewTakeProfit)
 		}
 	}
 
@@ -1239,7 +1368,7 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *decision.Decision,
 	}
 
 	// 获取当前价格
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.Get(decision.Symbol, at.timeframes)
 	if err != nil {
 		return err
 	}
@@ -1350,18 +1479,50 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *decision.Decision,
 	// IMPORTANT: Exchanges like Binance automatically cancel existing TP/SL orders after partial close (due to quantity mismatch)
 	// If AI provides new stop-loss/take-profit prices, reset protection for the remaining position
 	if decision.NewStopLoss > 0 {
-		log.Printf("  → Restoring stop-loss for remaining position %.4f: %.2f", remainingQuantity, decision.NewStopLoss)
-		err = at.trader.SetStopLoss(decision.Symbol, positionSide, remainingQuantity, decision.NewStopLoss)
-		if err != nil {
-			log.Printf("  ⚠️ Failed to restore stop-loss: %v (doesn't affect close result)", err)
+		// ⚡ 验证止损价格合理性（防止 code=-2021 错误）
+		isValidStopLoss := false
+		if positionSide == "LONG" && decision.NewStopLoss < marketData.CurrentPrice {
+			isValidStopLoss = true
+		} else if positionSide == "SHORT" && decision.NewStopLoss > marketData.CurrentPrice {
+			isValidStopLoss = true
+		}
+
+		if isValidStopLoss {
+			log.Printf("  → Restoring stop-loss for remaining position %.4f: %.2f", remainingQuantity, decision.NewStopLoss)
+			err = at.trader.SetStopLoss(decision.Symbol, positionSide, remainingQuantity, decision.NewStopLoss)
+			if err != nil {
+				log.Printf("  ⚠️ Failed to restore stop-loss: %v (doesn't affect close result)", err)
+			}
+		} else {
+			priceGapPct := math.Abs((decision.NewStopLoss-marketData.CurrentPrice)/marketData.CurrentPrice) * 100
+			log.Printf("  ⚠️⚠️ 跳过设置止损：价格不合理 (止损 %.2f, 当前 %.2f, 差距 %.2f%%)",
+				decision.NewStopLoss, marketData.CurrentPrice, priceGapPct)
+			log.Printf("  → %s仓位的止损必须%s当前价，剩余仓位目前没有止损保护",
+				positionSide, map[string]string{"LONG": "低于", "SHORT": "高于"}[positionSide])
 		}
 	}
 
 	if decision.NewTakeProfit > 0 {
-		log.Printf("  → Restoring take-profit for remaining position %.4f: %.2f", remainingQuantity, decision.NewTakeProfit)
-		err = at.trader.SetTakeProfit(decision.Symbol, positionSide, remainingQuantity, decision.NewTakeProfit)
-		if err != nil {
-			log.Printf("  ⚠️ Failed to restore take-profit: %v (doesn't affect close result)", err)
+		// ⚡ 验证止盈价格合理性（防止 code=-2021 错误）
+		isValidTakeProfit := false
+		if positionSide == "LONG" && decision.NewTakeProfit > marketData.CurrentPrice {
+			isValidTakeProfit = true
+		} else if positionSide == "SHORT" && decision.NewTakeProfit < marketData.CurrentPrice {
+			isValidTakeProfit = true
+		}
+
+		if isValidTakeProfit {
+			log.Printf("  → Restoring take-profit for remaining position %.4f: %.2f", remainingQuantity, decision.NewTakeProfit)
+			err = at.trader.SetTakeProfit(decision.Symbol, positionSide, remainingQuantity, decision.NewTakeProfit)
+			if err != nil {
+				log.Printf("  ⚠️ Failed to restore take-profit: %v (doesn't affect close result)", err)
+			}
+		} else {
+			priceGapPct := math.Abs((decision.NewTakeProfit-marketData.CurrentPrice)/marketData.CurrentPrice) * 100
+			log.Printf("  ⚠️⚠️ 跳过设置止盈：价格不合理 (止盈 %.2f, 当前 %.2f, 差距 %.2f%%)",
+				decision.NewTakeProfit, marketData.CurrentPrice, priceGapPct)
+			log.Printf("  → %s仓位的止盈必须%s当前价，剩余仓位目前没有止盈保护",
+				positionSide, map[string]string{"LONG": "高于", "SHORT": "低于"}[positionSide])
 		}
 	}
 
@@ -1534,6 +1695,12 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 	}, nil
 }
 
+func sameDay(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
+}
+
 // GetPositions 获取持仓列表（用于API）
 func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 	positions, err := at.trader.GetPositions()
@@ -1650,6 +1817,8 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 	// 优先级 2: 信号源扩展模式（合并系统默认 + 信号源）
 	if at.useCoinPool || at.useOITop {
 		symbolMap := make(map[string][]string) // symbol -> sources
+		coinPoolURL := strings.TrimSpace(at.coinPoolAPIURL)
+		oiTopURL := strings.TrimSpace(at.oiTopAPIURL)
 
 		// 2.1 先添加系统默认币种作为基础
 		defaultCount := 0
@@ -1665,7 +1834,7 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 
 		if at.useCoinPool && at.useOITop {
 			// 同时使用 AI500 + OI Top
-			mergedPool, err := pool.GetMergedCoinPool(ai500Limit)
+			mergedPool, err := pool.GetMergedCoinPoolWithOverride(ai500Limit, coinPoolURL, oiTopURL)
 			if err == nil {
 				for _, symbol := range mergedPool.AllSymbols {
 					sources := mergedPool.SymbolSources[symbol]
@@ -1678,10 +1847,18 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 						signalSourceCount++
 					}
 				}
+			} else if err != nil {
+				log.Printf("⚠️  [%s] 获取合并信号源失败: %v", at.name, err)
 			}
 		} else if at.useCoinPool {
 			// 只使用 AI500
-			ai500Pool, err := pool.GetTopRatedCoins(ai500Limit)
+			var ai500Pool []string
+			var err error
+			if coinPoolURL != "" {
+				ai500Pool, err = pool.GetTopRatedCoinsWithURL(ai500Limit, coinPoolURL)
+			} else {
+				ai500Pool, err = pool.GetTopRatedCoins(ai500Limit)
+			}
 			if err == nil {
 				for _, symbol := range ai500Pool {
 					if existingSources, exists := symbolMap[symbol]; exists {
@@ -1691,10 +1868,18 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 						signalSourceCount++
 					}
 				}
+			} else if err != nil {
+				log.Printf("⚠️  [%s] 获取 AI500 信号失败: %v", at.name, err)
 			}
 		} else if at.useOITop {
 			// 只使用 OI Top
-			oiTopPool, err := pool.GetOITopPositions()
+			var oiTopPool []pool.OIPosition
+			var err error
+			if oiTopURL != "" {
+				oiTopPool, err = pool.GetOITopPositionsWithURL(oiTopURL)
+			} else {
+				oiTopPool, err = pool.GetOITopPositions()
+			}
 			if err == nil {
 				limit := 20
 				if len(oiTopPool) < limit {
@@ -1709,6 +1894,8 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 						signalSourceCount++
 					}
 				}
+			} else if err != nil {
+				log.Printf("⚠️  [%s] 获取 OI Top 信号失败: %v", at.name, err)
 			}
 		}
 

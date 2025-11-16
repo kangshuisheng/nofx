@@ -61,6 +61,54 @@ func NewServer(traderManager *manager.TraderManager, database *config.Database, 
 		}
 	}
 
+	// 生产环境 CORS 配置检查
+	isDevelopment := os.Getenv("ENVIRONMENT") != "production"
+	corsConfigured := os.Getenv("CORS_ALLOWED_ORIGINS") != "" || os.Getenv("FRONTEND_URL") != ""
+	disableCORS := strings.EqualFold(os.Getenv("DISABLE_CORS"), "true")
+
+	if !isDevelopment && !corsConfigured && !disableCORS {
+		log.Println("")
+		log.Println("╔═══════════════════════════════════════════════════════════════════╗")
+		log.Println("║  ⚠️  警告：生產模式下未配置 CORS！                                ║")
+		log.Println("╟───────────────────────────────────────────────────────────────────╢")
+		log.Println("║  當前狀態：                                                        ║")
+		log.Println("║    • ENVIRONMENT=production（生產模式）                           ║")
+		log.Println("║    • CORS_ALLOWED_ORIGINS 未設置                                  ║")
+		log.Println("║                                                                   ║")
+		log.Println("║  預期行為：                                                        ║")
+		log.Println("║    ✅ localhost:3000, localhost:5173 可正常訪問                   ║")
+		log.Println("║    ❌ 其他所有來源將被 403 拒絕（包括域名、公網 IP）              ║")
+		log.Println("║                                                                   ║")
+		log.Println("║  解決方案（選擇其一）：                                            ║")
+		log.Println("║                                                                   ║")
+		log.Println("║  1️⃣  配置允許的前端域名（推薦用於生產環境）：                     ║")
+		log.Println("║      在 .env 中添加：                                             ║")
+		log.Println("║      CORS_ALLOWED_ORIGINS=https://yourdomain.com                 ║")
+		log.Println("║                                                                   ║")
+		log.Println("║  2️⃣  切換回開發模式（不設置 ENVIRONMENT 或設為其他值）：           ║")
+		log.Println("║      移除或註釋 .env 中的：                                       ║")
+		log.Println("║      # ENVIRONMENT=production                                    ║")
+		log.Println("║                                                                   ║")
+		log.Println("║  3️⃣  完全禁用 CORS（僅限安全的內網環境）：                        ║")
+		log.Println("║      在 .env 中添加：                                             ║")
+		log.Println("║      DISABLE_CORS=true                                           ║")
+		log.Println("║                                                                   ║")
+		log.Println("║  修改後需重啟容器：                                                ║")
+		log.Println("║      docker-compose restart                                      ║")
+		log.Println("╚═══════════════════════════════════════════════════════════════════╝")
+		log.Println("")
+	} else if isDevelopment {
+		log.Println("🔧 [CORS] 開發模式啟動：自動允許 localhost、.local 域名和私有 IP")
+		if len(allowedOrigins) > 2 {
+			log.Printf("    已配置額外白名單：%v", allowedOrigins[2:])
+		}
+	} else if disableCORS {
+		log.Println("⚠️  [CORS] CORS 檢查已完全禁用 (DISABLE_CORS=true)")
+	} else {
+		log.Println("🔒 [CORS] 生產模式啟動：嚴格執行白名單")
+		log.Printf("    允許的來源：%v", allowedOrigins)
+	}
+
 	// 启用 CORS（白名单模式）
 	router.Use(corsMiddleware(allowedOrigins))
 
@@ -68,16 +116,32 @@ func NewServer(traderManager *manager.TraderManager, database *config.Database, 
 	globalLimiter := middleware.NewIPRateLimiter(rate.Limit(10), 10)
 	router.Use(middleware.RateLimitMiddleware(globalLimiter))
 
-	// 启用 CSRF 保护（Double Submit Cookie 模式）
-	csrfConfig := middleware.DefaultCSRFConfig()
-	// 生产环境应启用 HTTPS-only Cookie
-	if os.Getenv("ENVIRONMENT") == "production" {
-		csrfConfig.CookieSecure = true
+	// CSRF 保护（Double Submit Cookie 模式）- 可通过环境变量控制
+	// 开发阶段默认关闭以避免频繁 403 错误，生产环境建议启用
+	enableCSRF := os.Getenv("ENABLE_CSRF")
+	if enableCSRF == "true" {
+		log.Println("✅ [CSRF] CSRF 保护已启用")
+		csrfConfig := middleware.DefaultCSRFConfig()
+		// 生产环境应启用 HTTPS-only Cookie
+		if os.Getenv("ENVIRONMENT") == "production" {
+			csrfConfig.CookieSecure = true
+		}
+		router.Use(middleware.CSRFMiddleware(csrfConfig))
+	} else {
+		log.Println("⚠️  [CSRF] CSRF 保护已禁用（开发模式）")
+		log.Println("    提示：生产环境请设置 ENABLE_CSRF=true")
 	}
-	router.Use(middleware.CSRFMiddleware(csrfConfig))
+
+	// 控制是否允許客戶端解密 API（預設關閉）
+	enableClientDecrypt := strings.EqualFold(os.Getenv("ENABLE_CLIENT_DECRYPT_API"), "true")
+	if enableClientDecrypt {
+		log.Println("🔐 [Crypto] ENABLE_CLIENT_DECRYPT_API=true，/api/crypto/decrypt 需要 JWT 且會驗證 AAD")
+	} else {
+		log.Println("🔐 [Crypto] 客戶端解密 API 已禁用（ENABLE_CLIENT_DECRYPT_API未開啟）")
+	}
 
 	// 创建加密处理器
-	cryptoHandler := NewCryptoHandler(cryptoService)
+	cryptoHandler := NewCryptoHandler(cryptoService, enableClientDecrypt)
 
 	s := &Server{
 		router:        router,
@@ -93,13 +157,37 @@ func NewServer(traderManager *manager.TraderManager, database *config.Database, 
 	return s
 }
 
-// corsMiddleware CORS中间件（白名单模式）
+// corsMiddleware CORS中间件（智能模式：开发环境自动允许私有网络）
 func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
+	// 检查是否完全禁用 CORS（用于内网环境或开发环境）
+	disableCORS := strings.EqualFold(os.Getenv("DISABLE_CORS"), "true")
+
+	// 检测是否为开发环境（默认为开发环境）
+	isDevelopment := os.Getenv("ENVIRONMENT") != "production"
+
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
 
-		// 检查来源是否在白名单中
+		// 如果禁用了 CORS，允许所有请求
+		if disableCORS {
+			if origin != "" {
+				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+				c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+				c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
+			}
+			if c.Request.Method == "OPTIONS" {
+				c.AbortWithStatus(http.StatusOK)
+				return
+			}
+			c.Next()
+			return
+		}
+
+		// 正常 CORS 检查流程
 		allowed := false
+
+		// 1. 检查白名单
 		for _, allowedOrigin := range allowedOrigins {
 			if origin == allowedOrigin {
 				allowed = true
@@ -107,20 +195,46 @@ func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 			}
 		}
 
+		// 2. 开发模式：检查是否为私有网络来源
+		if !allowed && isDevelopment && origin != "" {
+			if isPrivateNetworkOrigin(origin) {
+				allowed = true
+				log.Printf("🔓 [CORS] 开发模式自动允许: %s (私有网络/localhost/.local)", origin)
+			}
+		}
+
+		// 3. 设置 CORS 响应头
 		if allowed {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 			c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
 		} else if origin != "" {
-			// 如果有 Origin 但不在白名单中，记录并拒绝
-			log.Printf("⚠️ [CORS] 拒绝来源: %s (允许的来源: %v)", origin, allowedOrigins)
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"error": "Origin not allowed",
-			})
-			return
+			// 开发模式：只记录警告，但仍然允许请求（避免阻断开发）
+			if isDevelopment {
+				log.Printf("⚠️  [CORS] 开发模式警告：未识别的来源 %s", origin)
+				log.Printf("    提示：如需在生产环境使用，请添加到 .env: CORS_ALLOWED_ORIGINS=%s", origin)
+				// 开发模式下仍然设置 CORS 头，避免阻断
+				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+				c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+				c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
+			} else {
+				// 生产模式：严格拒绝
+				log.Printf("🚫 [CORS] 生产模式拒绝来源: %s", origin)
+				log.Printf("    配置方法：在 .env 添加 CORS_ALLOWED_ORIGINS=%s", origin)
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+					"error":   "Origin not allowed",
+					"origin":  origin,
+					"help":    "請在 .env 文件中添加此來源到 CORS_ALLOWED_ORIGINS",
+					"example": fmt.Sprintf("CORS_ALLOWED_ORIGINS=%s", origin),
+					"docs":    "重啟容器後生效：docker-compose restart",
+				})
+				return
+			}
 		}
 
+		// 处理 OPTIONS 预检请求
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusOK)
 			return
@@ -128,6 +242,63 @@ func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// isPrivateNetworkOrigin 检查是否为私有网络来源
+// 支持以下类型：
+// - localhost (localhost, 127.0.0.1, ::1)
+// - .local 域名 (mDNS/Bonjour，如 myserver.local)
+// - RFC 1918 私有 IP：10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+func isPrivateNetworkOrigin(origin string) bool {
+	// 解析 origin URL (格式: http://192.168.1.100:3000 或 http://myserver.local:3000)
+	parts := strings.Split(origin, "://")
+	if len(parts) != 2 {
+		return false
+	}
+
+	hostPort := parts[1]
+	host := strings.Split(hostPort, ":")[0]
+
+	// 1. 检查 localhost 变体
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+		return true
+	}
+
+	// 2. 检查 .local 域名 (mDNS)
+	if strings.HasSuffix(host, ".local") {
+		return true
+	}
+
+	// 3. 尝试解析为 IP 地址
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// 不是 IP 地址也不是已知的本地域名，可能是内网域名
+		// 为了安全，这里返回 false，让用户手动添加到白名单
+		return false
+	}
+
+	// 4. 检查是否为 loopback IP (127.0.0.0/8)
+	if ip.IsLoopback() {
+		return true
+	}
+
+	// 5. 检查 RFC 1918 私有 IP 地址
+	privateIPBlocks := []*net.IPNet{
+		// 10.0.0.0/8
+		{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(8, 32)},
+		// 172.16.0.0/12
+		{IP: net.ParseIP("172.16.0.0"), Mask: net.CIDRMask(12, 32)},
+		// 192.168.0.0/16
+		{IP: net.ParseIP("192.168.0.0"), Mask: net.CIDRMask(16, 32)},
+	}
+
+	for _, block := range privateIPBlocks {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // setupRoutes 设置路由
@@ -152,7 +323,6 @@ func (s *Server) setupRoutes() {
 
 		// 加密相关接口（无需认证）
 		api.GET("/crypto/public-key", s.cryptoHandler.HandleGetPublicKey)
-		api.POST("/crypto/decrypt", s.cryptoHandler.HandleDecryptSensitiveData)
 
 		// CSRF Token 获取（无需认证）
 		api.GET("/csrf-token", s.handleGetCSRFToken)
@@ -185,6 +355,11 @@ func (s *Server) setupRoutes() {
 			// 注销（加入黑名单）
 			protected.POST("/logout", s.handleLogout)
 
+			// 僅在顯式啟用時開放解密端點（需要JWT身份）
+			if s.cryptoHandler.AllowDecryptEndpoint() {
+				protected.POST("/crypto/decrypt", s.cryptoHandler.HandleDecryptSensitiveData)
+			}
+
 			// 服务器IP查询（需要认证，用于白名单配置）
 			protected.GET("/server-ip", s.handleGetServerIP)
 
@@ -210,12 +385,11 @@ func (s *Server) setupRoutes() {
 			protected.GET("/user/signal-sources", s.handleGetUserSignalSource)
 			protected.POST("/user/signal-sources", s.handleSaveUserSignalSource)
 
-
-		// 提示词模板管理（需要认证）
-		protected.POST("/prompt-templates", s.handleCreatePromptTemplate)
-		protected.PUT("/prompt-templates/:name", s.handleUpdatePromptTemplate)
-		protected.DELETE("/prompt-templates/:name", s.handleDeletePromptTemplate)
-		protected.POST("/prompt-templates/reload", s.handleReloadPromptTemplates)
+			// 提示词模板管理（需要认证）
+			protected.POST("/prompt-templates", s.handleCreatePromptTemplate)
+			protected.PUT("/prompt-templates/:name", s.handleUpdatePromptTemplate)
+			protected.DELETE("/prompt-templates/:name", s.handleDeletePromptTemplate)
+			protected.POST("/prompt-templates/reload", s.handleReloadPromptTemplates)
 			// 指定trader的数据（使用query参数 ?trader_id=xxx）
 			protected.GET("/status", s.handleStatus)
 			protected.GET("/account", s.handleAccount)
@@ -916,6 +1090,8 @@ type UpdateTraderRequest struct {
 	OverrideBasePrompt   bool    `json:"override_base_prompt"`
 	SystemPromptTemplate string  `json:"system_prompt_template"`
 	IsCrossMargin        *bool   `json:"is_cross_margin"`
+	UseCoinPool          *bool   `json:"use_coin_pool"`
+	UseOITop             *bool   `json:"use_oi_top"`
 	TakerFeeRate         float64 `json:"taker_fee_rate"`        // Taker fee rate
 	MakerFeeRate         float64 `json:"maker_fee_rate"`        // Maker fee rate
 	OrderStrategy        string  `json:"order_strategy"`        // Order strategy
@@ -989,6 +1165,17 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	systemPromptTemplate := req.SystemPromptTemplate
 	if systemPromptTemplate == "" {
 		systemPromptTemplate = existingTrader.SystemPromptTemplate // 如果请求中没有提供，保持原值
+	}
+
+	// 设置信号源开关
+	useCoinPool := existingTrader.UseCoinPool
+	if req.UseCoinPool != nil {
+		useCoinPool = *req.UseCoinPool
+	}
+
+	useOITop := existingTrader.UseOITop
+	if req.UseOITop != nil {
+		useOITop = *req.UseOITop
 	}
 
 	// 设置费率，允许更新
@@ -1120,6 +1307,8 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		BTCETHLeverage:       btcEthLeverage,
 		AltcoinLeverage:      altcoinLeverage,
 		TradingSymbols:       req.TradingSymbols,
+		UseCoinPool:          useCoinPool,
+		UseOITop:             useOITop,
 		CustomPrompt:         req.CustomPrompt,
 		OverrideBasePrompt:   req.OverrideBasePrompt,
 		SystemPromptTemplate: systemPromptTemplate,
@@ -1763,6 +1952,21 @@ func (s *Server) handleTraderList(c *gin.Context) {
 			"is_running":             isRunning,
 			"initial_balance":        trader.InitialBalance,
 			"system_prompt_template": trader.SystemPromptTemplate,
+			"scan_interval_minutes":  trader.ScanIntervalMinutes,
+			"btc_eth_leverage":       trader.BTCETHLeverage,
+			"altcoin_leverage":       trader.AltcoinLeverage,
+			"trading_symbols":        trader.TradingSymbols,
+			"custom_prompt":          trader.CustomPrompt,
+			"override_base_prompt":   trader.OverrideBasePrompt,
+			"is_cross_margin":        trader.IsCrossMargin,
+			"use_coin_pool":          trader.UseCoinPool,
+			"use_oi_top":             trader.UseOITop,
+			"taker_fee_rate":         trader.TakerFeeRate,
+			"maker_fee_rate":         trader.MakerFeeRate,
+			"order_strategy":         trader.OrderStrategy,
+			"limit_price_offset":     trader.LimitPriceOffset,
+			"limit_timeout_seconds":  trader.LimitTimeoutSeconds,
+			"timeframes":             trader.Timeframes,
 		})
 	}
 
@@ -1824,6 +2028,12 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		"use_coin_pool":          traderConfig.UseCoinPool,
 		"use_oi_top":             traderConfig.UseOITop,
 		"is_running":             isRunning,
+		"taker_fee_rate":         traderConfig.TakerFeeRate,
+		"maker_fee_rate":         traderConfig.MakerFeeRate,
+		"order_strategy":         traderConfig.OrderStrategy,
+		"limit_price_offset":     traderConfig.LimitPriceOffset,
+		"limit_timeout_seconds":  traderConfig.LimitTimeoutSeconds,
+		"timeframes":             traderConfig.Timeframes,
 	}
 
 	c.JSON(http.StatusOK, result)
@@ -2351,8 +2561,8 @@ func (s *Server) handleCompleteRegistration(c *gin.Context) {
 		return
 	}
 
-	// 生成JWT token
-	token, err := auth.GenerateJWT(user.ID, user.Email)
+	// 生成 Access/Refresh Token
+	tokenPair, err := auth.GenerateTokenPair(user.ID, user.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成token失败"})
 		return
@@ -2365,10 +2575,13 @@ func (s *Server) handleCompleteRegistration(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"token":   token,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"message": "注册完成",
+		"access_token":       tokenPair.AccessToken,
+		"refresh_token":      tokenPair.RefreshToken,
+		"expires_in":         tokenPair.ExpiresIn,
+		"refresh_expires_in": tokenPair.RefreshExpiresIn,
+		"user_id":            user.ID,
+		"email":              user.Email,
+		"message":            "注册完成",
 	})
 }
 
@@ -2441,18 +2654,21 @@ func (s *Server) handleVerifyOTP(c *gin.Context) {
 		return
 	}
 
-	// 生成JWT token
-	token, err := auth.GenerateJWT(user.ID, user.Email)
+	// 生成新的 Token Pair（Access + Refresh）
+	tokenPair, err := auth.GenerateTokenPair(user.ID, user.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成token失败"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"token":   token,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"message": "登录成功",
+		"access_token":       tokenPair.AccessToken,
+		"refresh_token":      tokenPair.RefreshToken,
+		"expires_in":         tokenPair.ExpiresIn,
+		"refresh_expires_in": tokenPair.RefreshExpiresIn,
+		"user_id":            user.ID,
+		"email":              user.Email,
+		"message":            "登录成功",
 	})
 }
 

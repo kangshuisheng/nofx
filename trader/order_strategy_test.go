@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 // TestOrderStrategy_MarketOnly 測試純市價單策略
 func TestOrderStrategy_MarketOnly(t *testing.T) {
 	// Mock server
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Log all requests for debugging
 		t.Logf("Mock received: %s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
 
@@ -147,7 +146,7 @@ func TestOrderStrategy_MarketOnly(t *testing.T) {
 // TestOrderStrategy_LimitOnly 測試純限價單策略
 func TestOrderStrategy_LimitOnly(t *testing.T) {
 	// Mock server
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Mock initialization endpoints
 		if r.URL.Path == "/fapi/v1/time" {
 			response := map[string]interface{}{
@@ -273,7 +272,7 @@ func TestOrderStrategy_LimitOnly(t *testing.T) {
 // TestOrderStrategy_ConservativeHybrid_Success 測試保守混合策略 - 限價單成功
 func TestOrderStrategy_ConservativeHybrid_Success(t *testing.T) {
 	// Mock server - 模擬限價單立即成交的場景
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Mock initialization endpoints
 		if r.URL.Path == "/fapi/v1/time" {
 			response := map[string]interface{}{
@@ -413,7 +412,7 @@ func TestOrderStrategy_ConservativeHybrid_Timeout(t *testing.T) {
 
 	// Mock server - 模擬限價單超時後轉換為市價單
 	orderCheckCount := 0
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/fapi/v1/ticker/price" {
 			response := map[string]interface{}{
 				"symbol": "BTCUSDT",
@@ -505,7 +504,7 @@ func TestOrderStrategy_ConservativeHybrid_Timeout(t *testing.T) {
 // TestOrderStrategy_ConservativeHybrid_LimitFail 測試保守混合策略 - 限價單失敗降級
 func TestOrderStrategy_ConservativeHybrid_LimitFail(t *testing.T) {
 	// Mock server - 模擬限價單創建失敗，立即降級為市價單
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Mock initialization endpoints
 		if r.URL.Path == "/fapi/v1/time" {
 			response := map[string]interface{}{
@@ -806,7 +805,7 @@ func TestOrderStrategy_ParameterValidation(t *testing.T) {
 // TestOrderStrategy_ShortPosition 測試做空倉位的訂單策略
 func TestOrderStrategy_ShortPosition(t *testing.T) {
 	// Mock server
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Mock initialization endpoints
 		if r.URL.Path == "/fapi/v1/time" {
 			response := map[string]interface{}{
@@ -963,7 +962,7 @@ func TestOrderStrategy_DatabaseIntegration(t *testing.T) {
 
 // BenchmarkOrderStrategy 性能測試
 func BenchmarkOrderStrategy_MarketOrder(b *testing.B) {
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := newTestHTTPServer(b, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		response := &futures.CreateOrderResponse{
 			OrderID: 99999,
 			Symbol:  "BTCUSDT",

@@ -175,10 +175,10 @@ func FetchSPXStatus(apiKey string) (*USMarketStatus, error) {
 	// 如果市場休市，返回簡單狀態
 	if !isOpen {
 		return &USMarketStatus{
-			IsOpen:   false,
-			SPXTrend: "neutral",
+			IsOpen:      false,
+			SPXTrend:    "neutral",
 			SPXChange1h: 0,
-			Warning:  "",
+			Warning:     "",
 		}, nil
 	}
 
@@ -198,8 +198,8 @@ func FetchSPXStatus(apiKey string) (*USMarketStatus, error) {
 
 	var data struct {
 		GlobalQuote struct {
-			Price  string `json:"05. price"`
-			Change string `json:"09. change"`
+			Price         string `json:"05. price"`
+			Change        string `json:"09. change"`
 			ChangePercent string `json:"10. change percent"`
 		} `json:"Global Quote"`
 	}
@@ -228,10 +228,10 @@ func FetchSPXStatus(apiKey string) (*USMarketStatus, error) {
 	}
 
 	return &USMarketStatus{
-		IsOpen:   true,
-		SPXTrend: trend,
+		IsOpen:      true,
+		SPXTrend:    trend,
 		SPXChange1h: changePercent,
-		Warning:  warning,
+		Warning:     warning,
 	}, nil
 }
 

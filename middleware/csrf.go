@@ -37,16 +37,16 @@ func DefaultCSRFConfig() CSRFConfig {
 			"/api/config",
 			"/api/crypto/public-key",
 			"/api/prompt-templates",
-			"/api/traders",                  // 公开的 Trader 列表
-			"/api/competition",              // 公开的竞赛数据
-			"/api/top-traders",              // 公开的 Top Traders
-			"/api/equity-history",           // 公开的权益历史
-			"/api/login",                    // 登录端点豁免（首次访问）
-			"/api/register",                 // 注册端点豁免
-			"/api/verify-otp",               // OTP验证端点豁免（已有OTP安全验证）
-			"/api/complete-registration",    // 完成注册端点豁免（已有OTP安全验证）
-			"/api/models",                   // 模型配置端点（已有JWT认证+RSA加密）
-			"/api/exchanges",                // 交易所配置端点（已有JWT认证+RSA加密）
+			"/api/traders",               // 公开的 Trader 列表
+			"/api/competition",           // 公开的竞赛数据
+			"/api/top-traders",           // 公开的 Top Traders
+			"/api/equity-history",        // 公开的权益历史
+			"/api/login",                 // 登录端点豁免（首次访问）
+			"/api/register",              // 注册端点豁免
+			"/api/verify-otp",            // OTP验证端点豁免（已有OTP安全验证）
+			"/api/complete-registration", // 完成注册端点豁免（已有OTP安全验证）
+			"/api/models",                // 模型配置端点（已有JWT认证+RSA加密）
+			"/api/exchanges",             // 交易所配置端点（已有JWT认证+RSA加密）
 		},
 	}
 }

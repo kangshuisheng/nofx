@@ -484,8 +484,11 @@ func TestStartStop(t *testing.T) {
 	// Stop
 	dsm.Stop()
 
-	// Verify health check ran
-	if dsm.statuses["source1"].SuccessCount == 0 {
+	// Verify health check ran (use thread-safe GetStatus method)
+	statuses := dsm.GetStatus()
+	if status, exists := statuses["source1"]; !exists {
+		t.Error("source1 status not found")
+	} else if status.SuccessCount == 0 {
 		t.Error("Health check should have run at least once")
 	}
 

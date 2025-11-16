@@ -4,11 +4,16 @@
 [![React](https://img.shields.io/badge/React-18+-61DAFB?style=flat&logo=react)](https://reactjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=flat&logo=typescript)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Backed by Amber.ac](https://img.shields.io/badge/Backed%20by-Amber.ac-orange.svg)](https://amber.ac)
 
 **语言 / Languages:** [English](../../../README.md) | [中文](../zh-CN/README.md) | [Українська](../uk/README.md) | [Русский](../ru/README.md) | [日本語](../ja/README.md)
 
 **📚 文档中心:** [文档首页](../../README.md) | [快速开始](../../getting-started/README.zh-CN.md) | [更新日志](../../../CHANGELOG.zh-CN.md) | [社区指南](../../community/README.md)
+
+---
+
+> 📢 **社區驅動版本**: 這是 NOFX 的獨立社區維護版本，專注於穩定性、用戶體驗和社區需求。
+>
+> **原始專案**: [nofxaios/nofx](https://github.com/nofxaios/nofx)
 
 ---
 
@@ -49,18 +54,6 @@
 - **通用数据与回测层**：跨市场、跨周期、跨交易所统一表示与因子库，沉淀可迁移的"策略记忆"
 - **多智能体自博弈与自进化**：策略自动对战择优，按账户级 PnL 与风险约束持续迭代
 - **执行与风控一体化**：低延迟路由、滑点/风控沙箱、账户级限额，一键切换市场
-
-### 🏢 由 [Amber.ac](https://amber.ac) 背书
-
-### 👥 核心团队
-
-- **Tinkle** - [@Web3Tinkle](https://x.com/Web3Tinkle)
-
-### 💼 种子轮融资进行中
-
-我们正在进行**种子轮融资**。
-
-**投资咨询**，请通过 Twitter 私信联系 **Tinkle**。
 
 ---
 
@@ -123,7 +116,7 @@ NOFX现已支持**三大交易所**：Binance、Hyperliquid和Aster DEX！
 - 🌐 **多链支持** - 在你喜欢的EVM链上交易
 
 **快速开始：**
-1. 通过[推荐链接注册Aster](https://www.asterdex.com/en/referral/fdfc0e)（享手续费优惠）
+1. 通过[推荐链接注册Aster](https://www.asterdex.com/en/referral/3E58dc)（享手续费优惠）
 2. 访问[Aster API钱包](https://www.asterdex.com/en/api-wallet)
 3. 连接你的主钱包并创建API钱包
 4. 复制API Signer地址和私钥
@@ -245,7 +238,7 @@ NOFX 采用现代化的模块化架构：
 
 使用本系统前，您需要一个币安合约账户。**使用我们的推荐链接注册可享受手续费优惠：**
 
-**🎁 [注册币安 - 享手续费折扣](https://www.binance.com/join?ref=TINKLEVIP)**
+**🎁 [注册币安 - 享手续费折扣](https://www.binance.com/join?ref=SA020XCM)**
 
 ### 注册步骤：
 
@@ -347,7 +340,7 @@ sudo apt-get install libta-lib0-dev
 ### 2. 克隆项目
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/the-dev-z/nofx.git
 cd nofx
 ```
 
@@ -487,7 +480,7 @@ cp config.json.example config.json
 
 1. **通过邀请链接访问Hyperliquid**（享受优惠！）：
 
-   **🎁 [注册Hyperliquid - 加入AITRADING](https://app.hyperliquid.xyz/join/AITRADING)**
+   **🎁 [注册Hyperliquid - 加入AITRADING](https://app.hyperliquid.xyz/join/NOFXAI)**
 
 2. **连接你的钱包**：
    - 点击右上角"Connect Wallet"
@@ -605,7 +598,7 @@ Hyperliquid支持**代理钱包**功能 - 专门用于交易自动化的安全�
 
 **步骤1**：注册并创建Aster API钱包
 
-1. 通过[推荐链接注册Aster](https://www.asterdex.com/en/referral/fdfc0e)（享手续费优惠）
+1. 通过[推荐链接注册Aster](https://www.asterdex.com/en/referral/3E58dc)（享手续费优惠）
 2. 访问[Aster API钱包](https://www.asterdex.com/en/api-wallet)
 3. 连接你的主钱包（MetaMask、WalletConnect等）
 4. 点击"创建API钱包"
@@ -1358,7 +1351,7 @@ sudo apt-get install libta-lib0-dev
 ## 📬 联系方式
 
 ### 🐛 技术支持
-- **GitHub Issues**: [提交Issue](https://github.com/tinkle-community/nofx/issues)
+- **GitHub Issues**: [提交Issue](https://github.com/the-dev-z/nofx/issues)
 - **开发者社区**: [Telegram群组](https://t.me/nofx_dev_community)
 
 ---
@@ -1376,9 +1369,3 @@ sudo apt-get install libta-lib0-dev
 **最后更新**: 2025-10-29 (v2.0.2)
 
 **⚡ 用AI的力量，探索量化交易的可能性！**
-
----
-
-## ⭐ Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=tinkle-community/nofx&type=Date)](https://star-history.com/#tinkle-community/nofx&Date)

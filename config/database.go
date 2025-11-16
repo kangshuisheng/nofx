@@ -86,6 +86,14 @@ func NewDatabase(dbPath string) (*Database, error) {
 		return nil, fmt.Errorf("设置synchronous失败: %w", err)
 	}
 
+	// 🔒 启用外键约束 (SQLite 默认关闭！)
+	// 这是防止数据完整性问题的关键设置
+	// 没有这个设置,即使表定义中有 FOREIGN KEY,也不会强制执行
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("启用外键约束失败: %w", err)
+	}
+
 	database := &Database{
 		db:     db,
 		dbPath: dbPath,
@@ -99,11 +107,17 @@ func NewDatabase(dbPath string) (*Database, error) {
 		return nil, fmt.Errorf("清理遗留列失败: %w", err)
 	}
 
+	// 檢查數據庫完整性（外鍵約束）
+	// 這個檢查不會中斷啟動，只記錄警告
+	if err := database.checkDataIntegrity(); err != nil {
+		log.Printf("⚠️  數據完整性檢查出現問題（不影響啟動）: %v", err)
+	}
+
 	if err := database.initDefaultData(); err != nil {
 		return nil, fmt.Errorf("初始化默认数据失败: %w", err)
 	}
 
-	log.Printf("✅ 数据库已启用 WAL 模式和 FULL 同步,数据持久性得到保证")
+	log.Printf("✅ 数据库已启用 WAL 模式、FULL 同步和外键约束,数据完整性得到保证")
 	return database, nil
 }
 
@@ -307,6 +321,24 @@ func (d *Database) createTables() error {
 	err = d.migrateToAutoIncrementID()
 	if err != nil {
 		log.Printf("⚠️ 迁移自增ID失败: %v", err)
+	}
+
+	// 🔒 添加 UNIQUE 約束防止重複配置
+	uniqueConstraints := []string{
+		// ai_models: 同一用戶不能有重複的 model_id
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_models_user_model
+		 ON ai_models(user_id, model_id)`,
+
+		// exchanges: 同一用戶不能有重複的 exchange_id
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_exchanges_user_exchange
+		 ON exchanges(user_id, exchange_id)`,
+	}
+
+	for _, query := range uniqueConstraints {
+		if _, err := d.db.Exec(query); err != nil {
+			log.Printf("⚠️ 創建唯一索引失敗（可能已存在）: %v", err)
+			// 不返回錯誤，因為索引可能已存在
+		}
 	}
 
 	return nil
@@ -1259,6 +1291,9 @@ func (d *Database) GetAIModels(userID string) ([]*AIModelConfig, error) {
 
 // UpdateAIModel 更新AI模型配置，如果不存在则创建用户特定配置
 func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, customAPIURL, customModelName string) error {
+	log.Printf("🔧 [AI Model] UpdateAIModel 開始: userID=%s, id=%s, enabled=%v, apiKeyLen=%d, customURL=%s, customModelName=%s",
+		userID, id, enabled, len(apiKey), customAPIURL, customModelName)
+
 	// 檢查表結構，判斷是否已遷移到自增ID結構
 	var hasModelIDColumn int
 	err := d.db.QueryRow(`
@@ -1266,13 +1301,19 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 		WHERE name = 'model_id'
 	`).Scan(&hasModelIDColumn)
 	if err != nil {
+		log.Printf("❌ [AI Model] 檢查表結構失敗: %v", err)
 		return fmt.Errorf("检查ai_models表结构失败: %w", err)
 	}
+	log.Printf("   表結構檢查: hasModelIDColumn=%d (1=新結構, 0=舊結構)", hasModelIDColumn)
 
 	encryptedAPIKey := d.encryptSensitiveData(apiKey)
+	if apiKey != "" && encryptedAPIKey == "" {
+		log.Printf("⚠️  [AI Model] API Key 加密後為空！原始長度=%d", len(apiKey))
+	}
 
 	if hasModelIDColumn > 0 {
 		// ===== 新結構：有 model_id 列 =====
+		log.Printf("   使用新結構邏輯（有 model_id 列）")
 		// 先尝试精确匹配 model_id
 		var existingModelID string
 		err = d.db.QueryRow(`
@@ -1281,12 +1322,20 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 
 		if err == nil {
 			// 找到了现有配置，更新它
-			_, err = d.db.Exec(`
+			log.Printf("✓ [AI Model] 找到現有配置（model_id匹配）: %s, 執行更新", existingModelID)
+			result, err := d.db.Exec(`
 				UPDATE ai_models SET enabled = ?, api_key = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
 				WHERE model_id = ? AND user_id = ?
 			`, enabled, encryptedAPIKey, customAPIURL, customModelName, existingModelID, userID)
-			return err
+			if err != nil {
+				log.Printf("❌ [AI Model] 更新失敗: %v", err)
+				return err
+			}
+			rowsAffected, _ := result.RowsAffected()
+			log.Printf("✅ [AI Model] 更新成功，影響行數: %d", rowsAffected)
+			return nil
 		}
+		log.Printf("   未找到 model_id 精確匹配，嘗試 provider 匹配...")
 
 		// model_id 不存在，尝试通过 provider 查找（兼容舊邏輯）
 		provider := id
@@ -1296,12 +1345,18 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 
 		if err == nil {
 			// 找到了现有配置（通过 provider 匹配），更新它
-			log.Printf("⚠️  使用旧版 provider 匹配更新模型: %s -> %s", provider, existingModelID)
+			// 🔧 同時修正 model_id 為正確格式（從 "user123_deepseek" → "deepseek"）
+			log.Printf("⚠️  使用旧版 provider 匹配更新模型: %s -> %s，同時修正 model_id 為: %s", provider, existingModelID, id)
 			_, err = d.db.Exec(`
-				UPDATE ai_models SET enabled = ?, api_key = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
+				UPDATE ai_models SET model_id = ?, enabled = ?, api_key = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
 				WHERE model_id = ? AND user_id = ?
-			`, enabled, encryptedAPIKey, customAPIURL, customModelName, existingModelID, userID)
-			return err
+			`, id, enabled, encryptedAPIKey, customAPIURL, customModelName, existingModelID, userID)
+			if err != nil {
+				log.Printf("❌ [AI Model] 更新並修正 model_id 失敗: %v", err)
+				return err
+			}
+			log.Printf("✅ [AI Model] 已自動修正舊格式 model_id: %s → %s", existingModelID, id)
+			return nil
 		}
 
 		// 没有找到任何现有配置，创建新的
@@ -1319,17 +1374,23 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 			name = "Qwen AI"
 		}
 
+		// 🔧 修復：直接使用 id 作為 model_id，不生成新的 ID
+		// 這樣與前端發送的 provider 保持一致（如 "deepseek", "openai"）
+		// 下次更新時才能正確找到記錄
 		newModelID := id
-		if id == provider {
-			newModelID = fmt.Sprintf("%s_%s", userID, provider)
-		}
 
 		log.Printf("✓ 创建新的 AI 模型配置: ID=%s, Provider=%s, Name=%s", newModelID, provider, name)
-		_, err = d.db.Exec(`
+		result, err := d.db.Exec(`
 			INSERT INTO ai_models (model_id, user_id, name, provider, enabled, api_key, custom_api_url, custom_model_name, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
 		`, newModelID, userID, name, provider, enabled, encryptedAPIKey, customAPIURL, customModelName)
-		return err
+		if err != nil {
+			log.Printf("❌ [AI Model] 創建新配置失敗: %v", err)
+			return err
+		}
+		rowsAffected, _ := result.RowsAffected()
+		log.Printf("✅ [AI Model] 創建新配置成功，影響行數: %d", rowsAffected)
+		return nil
 
 	} else {
 		// ===== 舊結構：沒有 model_id 列，id 是 TEXT PRIMARY KEY =====
@@ -1355,6 +1416,10 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 
 		if err == nil {
 			// 找到了现有配置（通过 provider 匹配），更新它
+			// ⚠️  舊結構中 id 是 TEXT PRIMARY KEY，無法安全修改
+			// 保持現有 id，功能仍可正常使用（每次通過 provider 匹配）
+			log.Printf("⚠️  [舊結構] 使用 provider 匹配更新模型: %s (id=%s)", id, existingID)
+			log.Printf("    建議：執行數據庫遷移腳本升級到新結構")
 			_, err = d.db.Exec(`
 				UPDATE ai_models SET enabled = ?, api_key = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
 				WHERE id = ? AND user_id = ?
@@ -1689,14 +1754,14 @@ func (d *Database) UpdateTrader(trader *TraderRecord) error {
 		UPDATE traders SET
 			name = ?, ai_model_id = ?, exchange_id = ?,
 			scan_interval_minutes = ?, btc_eth_leverage = ?, altcoin_leverage = ?,
-			trading_symbols = ?, custom_prompt = ?, override_base_prompt = ?,
+			trading_symbols = ?, use_coin_pool = ?, use_oi_top = ?, custom_prompt = ?, override_base_prompt = ?,
 			system_prompt_template = ?, is_cross_margin = ?, taker_fee_rate = ?, maker_fee_rate = ?,
 			order_strategy = ?, limit_price_offset = ?, limit_timeout_seconds = ?, timeframes = ?,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND user_id = ?
 	`, trader.Name, trader.AIModelID, trader.ExchangeID,
 		trader.ScanIntervalMinutes, trader.BTCETHLeverage, trader.AltcoinLeverage,
-		trader.TradingSymbols, trader.CustomPrompt, trader.OverrideBasePrompt,
+		trader.TradingSymbols, trader.UseCoinPool, trader.UseOITop, trader.CustomPrompt, trader.OverrideBasePrompt,
 		trader.SystemPromptTemplate, trader.IsCrossMargin, trader.TakerFeeRate, trader.MakerFeeRate,
 		trader.OrderStrategy, trader.LimitPriceOffset, trader.LimitTimeoutSeconds, trader.Timeframes,
 		trader.ID, trader.UserID)
@@ -1845,29 +1910,61 @@ func (d *Database) UpdateUserSignalSource(userID, coinPoolURL, oiTopURL string) 
 
 // GetCustomCoins 获取所有交易员自定义币种 / Get all trader-customized currencies
 func (d *Database) GetCustomCoins() []string {
-	var symbol string
+	rows, err := d.db.Query(`
+		SELECT trading_symbols FROM traders
+		WHERE trading_symbols IS NOT NULL AND TRIM(trading_symbols) != '' AND is_running = 1
+	`)
+	if err != nil {
+		log.Printf("⚠️ 查询 trader 自定义币种失败: %v", err)
+		return d.getDefaultCoins()
+	}
+	defer rows.Close()
+
+	symbolSet := make(map[string]struct{})
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			continue
+		}
+		for _, token := range strings.Split(raw, ",") {
+			coin := strings.TrimSpace(token)
+			if coin == "" {
+				continue
+			}
+			normalized := market.Normalize(coin)
+			if normalized == "" {
+				continue
+			}
+			symbolSet[normalized] = struct{}{}
+		}
+	}
+
+	if len(symbolSet) == 0 {
+		return d.getDefaultCoins()
+	}
+
+	symbols := make([]string, 0, len(symbolSet))
+	for s := range symbolSet {
+		symbols = append(symbols, s)
+	}
+	slices.Sort(symbols)
+	return symbols
+}
+
+func (d *Database) getDefaultCoins() []string {
 	var symbols []string
-	_ = d.db.QueryRow(`
-		SELECT GROUP_CONCAT(custom_coins , ',') as symbol
-		FROM main.traders where custom_coins != ''
-	`).Scan(&symbol)
-	// 检测用户是否未配置币种 - 兼容性
-	if symbol == "" {
-		symbolJSON, _ := d.GetSystemConfig("default_coins")
+	symbolJSON, _ := d.GetSystemConfig("default_coins")
+	if symbolJSON != "" {
 		if err := json.Unmarshal([]byte(symbolJSON), &symbols); err != nil {
 			log.Printf("⚠️  解析default_coins配置失败: %v，使用硬编码默认值", err)
 			symbols = []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
 		}
 	}
-	// filter Symbol
-	for _, s := range strings.Split(symbol, ",") {
-		if s == "" {
-			continue
-		}
-		coin := market.Normalize(s)
-		if !slices.Contains(symbols, coin) {
-			symbols = append(symbols, coin)
-		}
+	if len(symbols) == 0 {
+		symbols = []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
+	}
+	for i, coin := range symbols {
+		symbols[i] = market.Normalize(coin)
 	}
 	return symbols
 }
@@ -2187,5 +2284,133 @@ func (d *Database) cleanupLegacyColumns() error {
 	}
 
 	log.Printf("✅ Successfully cleaned up legacy _old columns")
+	return nil
+}
+
+// checkDataIntegrity 檢查數據庫完整性（外鍵約束）
+// 這個函數在啟動時執行，檢測並報告孤立的記錄
+// 不會中斷啟動，只記錄警告信息
+func (d *Database) checkDataIntegrity() error {
+	log.Printf("🔍 [啟動檢查] 開始數據庫完整性檢查...")
+
+	var totalIssues int
+
+	// 1. 檢查孤立的 traders（引用不存在的 exchange_id）
+	var orphanedTradersCount int
+	err := d.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM traders t
+		WHERE NOT EXISTS (
+			SELECT 1 FROM exchanges e WHERE e.id = t.exchange_id
+		)
+	`).Scan(&orphanedTradersCount)
+	if err != nil {
+		log.Printf("⚠️  [完整性檢查] 檢查孤立 traders 失敗: %v", err)
+	} else if orphanedTradersCount > 0 {
+		totalIssues += orphanedTradersCount
+		log.Printf("⚠️  [完整性檢查] 發現 %d 個 traders 引用不存在的交易所", orphanedTradersCount)
+
+		// 列出前 5 個孤立的 traders
+		rows, err := d.db.Query(`
+			SELECT t.id, t.name, t.exchange_id
+			FROM traders t
+			WHERE NOT EXISTS (
+				SELECT 1 FROM exchanges e WHERE e.id = t.exchange_id
+			)
+			LIMIT 5
+		`)
+		if err == nil {
+			defer rows.Close()
+			log.Printf("    示例（前5個）：")
+			for rows.Next() {
+				var id, name string
+				var exchangeID int
+				if err := rows.Scan(&id, &name, &exchangeID); err == nil {
+					log.Printf("      - Trader '%s' (ID=%s) → 缺失的 exchange_id=%d", name, id, exchangeID)
+				}
+			}
+		}
+
+		log.Printf("    💡 修復方法：docker exec -it nofx-api-1 bash -c 'cd /app/scripts && ./fix_missing_exchange_references.sh'")
+	}
+
+	// 2. 檢查孤立的 traders（引用不存在的 ai_model_id）
+	var orphanedTradersAICount int
+	err = d.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM traders t
+		WHERE NOT EXISTS (
+			SELECT 1 FROM ai_models a WHERE a.id = t.ai_model_id
+		)
+	`).Scan(&orphanedTradersAICount)
+	if err != nil {
+		log.Printf("⚠️  [完整性檢查] 檢查孤立 traders (AI模型) 失敗: %v", err)
+	} else if orphanedTradersAICount > 0 {
+		totalIssues += orphanedTradersAICount
+		log.Printf("⚠️  [完整性檢查] 發現 %d 個 traders 引用不存在的 AI 模型", orphanedTradersAICount)
+
+		rows, err := d.db.Query(`
+			SELECT t.id, t.name, t.ai_model_id
+			FROM traders t
+			WHERE NOT EXISTS (
+				SELECT 1 FROM ai_models a WHERE a.id = t.ai_model_id
+			)
+			LIMIT 5
+		`)
+		if err == nil {
+			defer rows.Close()
+			log.Printf("    示例（前5個）：")
+			for rows.Next() {
+				var id, name string
+				var aiModelID int
+				if err := rows.Scan(&id, &name, &aiModelID); err == nil {
+					log.Printf("      - Trader '%s' (ID=%s) → 缺失的 ai_model_id=%d", name, id, aiModelID)
+				}
+			}
+		}
+	}
+
+	// 3. 檢查孤立的 exchanges（引用不存在的 user_id）
+	var orphanedExchangesCount int
+	err = d.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM exchanges e
+		WHERE e.user_id != 'default' AND NOT EXISTS (
+			SELECT 1 FROM users u WHERE u.id = e.user_id
+		)
+	`).Scan(&orphanedExchangesCount)
+	if err != nil {
+		log.Printf("⚠️  [完整性檢查] 檢查孤立 exchanges 失敗: %v", err)
+	} else if orphanedExchangesCount > 0 {
+		totalIssues += orphanedExchangesCount
+		log.Printf("⚠️  [完整性檢查] 發現 %d 個 exchanges 引用不存在的用戶", orphanedExchangesCount)
+	}
+
+	// 4. 檢查孤立的 ai_models（引用不存在的 user_id）
+	var orphanedAIModelsCount int
+	err = d.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM ai_models a
+		WHERE a.user_id != 'default' AND NOT EXISTS (
+			SELECT 1 FROM users u WHERE u.id = a.user_id
+		)
+	`).Scan(&orphanedAIModelsCount)
+	if err != nil {
+		log.Printf("⚠️  [完整性檢查] 檢查孤立 ai_models 失敗: %v", err)
+	} else if orphanedAIModelsCount > 0 {
+		totalIssues += orphanedAIModelsCount
+		log.Printf("⚠️  [完整性檢查] 發現 %d 個 AI 模型引用不存在的用戶", orphanedAIModelsCount)
+	}
+
+	// 總結
+	if totalIssues == 0 {
+		log.Printf("✅ [完整性檢查] 數據庫完整性良好，沒有發現孤立記錄")
+	} else {
+		log.Printf("⚠️  [完整性檢查] 共發現 %d 個完整性問題", totalIssues)
+		log.Printf("    注意：這些問題不會影響系統啟動，但建議盡快修復")
+		log.Printf("    💡 新的外鍵約束已啟用，未來不會再出現這類問題")
+	}
+
+	// 不中斷啟動，只記錄警告
 	return nil
 }

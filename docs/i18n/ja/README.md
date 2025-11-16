@@ -4,9 +4,14 @@
 [![React](https://img.shields.io/badge/React-18+-61DAFB?style=flat&logo=react)](https://reactjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=flat&logo=typescript)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Backed by Amber.ac](https://img.shields.io/badge/Backed%20by-Amber.ac-orange.svg)](https://amber.ac)
 
 **言語:** [English](../../../README.md) | [中文](../zh-CN/README.md) | [Українська](../uk/README.md) | [Русский](../ru/README.md) | [日本語](README.md)
+
+---
+
+> 📢 **コミュニティ駆動版**: これは独立してメンテナンスされている、コミュニティ駆動型のNOFXバージョンです。安定性、ユーザーエクスペリエンス、コミュニティのニーズに焦点を当てています。
+>
+> **オリジナルプロジェクト**: [nofxaios/nofx](https://github.com/nofxaios/nofx)
 
 ---
 
@@ -47,18 +52,6 @@
 - **ユニバーサルデータ＆バックテストレイヤー**: クロスマーケット、クロスタイムフレーム、クロス取引所の統一表現とファクターライブラリにより、転移可能な「戦略メモリ」を蓄積
 - **マルチエージェント自己対戦＆自己進化**: 戦略が自動的に競争し、最適なものを選択、アカウントレベルのPnLとリスク制約に基づいて継続的に反復
 - **統合実行＆リスク管理**: 低レイテンシルーティング、スリッページ/リスク管理サンドボックス、アカウントレベルの制限、ワンクリック市場切り替え
-
-### 🏢 [Amber.ac](https://amber.ac)の支援
-
-### 👥 コアチーム
-
-- **Tinkle** - [@Web3Tinkle](https://x.com/Web3Tinkle)
-
-### 💼 シードラウンド募集中
-
-現在、**シードラウンド**の資金調達を行っています。
-
-**投資に関するお問い合わせ**は、TwitterでTinkleにDMをお送りください。
 
 ---
 
@@ -270,7 +263,7 @@ nofx/
 
 このシステムを使用する前に、Binance先物アカウントが必要です。**紹介リンクを使用して取引手数料を節約しましょう：**
 
-**🎁 [Binance登録 - 手数料割引を取得](https://www.binance.com/join?ref=TINKLEVIP)**
+**🎁 [Binance登録 - 手数料割引を取得](https://www.binance.com/join?ref=SA020XCM)**
 
 ### 登録手順：
 
@@ -378,7 +371,7 @@ sudo apt-get install libta-lib0-dev
 ### 2. プロジェクトをクローン
 
 ```bash
-git clone https://github.com/tinkle-community/nofx.git
+git clone https://github.com/the-dev-z/nofx.git
 cd nofx
 ```
 
@@ -527,7 +520,7 @@ cp config.json.example config.json
 
 1. **紹介リンクでHyperliquidにアクセス**（特典を獲得！）：
 
-   **🎁 [Hyperliquid登録 - AITRADINGに参加](https://app.hyperliquid.xyz/join/AITRADING)**
+   **🎁 [Hyperliquid登録 - AITRADINGに参加](https://app.hyperliquid.xyz/join/NOFXAI)**
 
 2. **ウォレットを接続**：
    - 右上の「ウォレット接続」をクリック
@@ -1415,7 +1408,7 @@ IssueとPull Requestを歓迎します！
 
 
 ### 🐛 技術サポート
-- **GitHub Issues**: [Issueを提出](https://github.com/tinkle-community/nofx/issues)
+- **GitHub Issues**: [Issueを提出](https://github.com/the-dev-z/nofx/issues)
 - **開発者コミュニティ**: [Telegramグループ](https://t.me/nofx_dev_community)
 
 ---
@@ -1433,9 +1426,3 @@ IssueとPull Requestを歓迎します！
 **最終更新**: 2025-10-29（v2.0.3）
 
 **⚡ AIの力で量的取引の可能性を探求しましょう！**
-
----
-
-## ⭐ Star履歴
-
-[![Star履歴チャート](https://api.star-history.com/svg?repos=tinkle-community/nofx&type=Date)](https://star-history.com/#tinkle-community/nofx&Date)

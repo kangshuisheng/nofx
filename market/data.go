@@ -25,74 +25,139 @@ var (
 	frCacheTTL     = 1 * time.Hour
 )
 
-// Get 获取指定代币的市场数据
-func Get(symbol string) (*Data, error) {
-	var klines3m, klines15m, klines1h, klines4h, klines1d []Kline
+// Get 获取指定代币的市场数据（支持动态时间线选择）
+// timeframes: 可选参数，指定需要获取的时间线列表，如 []string{"1m", "15m", "1h", "4h"}
+// 如果为空或nil，默认使用 ["15m", "1h", "4h"]
+func Get(symbol string, timeframes []string) (*Data, error) {
+	var klines1m, klines3m, klines5m, klines15m, klines1h, klines4h, klines1d []Kline
 	var err error
 	// 标准化symbol
 	symbol = Normalize(symbol)
 
-	// 获取3分钟K线数据 (最近10个)
-	klines3m, err = WSMonitorCli.GetCurrentKlines(symbol, "3m")
-	if err != nil {
-		return nil, fmt.Errorf("获取3分钟K线失败: %v", err)
+	// 设置默认时间线（如果未指定）
+	if len(timeframes) == 0 {
+		timeframes = []string{"15m", "1h", "4h"}
+		log.Printf("⚠️  %s 未指定时间线，使用默认值: %v", symbol, timeframes)
+	}
+
+	// 创建时间线查找映射（提高查找效率）
+	tfMap := make(map[string]bool)
+	for _, tf := range timeframes {
+		tfMap[tf] = true
+	}
+
+	// 确定最短时间线（用于计算当前价格和指标）
+	shortestTF := ""
+	tfPriority := []string{"1m", "3m", "5m", "15m", "1h", "4h", "1d"}
+	for _, tf := range tfPriority {
+		if tfMap[tf] {
+			shortestTF = tf
+			break
+		}
+	}
+
+	// 如果没有找到任何短期时间线，使用3m作为默认（兼容旧行为）
+	if shortestTF == "" {
+		shortestTF = "3m"
+		log.Printf("⚠️  %s 未配置任何时间线，使用3m作为默认短期时间线", symbol)
+	}
+
+	// 获取短期K线数据（用于当前价格和指标计算）
+	var shortKlines []Kline
+	switch shortestTF {
+	case "1m":
+		klines1m, err = WSMonitorCli.GetCurrentKlines(symbol, "1m")
+		if err != nil {
+			return nil, fmt.Errorf("获取1分钟K线失败: %v", err)
+		}
+		shortKlines = klines1m
+	case "3m":
+		klines3m, err = WSMonitorCli.GetCurrentKlines(symbol, "3m")
+		if err != nil {
+			return nil, fmt.Errorf("获取3分钟K线失败: %v", err)
+		}
+		shortKlines = klines3m
+	case "5m":
+		klines5m, err = WSMonitorCli.GetCurrentKlines(symbol, "5m")
+		if err != nil {
+			return nil, fmt.Errorf("获取5分钟K线失败: %v", err)
+		}
+		shortKlines = klines5m
+	default:
+		// 如果最短时间线是15m或更长，也获取一个短期数据用于stale检测
+		klines3m, err = WSMonitorCli.GetCurrentKlines(symbol, "3m")
+		if err != nil {
+			return nil, fmt.Errorf("获取3分钟K线失败: %v", err)
+		}
+		shortKlines = klines3m
 	}
 
 	// Data staleness detection: Prevent DOGEUSDT-style price freeze issues (PR #800)
-	if isStaleData(klines3m, symbol) {
+	if isStaleData(shortKlines, symbol) {
 		log.Printf("⚠️  WARNING: %s detected stale data (consecutive price freeze), skipping symbol", symbol)
 		return nil, fmt.Errorf("%s data is stale, possible cache failure", symbol)
 	}
 
-	// 获取15分钟K线数据 (最近40个) - 短期趋势 (PR #798)
-	klines15m, err = WSMonitorCli.GetCurrentKlines(symbol, "15m")
-	if err != nil {
-		return nil, fmt.Errorf("获取15分钟K线失败: %v", err)
+	// 根据配置获取其他时间线数据
+	if tfMap["15m"] && len(klines15m) == 0 {
+		klines15m, err = WSMonitorCli.GetCurrentKlines(symbol, "15m")
+		if err != nil {
+			return nil, fmt.Errorf("获取15分钟K线失败: %v", err)
+		}
 	}
 
-	// 获取1小时K线数据 (最近60个) - 中期趋势 (PR #798)
-	klines1h, err = WSMonitorCli.GetCurrentKlines(symbol, "1h")
-	if err != nil {
-		return nil, fmt.Errorf("获取1小时K线失败: %v", err)
+	if tfMap["1h"] && len(klines1h) == 0 {
+		klines1h, err = WSMonitorCli.GetCurrentKlines(symbol, "1h")
+		if err != nil {
+			return nil, fmt.Errorf("获取1小时K线失败: %v", err)
+		}
 	}
 
-	// 获取4小时K线数据 (最近60个) - 长期趋势
-	klines4h, err = WSMonitorCli.GetCurrentKlines(symbol, "4h")
-	if err != nil {
-		return nil, fmt.Errorf("获取4小时K线失败: %v", err)
+	if tfMap["4h"] {
+		klines4h, err = WSMonitorCli.GetCurrentKlines(symbol, "4h")
+		if err != nil {
+			return nil, fmt.Errorf("获取4小时K线失败: %v", err)
+		}
+		// P0修复：检查 4h 数据完整性（如果用户选择了4h）
+		if len(klines4h) == 0 {
+			log.Printf("⚠️  WARNING: %s 缺少 4h K线数据，无法进行多周期趋势确认", symbol)
+			return nil, fmt.Errorf("%s 缺少 4h K线数据", symbol)
+		}
 	}
 
-	// P0修复：检查 4h 数据完整性（多周期趋势确认必需）
-	if len(klines4h) == 0 {
-		log.Printf("⚠️  WARNING: %s 缺少 4h K线数据，无法进行多周期趋势确认", symbol)
-		return nil, fmt.Errorf("%s 缺少 4h K线数据", symbol)
+	if tfMap["1d"] {
+		klines1d, err = WSMonitorCli.GetCurrentKlines(symbol, "1d")
+		if err != nil {
+			log.Printf("⚠️  WARNING: %s 获取日线K线失败: %v，将继续处理但缺少日线数据", symbol, err)
+			klines1d = nil // 日线数据失败不影响整体流程
+		}
 	}
 
-	// 获取日线K线数据 (最近90个) - 极长期趋势和极端位置判断
-	klines1d, err = WSMonitorCli.GetCurrentKlines(symbol, "1d")
-	if err != nil {
-		log.Printf("⚠️  WARNING: %s 获取日线K线失败: %v，将继续处理但缺少日线数据", symbol, err)
-		klines1d = nil // 日线数据失败不影响整体流程
-	}
+	// 计算当前指标 (基于最短时间线的最新数据)
+	currentPrice := shortKlines[len(shortKlines)-1].Close
+	currentEMA20 := calculateEMA(shortKlines, 20)
+	currentMACD := calculateMACD(shortKlines)
+	currentRSI7 := calculateRSI(shortKlines, 7)
 
-	// 计算当前指标 (基于3分钟最新数据)
-	currentPrice := klines3m[len(klines3m)-1].Close
-	currentEMA20 := calculateEMA(klines3m, 20)
-	currentMACD := calculateMACD(klines3m)
-	currentRSI7 := calculateRSI(klines3m, 7)
-
-	// 计算价格变化百分比
-	// 1小时价格变化 = 20个3分钟K线前的价格
+	// 计算价格变化百分比（基于可用数据）
 	priceChange1h := 0.0
-	if len(klines3m) >= 21 { // 至少需要21根K线 (当前 + 20根前)
-		price1hAgo := klines3m[len(klines3m)-21].Close
+	priceChange4h := 0.0
+
+	// 1小时价格变化：优先使用1h数据，其次用短期数据推算
+	if len(klines1h) >= 2 {
+		price1hAgo := klines1h[len(klines1h)-2].Close
+		if price1hAgo > 0 {
+			priceChange1h = ((currentPrice - price1hAgo) / price1hAgo) * 100
+		}
+	} else if shortestTF == "3m" && len(shortKlines) >= 21 {
+		// 20个3分钟K线 = 1小时
+		price1hAgo := shortKlines[len(shortKlines)-21].Close
 		if price1hAgo > 0 {
 			priceChange1h = ((currentPrice - price1hAgo) / price1hAgo) * 100
 		}
 	}
 
-	// 4小时价格变化 = 1个4小时K线前的价格
-	priceChange4h := 0.0
+	// 4小时价格变化：使用4h数据
 	if len(klines4h) >= 2 {
 		price4hAgo := klines4h[len(klines4h)-2].Close
 		if price4hAgo > 0 {
@@ -117,20 +182,38 @@ func Get(symbol string) (*Data, error) {
 	// 获取Funding Rate
 	fundingRate, _ := getFundingRate(symbol)
 
-	// 计算日内系列数据 (3分钟)
-	intradayData := calculateIntradaySeries(klines3m)
-
-	// 计算15分钟系列数据
-	midTermData15m := calculateMidTermSeries15m(klines15m)
-
-	// 计算1小时系列数据
-	midTermData1h := calculateMidTermSeries1h(klines1h)
-
-	// 计算长期数据 (4小时)
-	longerTermData := calculateLongerTermData(klines4h)
-
-	// 计算日线数据（如果可用）
+	// ✅ 条件性计算时间线数据（只计算用户选择的时间线）
+	var intradayData *IntradayData
+	var midTermData15m *MidTermData15m
+	var midTermData1h *MidTermData1h
+	var longerTermData *LongerTermData
 	var dailyData *DailyData
+
+	// 计算日内系列数据 (1m/3m/5m)
+	if len(klines1m) > 0 {
+		intradayData = calculateIntradaySeries(klines1m)
+	} else if len(klines3m) > 0 {
+		intradayData = calculateIntradaySeries(klines3m)
+	} else if len(klines5m) > 0 {
+		intradayData = calculateIntradaySeries(klines5m)
+	}
+
+	// 计算15分钟系列数据（如果用户选择了15m）
+	if len(klines15m) > 0 {
+		midTermData15m = calculateMidTermSeries15m(klines15m)
+	}
+
+	// 计算1小时系列数据（如果用户选择了1h）
+	if len(klines1h) > 0 {
+		midTermData1h = calculateMidTermSeries1h(klines1h)
+	}
+
+	// 计算长期数据 (4小时，如果用户选择了4h)
+	if len(klines4h) > 0 {
+		longerTermData = calculateLongerTermData(klines4h)
+	}
+
+	// 计算日线数据（如果用户选择了1d）
 	if len(klines1d) > 0 {
 		dailyData = calculateDailyData(klines1d)
 	}

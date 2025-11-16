@@ -160,10 +160,12 @@ export const translations = {
     quickStart: 'Quick Start',
     quickStartSubtitle: 'Complete the steps below to start using AI traders',
     quickStartStep1Title: 'Configure AI Model',
-    step1Description: 'Choose an AI model (OpenAI, DeepSeek, Qwen, Claude) to power your trading decisions',
+    step1Description:
+      'Choose an AI model (OpenAI, DeepSeek, Qwen, Claude) to power your trading decisions',
     step1Completed: 'Configured',
     quickStartStep2Title: 'Connect Exchange',
-    step2Description: 'Link your exchange account (Binance, OKX, Bybit) to execute trades',
+    step2Description:
+      'Link your exchange account (Binance, OKX, Bybit) to execute trades',
     step2Completed: 'Configured',
     quickStartStep3Title: 'Create AI Trader',
     step3Description: 'Complete steps 1 and 2 to enable trader creation',
@@ -187,8 +189,10 @@ export const translations = {
     configureAIModels: 'Configure AI Models',
     configureExchanges: 'Configure Exchanges',
     aiScanInterval: 'AI Scan Decision Interval (minutes)',
-    scanIntervalRecommend: 'Minimum: 1 minute, Default: 2 minutes, Recommended: 2-10 minutes',
-    scanIntervalCostWarning: 'Shorter scan intervals significantly increase AI API call frequency and costs (approximately 3x compared to 3-minute intervals). Recommended for testing or high-frequency strategies only.',
+    scanIntervalRecommend:
+      'Minimum: 1 minute, Default: 2 minutes, Recommended: 2-10 minutes',
+    scanIntervalCostWarning:
+      'Shorter scan intervals significantly increase AI API call frequency and costs (approximately 3x compared to 3-minute intervals). Recommended for testing or high-frequency strategies only.',
     useTestnet: 'Use Testnet',
     enabled: 'Enabled',
     save: 'Save',
@@ -218,8 +222,7 @@ export const translations = {
     enterPassphrase: 'Enter Passphrase (Required for OKX)',
     hyperliquidPrivateKeyDesc:
       'Hyperliquid uses API key for trading authentication',
-    hyperliquidWalletAddressDesc:
-      'Wallet address corresponding to the API key',
+    hyperliquidWalletAddressDesc: 'Wallet address corresponding to the API key',
     // Hyperliquid Agent Wallet (New Security Model)
     hyperliquidAgentWalletTitle: 'Hyperliquid API Wallet Configuration',
     hyperliquidAgentWalletDesc:
@@ -857,7 +860,8 @@ export const translations = {
       stage1InputLabel: 'First Part',
       stage2InputLabel: 'Second Part',
       characters: 'characters',
-      helpText: '💡 Enter {length} hex chars (without 0x) or {totalWithPrefix} chars (with 0x)',
+      helpText:
+        '💡 Enter {length} hex chars (without 0x) or {totalWithPrefix} chars (with 0x)',
       processing: 'Processing...',
       nextButton: 'Next',
       cancelButton: 'Cancel',
@@ -1035,7 +1039,8 @@ export const translations = {
     quickStart: '快速开始',
     quickStartSubtitle: '完成以下步骤开始使用 AI 交易员',
     quickStartStep1Title: '配置 AI 模型',
-    step1Description: '选择一个 AI 模型（OpenAI、DeepSeek、Qwen、Claude）来驱动您的交易决策',
+    step1Description:
+      '选择一个 AI 模型（OpenAI、DeepSeek、Qwen、Claude）来驱动您的交易决策',
     step1Completed: '已配置',
     quickStartStep2Title: '连接交易所',
     step2Description: '连接您的交易所账户（Binance、OKX、Bybit）以执行交易',
@@ -1063,7 +1068,8 @@ export const translations = {
     configureExchanges: '配置交易所',
     aiScanInterval: 'AI 扫描决策间隔 (分钟)',
     scanIntervalRecommend: '最低1分钟，默认2分钟，建议: 2-10分钟',
-    scanIntervalCostWarning: '更短的扫描间隔会显著增加 AI API 调用频率和成本（约为 3 分钟间隔的 3 倍）。建议仅在测试或高频策略时使用。',
+    scanIntervalCostWarning:
+      '更短的扫描间隔会显著增加 AI API 调用频率和成本（约为 3 分钟间隔的 3 倍）。建议仅在测试或高频策略时使用。',
     useTestnet: '使用测试网',
     enabled: '启用',
     save: '保存',
@@ -1366,7 +1372,8 @@ export const translations = {
     signIn: '登录',
     signUp: '注册',
     registrationClosed: '注册已关闭',
-    registrationClosedMessage: '平台当前不开放新用户注册，如需访问请联系管理员获取账号。',
+    registrationClosedMessage:
+      '平台当前不开放新用户注册，如需访问请联系管理员获取账号。',
 
     // Hero Section
     githubStarsInDays: '3 天内 2.5K+ GitHub Stars',
@@ -1677,7 +1684,8 @@ export const translations = {
       stage1InputLabel: '第一部分',
       stage2InputLabel: '第二部分',
       characters: '位字符',
-      helpText: '💡 请输入 {length} 位（不含 0x）或 {totalWithPrefix} 位（含 0x 前缀）',
+      helpText:
+        '💡 请输入 {length} 位（不含 0x）或 {totalWithPrefix} 位（含 0x 前缀）',
       processing: '处理中...',
       nextButton: '下一步',
       cancelButton: '取消',

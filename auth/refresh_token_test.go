@@ -22,8 +22,8 @@ func TestGenerateTokenPair(t *testing.T) {
 	assert.NotNil(t, tokenPair, "Token 对不应为空")
 	assert.NotEmpty(t, tokenPair.AccessToken, "Access Token 不应为空")
 	assert.NotEmpty(t, tokenPair.RefreshToken, "Refresh Token 不应为空")
-	assert.Equal(t, int64(900), tokenPair.ExpiresIn, "Access Token 过期时间应为 15 分钟（900 秒）")
-	assert.Equal(t, int64(604800), tokenPair.RefreshExpiresIn, "Refresh Token 过期时间应为 7 天（604800 秒）")
+	assert.Equal(t, int64(604800), tokenPair.ExpiresIn, "Access Token 过期时间应为 7 天（604800 秒）")
+	assert.Equal(t, int64(2592000), tokenPair.RefreshExpiresIn, "Refresh Token 过期时间应为 30 天（2592000 秒）")
 }
 
 // TestValidateRefreshToken 测试验证 Refresh Token

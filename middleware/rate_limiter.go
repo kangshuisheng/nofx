@@ -83,12 +83,13 @@ func RateLimitMiddleware(limiter *IPRateLimiter) gin.HandlerFunc {
 	}
 }
 
-// AuthRateLimitMiddleware 认证端点专用速率限制 (更严格)
+// AuthRateLimitMiddleware 认证端点专用速率限制 (平衡安全性与用户体验)
 // 用途: 防止暴力破解登录/OTP
-// 限制: 每 10 秒最多 1 次登录尝试
+// 限制: 每 30 秒最多 3 次登录尝试（允许用户纠正输入错误）
 func AuthRateLimitMiddleware() gin.HandlerFunc {
-	// 每 10 秒允许 1 次登录尝试
-	limiter := NewIPRateLimiter(rate.Every(10*time.Second), 1)
+	// 每 30 秒允许 3 次登录尝试
+	// 这允许用户在输错密码/OTP 后有重试机会，同时仍能有效防止暴力破解
+	limiter := NewIPRateLimiter(rate.Every(30*time.Second), 3)
 
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
@@ -97,8 +98,8 @@ func AuthRateLimitMiddleware() gin.HandlerFunc {
 		if !l.Allow() {
 			log.Printf("🚨 [RATE_LIMIT] IP %s 登录尝试频率过高 (认证限制)", ip)
 			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":       "登录尝试次数过多，请 10 秒后重试",
-				"retry_after": 10,
+				"error":       "登录尝试次数过多，请 30 秒后重试",
+				"retry_after": 30,
 			})
 			c.Abort()
 			return

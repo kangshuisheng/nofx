@@ -26,9 +26,13 @@ type AsterTraderTestSuite struct {
 }
 
 // NewAsterTraderTestSuite 创建 Aster 测试套件
+func startIPv4Server(t *testing.T, handler http.Handler) *httptest.Server {
+	return newTestHTTPServer(t, handler)
+}
+
 func NewAsterTraderTestSuite(t *testing.T) *AsterTraderTestSuite {
-	// 创建 mock HTTP 服务器
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// 创建 mock HTTP 服务器（强制IPv4，避免 sandbox 阻止IPv6 回环）
+	mockServer := startIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 根据不同的 URL 路径返回不同的 mock 响应
 		path := r.URL.Path
 
@@ -309,7 +313,7 @@ func TestCancelAllOrdersWithRetry_Success_FirstAttempt(t *testing.T) {
 	callCount := 0
 
 	// 创建 mock server：第一次就成功
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
 			callCount++
@@ -345,7 +349,7 @@ func TestCancelAllOrdersWithRetry_Success_SecondAttempt(t *testing.T) {
 	callCount := 0
 
 	// Mock：第一次失败，第二次成功
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
 			callCount++
@@ -393,7 +397,7 @@ func TestCancelAllOrdersWithRetry_Success_SecondAttempt(t *testing.T) {
 func TestCancelAllOrdersWithRetry_Success_ThirdAttempt(t *testing.T) {
 	callCount := 0
 
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
 			callCount++
@@ -439,7 +443,7 @@ func TestCancelAllOrdersWithRetry_Success_ThirdAttempt(t *testing.T) {
 func TestCancelAllOrdersWithRetry_AllFailed(t *testing.T) {
 	callCount := 0
 
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
 			callCount++
@@ -477,7 +481,7 @@ func TestCancelAllOrdersWithRetry_AllFailed(t *testing.T) {
 func TestCancelAllOrdersWithRetry_RetryIntervals(t *testing.T) {
 	var timestamps []time.Time
 
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
 			timestamps = append(timestamps, time.Now())
@@ -551,7 +555,7 @@ func TestCancelAllOrdersWithRetry_MaxRetries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			callCount := 0
 
-			mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mockServer := startIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				path := r.URL.Path
 				if path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE" {
 					callCount++

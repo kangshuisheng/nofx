@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	baseURL = "https://fapi.binance.com"
+	defaultBaseURL = "https://fapi.binance.com"
 )
+
+var baseURL = defaultBaseURL
 
 type APIClient struct {
 	client *http.Client
@@ -73,6 +75,17 @@ func (c *APIClient) GetKlines(symbol, interval string, limit int) ([]Kline, erro
 				attempt, maxRetries, symbol, err, backoff)
 			time.Sleep(backoff)
 		}
+	}
+
+	// 如果所有重试都失败，尝试从多数据源管理器获取（故障转移）
+	if WSMonitorCli != nil && WSMonitorCli.dsManager != nil {
+		log.Printf("⚠️  Binance API 失败，尝试从多数据源池获取 %s %s 数据...", symbol, interval)
+		klines, err := WSMonitorCli.dsManager.GetKlinesWithFallback(symbol, interval, limit)
+		if err == nil {
+			log.Printf("✅ 故障转移成功：从备用数据源获取 %s %s 数据", symbol, interval)
+			return klines, nil
+		}
+		log.Printf("⚠️  多数据源池也失败: %v", err)
 	}
 
 	return nil, fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
@@ -151,6 +164,11 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// setBaseURLForTesting allows tests to override the Binance API base URL.
+func setBaseURLForTesting(url string) {
+	baseURL = url
 }
 
 func parseKline(kr KlineResponse) (Kline, error) {

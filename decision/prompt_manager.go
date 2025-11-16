@@ -38,10 +38,32 @@ var (
 	promptsDir = "prompts"
 )
 
+// findPromptsDir 智能查找 prompts 目录（支持测试环境）
+// 1. 优先使用当前目录的 prompts/
+// 2. 如果不存在，向上查找父目录（最多 3 层）
+func findPromptsDir() string {
+	// 尝试当前目录
+	if _, err := os.Stat("prompts"); err == nil {
+		return "prompts"
+	}
+
+	// 向上查找父目录（最多 3 层）
+	for i := 1; i <= 3; i++ {
+		parentPath := strings.Repeat("../", i) + "prompts"
+		if _, err := os.Stat(parentPath); err == nil {
+			return parentPath
+		}
+	}
+
+	// 返回默认值（会在 LoadTemplates 中报错）
+	return "prompts"
+}
+
 // init 包初始化时加载所有提示词模板
 func init() {
 	globalPromptManager = NewPromptManager()
-	if err := globalPromptManager.LoadTemplates(promptsDir); err != nil {
+	actualPromptsDir := findPromptsDir()
+	if err := globalPromptManager.LoadTemplates(actualPromptsDir); err != nil {
 		log.Printf("⚠️  加载提示词模板失败: %v", err)
 	} else {
 		log.Printf("✓ 已加载 %d 个系统提示词模板", len(globalPromptManager.templates))

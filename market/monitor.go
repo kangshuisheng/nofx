@@ -26,6 +26,7 @@ type WSMonitor struct {
 	alertsChan      chan Alert
 	klineDataMap1m  sync.Map      // 存储每个交易对的1分钟K线历史数据
 	klineDataMap3m  sync.Map      // 存储每个交易对的3分钟K线历史数据
+	klineDataMap5m  sync.Map      // 存储每个交易对的5分钟K线历史数据
 	klineDataMap15m sync.Map      // 存储每个交易对的15分钟K线历史数据
 	klineDataMap1h  sync.Map      // 存储每个交易对的1小时K线历史数据
 	klineDataMap4h  sync.Map      // 存储每个交易对的4小时K线历史数据
@@ -34,9 +35,10 @@ type WSMonitor struct {
 	oiHistoryMap    sync.Map      // P0修复：存储OI历史数据 map[symbol][]OISnapshot
 	oiStopChan      chan struct{} // P0修复：OI监控停止信号通道
 	batchSize       int
-	filterSymbols   sync.Map // 使用sync.Map来存储需要监控的币种和其状态
-	symbolStats     sync.Map // 存储币种统计信息
-	FilterSymbol    []string //经过筛选的币种
+	filterSymbols   sync.Map           // 使用sync.Map来存储需要监控的币种和其状态
+	symbolStats     sync.Map           // 存储币种统计信息
+	FilterSymbol    []string           //经过筛选的币种
+	dsManager       *DataSourceManager // 多数据源管理器（用于故障转移）
 }
 type SymbolStats struct {
 	LastActiveTime   time.Time
@@ -46,9 +48,16 @@ type SymbolStats struct {
 	Score            float64 // 综合评分
 }
 
+// KlineCacheEntry 带时间戳的K线缓存条目
+// 用于检测数据新鲜度，防止使用过期数据
+type KlineCacheEntry struct {
+	Klines     []Kline   // K线数据
+	ReceivedAt time.Time // 数据接收时间
+}
+
 var WSMonitorCli *WSMonitor
 
-func NewWSMonitor(batchSize int, timeframes []string) *WSMonitor {
+func NewWSMonitor(batchSize int, timeframes []string, dsManager *DataSourceManager) *WSMonitor {
 	// 如果没有指定时间线，使用默认值
 	if len(timeframes) == 0 {
 		timeframes = []string{"15m", "1h", "4h"}
@@ -60,9 +69,18 @@ func NewWSMonitor(batchSize int, timeframes []string) *WSMonitor {
 		alertsChan:     make(chan Alert, 1000),
 		batchSize:      batchSize,
 		timeframes:     timeframes,
+		dsManager:      dsManager, // 设置数据源管理器
 	}
 	log.Printf("📊 WSMonitor 初始化，使用时间线: %v", timeframes)
+	if dsManager != nil {
+		log.Printf("✅ WSMonitor 已连接多数据源管理器（故障转移已启用）")
+	}
 	return WSMonitorCli
+}
+
+// GetDSManager 获取数据源管理器（供其他模块使用，如价格验证）
+func (m *WSMonitor) GetDSManager() *DataSourceManager {
+	return m.dsManager
 }
 
 func (m *WSMonitor) Initialize(coins []string) error {
@@ -174,7 +192,12 @@ func (m *WSMonitor) initializeHistoricalData() error {
 						log.Printf("获取 %s %s历史数据失败: %v", s, tf, err)
 					}
 				} else if len(klines) > 0 {
-					klineDataMap.Store(s, klines)
+					// ✅ 修复类型不一致：使用 KlineCacheEntry 包装
+					entry := &KlineCacheEntry{
+						Klines:     klines,
+						ReceivedAt: time.Now(),
+					}
+					klineDataMap.Store(s, entry)
 					log.Printf("✅ 已加载 %s 的历史K线数据-%s: %d 条", s, tf, len(klines))
 				} else {
 					log.Printf("⚠️  WARNING: %s %s数据为空（API返回成功但无数据）", s, tf)
@@ -295,6 +318,8 @@ func (m *WSMonitor) getKlineDataMap(_time string) *sync.Map {
 		klineDataMap = &m.klineDataMap1m
 	case "3m":
 		klineDataMap = &m.klineDataMap3m
+	case "5m":
+		klineDataMap = &m.klineDataMap5m
 	case "15m":
 		klineDataMap = &m.klineDataMap15m
 	case "1h":
@@ -329,7 +354,20 @@ func (m *WSMonitor) processKlineUpdate(symbol string, wsData KlineWSData, _time 
 	value, exists := klineDataMap.Load(symbol)
 	var klines []Kline
 	if exists {
-		klines = value.([]Kline)
+		// 安全的类型转换，兼容旧版本数据（向后兼容）
+		switch v := value.(type) {
+		case *KlineCacheEntry:
+			// 新版本格式：使用 KlineCacheEntry
+			klines = v.Klines
+		case []Kline:
+			// 旧版本格式：直接是 []Kline（兼容旧数据）
+			klines = v
+			log.Printf("⚠️ 检测到旧格式缓存数据 %s %s，将自动升级", symbol, _time)
+		default:
+			// 未知类型，重新初始化
+			log.Printf("❌ 未知的缓存数据类型 %s %s: %T，重新初始化", symbol, _time, v)
+			klines = []Kline{}
+		}
 
 		// 检查是否是新的K线
 		if len(klines) > 0 && klines[len(klines)-1].OpenTime == kline.OpenTime {
@@ -348,7 +386,12 @@ func (m *WSMonitor) processKlineUpdate(symbol string, wsData KlineWSData, _time 
 		klines = []Kline{kline}
 	}
 
-	klineDataMap.Store(symbol, klines)
+	// 存储时加上接收时间戳
+	entry := &KlineCacheEntry{
+		Klines:     klines,
+		ReceivedAt: time.Now(),
+	}
+	klineDataMap.Store(symbol, entry)
 }
 
 func (m *WSMonitor) GetCurrentKlines(symbol string, duration string) ([]Kline, error) {
@@ -362,8 +405,12 @@ func (m *WSMonitor) GetCurrentKlines(symbol string, duration string) ([]Kline, e
 			return nil, fmt.Errorf("获取%v分钟K线失败: %v", duration, err)
 		}
 
-		// 动态缓存进缓存
-		m.getKlineDataMap(duration).Store(strings.ToUpper(symbol), klines)
+		// 动态缓存进缓存（使用 KlineCacheEntry 包装，加上时间戳）
+		entry := &KlineCacheEntry{
+			Klines:     klines,
+			ReceivedAt: time.Now(),
+		}
+		m.getKlineDataMap(duration).Store(strings.ToUpper(symbol), entry)
 
 		// 订阅 WebSocket 流
 		subStr := m.subscribeSymbol(symbol, duration)
@@ -379,8 +426,44 @@ func (m *WSMonitor) GetCurrentKlines(symbol string, duration string) ([]Kline, e
 		return result, nil
 	}
 
-	// ✅ FIX: 返回深拷贝而非引用，避免并发竞态条件
-	klines := value.([]Kline)
+	// 从缓存读取数据
+	entry := value.(*KlineCacheEntry)
+
+	// ✅ 检查数据新鲜度（防止使用过期数据）
+	// 🔧 P0修复：縮短閾值至 5 分鐘，快速檢測 WebSocket 數據停止
+	// - 3m K线：5分钟 = 不到 2个周期，及时检测问题
+	// - 4h K线：虽然新 K线 4小时才生成，但当前 K线是实时更新的（每秒更新）
+	// 如果 5 分钟內沒有任何更新，WebSocket 很可能已停止工作
+	dataAge := time.Since(entry.ReceivedAt)
+	maxAge := 5 * time.Minute
+
+	if dataAge > maxAge {
+		// ⚠️ 数据过期，记录警告并尝试 API fallback
+		log.Printf("⚠️ %s 的 %s K线数据已过期 (%.1f 分钟)，WebSocket 可能停止工作，尝试 API fallback",
+			symbol, duration, dataAge.Minutes())
+
+		// 🔧 P0修复：數據過期時，嘗試 API fallback（避免 AI 用過期數據決策）
+		apiClient := NewAPIClient()
+		freshKlines, err := apiClient.GetKlines(symbol, duration, 100)
+		if err != nil {
+			return nil, fmt.Errorf("%s 的 %s K线数据已过期且 API fallback 失败: %v", symbol, duration, err)
+		}
+
+		// 更新緩存並返回新數據
+		freshEntry := &KlineCacheEntry{
+			Klines:     freshKlines,
+			ReceivedAt: time.Now(),
+		}
+		m.getKlineDataMap(duration).Store(strings.ToUpper(symbol), freshEntry)
+		log.Printf("✅ %s %s API fallback 成功，已更新緩存 (%d 條數據)", symbol, duration, len(freshKlines))
+
+		result := make([]Kline, len(freshKlines))
+		copy(result, freshKlines)
+		return result, nil
+	}
+
+	// 数据新鲜，返回缓存数据（深拷贝）
+	klines := entry.Klines
 	result := make([]Kline, len(klines))
 	copy(result, klines)
 	return result, nil

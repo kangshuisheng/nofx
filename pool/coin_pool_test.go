@@ -1,11 +1,33 @@
 package pool
 
 import (
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func startPoolTestServer(tb *testing.T, handler http.Handler) *httptest.Server {
+	tb.Helper()
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		ln6, err6 := net.Listen("tcp6", "[::1]:0")
+		if err6 != nil {
+			tb.Skipf("skipping test: unable to start HTTP server (IPv4=%v, IPv6=%v)", err, err6)
+		}
+		ln = ln6
+	}
+	server := &httptest.Server{
+		Listener: ln,
+		Config:   &http.Server{Handler: handler},
+	}
+	server.Start()
+	return server
+}
 
 // TestSetCoinPoolAPI tests setting the coin pool API URL
 func TestSetCoinPoolAPI(t *testing.T) {
@@ -505,4 +527,69 @@ func jsonMarshalIndent(v interface{}, prefix, indent string) ([]byte, error) {
 
 func writeFile(filename string, data []byte, perm os.FileMode) error {
 	return os.WriteFile(filename, data, perm)
+}
+
+func TestGetCoinPoolWithCustomURL(t *testing.T) {
+	server := startPoolTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"success":true,"data":{"coins":[{"pair":"ABCUSDT","score":9,"start_time":0,"start_price":1,"last_score":9,"max_score":9,"max_price":1,"increase_percent":0}]}}`)
+	}))
+	defer server.Close()
+
+	coins, err := GetCoinPoolWithURL(server.URL)
+	if err != nil {
+		t.Fatalf("GetCoinPoolWithURL failed: %v", err)
+	}
+	if len(coins) != 1 {
+		t.Fatalf("expected 1 coin, got %d", len(coins))
+	}
+	if coins[0].Pair != "ABCUSDT" {
+		t.Fatalf("unexpected coin pair %s", coins[0].Pair)
+	}
+	if !coins[0].IsAvailable {
+		t.Fatalf("expected coin to be marked available")
+	}
+}
+
+func TestGetOITopPositionsWithCustomURL(t *testing.T) {
+	server := startPoolTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"success":true,"data":{"positions":[{"symbol":"abcusdt","rank":1,"current_oi":100,"oi_delta":10,"oi_delta_percent":10,"oi_delta_value":1,"price_delta_percent":2,"net_long":5,"net_short":1}],"count":1,"exchange":"binance","time_range":"1h"}}`)
+	}))
+	defer server.Close()
+
+	positions, err := GetOITopPositionsWithURL(server.URL)
+	if err != nil {
+		t.Fatalf("GetOITopPositionsWithURL failed: %v", err)
+	}
+	if len(positions) != 1 {
+		t.Fatalf("expected 1 position, got %d", len(positions))
+	}
+	if positions[0].Symbol != "abcusdt" {
+		t.Fatalf("unexpected symbol %s", positions[0].Symbol)
+	}
+}
+
+func TestGetMergedCoinPoolWithOverride(t *testing.T) {
+	coinServer := startPoolTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"success":true,"data":{"coins":[{"pair":"BTCUSDT","score":5,"start_time":0,"start_price":1,"last_score":5,"max_score":5,"max_price":1,"increase_percent":0},{"pair":"ETHUSDT","score":4,"start_time":0,"start_price":1,"last_score":4,"max_score":4,"max_price":1,"increase_percent":0}]}}`)
+	}))
+	defer coinServer.Close()
+
+	oiServer := startPoolTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"success":true,"data":{"positions":[{"symbol":"BTCUSDT","rank":1,"current_oi":100,"oi_delta":10,"oi_delta_percent":10,"oi_delta_value":1,"price_delta_percent":2,"net_long":5,"net_short":1},{"symbol":"XRPUSDT","rank":2,"current_oi":90,"oi_delta":5,"oi_delta_percent":6,"oi_delta_value":1,"price_delta_percent":1,"net_long":4,"net_short":1}],"count":2,"exchange":"binance","time_range":"1h"}}`)
+	}))
+	defer oiServer.Close()
+
+	merged, err := GetMergedCoinPoolWithOverride(5, coinServer.URL, oiServer.URL)
+	if err != nil {
+		t.Fatalf("GetMergedCoinPoolWithOverride failed: %v", err)
+	}
+
+	if len(merged.AllSymbols) != 3 {
+		t.Fatalf("expected 3 merged symbols, got %d (%v)", len(merged.AllSymbols), merged.AllSymbols)
+	}
+
+	sources, ok := merged.SymbolSources["BTCUSDT"]
+	if !ok || len(sources) != 2 {
+		t.Fatalf("expected BTCUSDT to have two sources, got %v", sources)
+	}
 }

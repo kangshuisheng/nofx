@@ -153,9 +153,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: data.user_id || 'admin',
           email: data.email || 'admin@localhost',
         }
-        setToken(data.token)
+        setToken(data.access_token)
         setUser(userInfo)
-        localStorage.setItem('auth_token', data.token)
+        localStorage.setItem('auth_token', data.access_token)
         localStorage.setItem('auth_user', JSON.stringify(userInfo))
 
         // Check and redirect to returnUrl if exists
@@ -237,9 +237,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // 登录成功，保存token和用户信息
         const userInfo = { id: data.user_id, email: data.email }
-        setToken(data.token)
+        setToken(data.access_token)
         setUser(userInfo)
-        localStorage.setItem('auth_token', data.token)
+        localStorage.setItem('auth_token', data.access_token)
         localStorage.setItem('auth_user', JSON.stringify(userInfo))
 
         // Check and redirect to returnUrl if exists
@@ -281,9 +281,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // 注册完成，自动登录
         const userInfo = { id: data.user_id, email: data.email }
-        setToken(data.token)
+        setToken(data.access_token)
         setUser(userInfo)
-        localStorage.setItem('auth_token', data.token)
+        localStorage.setItem('auth_token', data.access_token)
         localStorage.setItem('auth_user', JSON.stringify(userInfo))
 
         // Check and redirect to returnUrl if exists

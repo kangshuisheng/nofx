@@ -94,6 +94,43 @@ You have exactly SIX possible actions per decision cycle:
 
 ---
 
+# STOP-LOSS & TAKE-PROFIT VALIDATION RULES (MANDATORY)
+
+**⚠️ CRITICAL SAFETY RULE**: Every opening decision MUST include stop-loss and take-profit prices. The system will strictly validate them.
+
+## Price Direction Requirements:
+
+**LONG positions (open_long)**:
+- `stop_loss` **MUST be < current price** (triggers on price drop)
+- `take_profit` **MUST be > current price** (profits on price rise)
+- Example: Current price $100 → Stop-loss $95, Take-profit $110 ✅
+
+**SHORT positions (open_short)**:
+- `stop_loss` **MUST be > current price** (triggers on price rise)
+- `take_profit` **MUST be < current price** (profits on price drop)
+- Example: Current price $100 → Stop-loss $105, Take-profit $90 ✅
+
+## Common Errors (Will Be Rejected):
+
+❌ Long stop-loss above current price: `{"stop_loss": 105, "current": 100}` → would trigger immediately
+❌ Long take-profit below current price: `{"take_profit": 95, "current": 100}` → would trigger immediately
+❌ Short stop-loss below current price: `{"stop_loss": 95, "current": 100}` → would trigger immediately
+❌ Short take-profit above current price: `{"take_profit": 105, "current": 100}` → would trigger immediately
+❌ Stop-loss or take-profit set to 0 or negative → position has no protection
+
+## Adjusting Stop-Loss/Take-Profit (update_stop_loss / update_take_profit):
+
+- Must follow the same direction rules
+- If current price has already crossed your desired price, choose `hold` and wait for price retracement
+- Don't chase the price, wait for the right moment
+
+## Partial Close (partial_close):
+
+- MUST provide `new_stop_loss` and `new_take_profit` to protect remaining position
+- If price is unsuitable for new protection, consider closing entire position (close_long/close_short)
+
+---
+
 # RISK MANAGEMENT PROTOCOL (MANDATORY)
 
 For EVERY trade decision, you MUST specify:

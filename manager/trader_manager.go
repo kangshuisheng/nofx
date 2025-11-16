@@ -201,6 +201,12 @@ func (tm *TraderManager) addTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		log.Printf("✓ 交易员 %s 启用 COIN POOL 信号源: %s", traderCfg.Name, coinPoolURL)
 	}
 
+	var effectiveOITopURL string
+	if traderCfg.UseOITop && oiTopURL != "" {
+		effectiveOITopURL = oiTopURL
+		log.Printf("✓ 交易员 %s 启用 OI TOP 信号源: %s", traderCfg.Name, oiTopURL)
+	}
+
 	// 构建AutoTraderConfig
 	traderConfig := trader.AutoTraderConfig{
 		ID:                    traderCfg.ID,
@@ -212,6 +218,7 @@ func (tm *TraderManager) addTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		HyperliquidPrivateKey: "",
 		HyperliquidTestnet:    exchangeCfg.Testnet,
 		CoinPoolAPIURL:        effectiveCoinPoolURL,
+		OITopAPIURL:           effectiveOITopURL,
 		UseQwen:               aiModelCfg.Provider == "qwen",
 		DeepSeekKey:           "",
 		QwenKey:               "",
@@ -229,8 +236,8 @@ func (tm *TraderManager) addTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		IsCrossMargin:         traderCfg.IsCrossMargin,
 		DefaultCoins:          defaultCoins,
 		TradingCoins:          tradingCoins,
-		UseCoinPool:           traderCfg.UseCoinPool, // 币种池信号源配置
-		UseOITop:              traderCfg.UseOITop,    // OI Top 信号源配置
+		UseCoinPool:           traderCfg.UseCoinPool,          // 币种池信号源配置
+		UseOITop:              traderCfg.UseOITop,             // OI Top 信号源配置
 		SystemPromptTemplate:  traderCfg.SystemPromptTemplate, // 系统提示词模板
 		OrderStrategy:         traderCfg.OrderStrategy,        // 订单策略
 		LimitPriceOffset:      traderCfg.LimitPriceOffset,     // 限价偏移
@@ -343,8 +350,8 @@ func (tm *TraderManager) AddTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		IsCrossMargin:         traderCfg.IsCrossMargin,
 		DefaultCoins:          defaultCoins,
 		TradingCoins:          tradingCoins,
-		UseCoinPool:           traderCfg.UseCoinPool, // 币种池信号源配置
-		UseOITop:              traderCfg.UseOITop,    // OI Top 信号源配置
+		UseCoinPool:           traderCfg.UseCoinPool,          // 币种池信号源配置
+		UseOITop:              traderCfg.UseOITop,             // OI Top 信号源配置
 		SystemPromptTemplate:  traderCfg.SystemPromptTemplate, // 系统提示词模板
 		OrderStrategy:         traderCfg.OrderStrategy,        // 订单策略
 		LimitPriceOffset:      traderCfg.LimitPriceOffset,     // 限价偏移
@@ -807,11 +814,16 @@ func containsUserPrefix(traderID string) bool {
 	return false
 }
 
+// isTraderLoaded 检查指定 trader 是否已在内存中
+func (tm *TraderManager) isTraderLoaded(traderID string) bool {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	_, exists := tm.traders[traderID]
+	return exists
+}
+
 // LoadUserTraders 为特定用户加载交易员到内存
 func (tm *TraderManager) LoadUserTraders(database *config.Database, userID string) error {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
 	// 获取指定用户的所有交易员
 	traders, err := database.GetTraders(userID)
 	if err != nil {
@@ -862,7 +874,6 @@ func (tm *TraderManager) LoadUserTraders(database *config.Database, userID strin
 	}
 
 	// 🔧 性能优化：在循环外只查询一次AI模型和交易所配置
-	// 避免在循环中重复查询相同的数据，减少数据库压力和锁持有时间
 	aiModels, err := database.GetAIModels(userID)
 	if err != nil {
 		log.Printf("⚠️ 获取用户 %s 的AI模型配置失败: %v", userID, err)
@@ -877,16 +888,14 @@ func (tm *TraderManager) LoadUserTraders(database *config.Database, userID strin
 
 	// 为每个交易员加载配置
 	for _, traderCfg := range traders {
-		// 检查是否已经加载过这个交易员
-		if _, exists := tm.traders[traderCfg.ID]; exists {
+		// 如果已经存在，跳过
+		if tm.isTraderLoaded(traderCfg.ID) {
 			log.Printf("⚠️ 交易员 %s 已经加载，跳过", traderCfg.Name)
 			continue
 		}
 
 		// 从已查询的列表中查找AI模型配置
-
 		var aiModelCfg *config.AIModelConfig
-		// 优先精确匹配 model.ID（新版逻辑）
 		for _, model := range aiModels {
 			if model.ID == traderCfg.AIModelID {
 				aiModelCfg = model
@@ -922,11 +931,20 @@ func (tm *TraderManager) LoadUserTraders(database *config.Database, userID strin
 			continue
 		}
 
-		// 使用现有的方法加载交易员
-		err = tm.loadSingleTrader(traderCfg, aiModelCfg, exchangeCfg, coinPoolURL, oiTopURL, maxDailyLoss, maxDrawdown, stopTradingMinutes, defaultCoins, database, userID)
+		at, err := tm.loadSingleTrader(traderCfg, aiModelCfg, exchangeCfg, coinPoolURL, oiTopURL, maxDailyLoss, maxDrawdown, stopTradingMinutes, defaultCoins, database, userID)
 		if err != nil {
 			log.Printf("⚠️ 加载交易员 %s 失败: %v", traderCfg.Name, err)
+			continue
 		}
+
+		tm.mu.Lock()
+		if _, exists := tm.traders[traderCfg.ID]; exists {
+			tm.mu.Unlock()
+			continue
+		}
+		tm.traders[traderCfg.ID] = at
+		tm.mu.Unlock()
+		log.Printf("✓ Trader '%s' (%s + %s) 已为用户加载到内存", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeID)
 	}
 
 	return nil
@@ -942,11 +960,7 @@ func (tm *TraderManager) LoadUserTraders(database *config.Database, userID strin
 // 返回:
 //   - error: 如果交易员不存在、配置无效或加载失败则返回错误
 func (tm *TraderManager) LoadTraderByID(database *config.Database, userID, traderID string) error {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	// 1. 检查是否已加载
-	if _, exists := tm.traders[traderID]; exists {
+	if tm.isTraderLoaded(traderID) {
 		log.Printf("⚠️ 交易员 %s 已经加载，跳过", traderID)
 		return nil
 	}
@@ -1056,7 +1070,7 @@ func (tm *TraderManager) LoadTraderByID(database *config.Database, userID, trade
 
 	// 8. 调用私有方法加载交易员
 	log.Printf("📋 加载单个交易员: %s (%s)", traderCfg.Name, traderID)
-	return tm.loadSingleTrader(
+	at, err := tm.loadSingleTrader(
 		traderCfg,
 		aiModelCfg,
 		exchangeCfg,
@@ -1069,10 +1083,22 @@ func (tm *TraderManager) LoadTraderByID(database *config.Database, userID, trade
 		database,
 		userID,
 	)
+
+	if err != nil {
+		return err
+	}
+
+	tm.mu.Lock()
+	if _, exists := tm.traders[traderID]; !exists {
+		tm.traders[traderID] = at
+		log.Printf("✓ Trader '%s' (%s + %s) 已为用户加载到内存", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeID)
+	}
+	tm.mu.Unlock()
+	return nil
 }
 
-// loadSingleTrader 加载单个交易员（从现有代码提取的公共逻辑）
-func (tm *TraderManager) loadSingleTrader(traderCfg *config.TraderRecord, aiModelCfg *config.AIModelConfig, exchangeCfg *config.ExchangeConfig, coinPoolURL, oiTopURL string, maxDailyLoss, maxDrawdown float64, stopTradingMinutes int, defaultCoins []string, database *config.Database, userID string) error {
+// loadSingleTrader 根据配置构建 AutoTrader 实例（不直接写入 tm.traders）
+func (tm *TraderManager) loadSingleTrader(traderCfg *config.TraderRecord, aiModelCfg *config.AIModelConfig, exchangeCfg *config.ExchangeConfig, coinPoolURL, oiTopURL string, maxDailyLoss, maxDrawdown float64, stopTradingMinutes int, defaultCoins []string, database *config.Database, userID string) (*trader.AutoTrader, error) {
 	// 处理交易币种列表
 	var tradingCoins []string
 	if traderCfg.TradingSymbols != "" {
@@ -1098,6 +1124,26 @@ func (tm *TraderManager) loadSingleTrader(traderCfg *config.TraderRecord, aiMode
 		log.Printf("✓ 交易员 %s 启用 COIN POOL 信号源: %s", traderCfg.Name, coinPoolURL)
 	}
 
+	var effectiveOITopURL string
+	if traderCfg.UseOITop && oiTopURL != "" {
+		effectiveOITopURL = oiTopURL
+		log.Printf("✓ 交易员 %s 启用 OI TOP 信号源: %s", traderCfg.Name, oiTopURL)
+	}
+
+	// 处理时间线配置
+	var timeframes []string
+	if traderCfg.Timeframes != "" {
+		// 解析逗号分隔的时间线列表
+		tfs := strings.Split(traderCfg.Timeframes, ",")
+		for _, tf := range tfs {
+			tf = strings.TrimSpace(tf)
+			if tf != "" {
+				timeframes = append(timeframes, tf)
+			}
+		}
+		log.Printf("✓ 交易员 %s 配置时间线: %v", traderCfg.Name, timeframes)
+	}
+	// 如果为空，将使用 NewAutoTrader 中的默认值 ["15m", "1h", "4h"]
 	// 构建AutoTraderConfig
 	traderConfig := trader.AutoTraderConfig{
 		ID:                   traderCfg.ID,
@@ -1111,6 +1157,7 @@ func (tm *TraderManager) loadSingleTrader(traderCfg *config.TraderRecord, aiMode
 		MakerFeeRate:         traderCfg.MakerFeeRate, // Maker fee rate from config
 		ScanInterval:         time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
 		CoinPoolAPIURL:       effectiveCoinPoolURL,
+		OITopAPIURL:          effectiveOITopURL,
 		CustomAPIURL:         aiModelCfg.CustomAPIURL,    // 自定义API URL
 		CustomModelName:      aiModelCfg.CustomModelName, // 自定义模型名称
 		UseQwen:              aiModelCfg.Provider == "qwen",
@@ -1125,6 +1172,7 @@ func (tm *TraderManager) loadSingleTrader(traderCfg *config.TraderRecord, aiMode
 		LimitPriceOffset:     traderCfg.LimitPriceOffset,     // 限价偏移
 		LimitTimeoutSeconds:  traderCfg.LimitTimeoutSeconds,  // 限价超时
 		HyperliquidTestnet:   exchangeCfg.Testnet,            // Hyperliquid测试网
+		Timeframes:           timeframes,                     // K线时间线配置
 	}
 
 	// 根据交易所类型设置API密钥
@@ -1150,7 +1198,7 @@ func (tm *TraderManager) loadSingleTrader(traderCfg *config.TraderRecord, aiMode
 	// 创建trader实例
 	at, err := trader.NewAutoTrader(traderConfig, database, userID)
 	if err != nil {
-		return fmt.Errorf("创建trader失败: %w", err)
+		return nil, fmt.Errorf("创建trader失败: %w", err)
 	}
 
 	// 设置自定义prompt（如果有）
@@ -1164,7 +1212,5 @@ func (tm *TraderManager) loadSingleTrader(traderCfg *config.TraderRecord, aiMode
 		}
 	}
 
-	tm.traders[traderCfg.ID] = at
-	log.Printf("✓ Trader '%s' (%s + %s) 已为用户加载到内存", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeID)
-	return nil
+	return at, nil
 }

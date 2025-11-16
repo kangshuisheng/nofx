@@ -4,11 +4,16 @@
 [![React](https://img.shields.io/badge/React-18+-61DAFB?style=flat&logo=react)](https://reactjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=flat&logo=typescript)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Backed by Amber.ac](https://img.shields.io/badge/Backed%20by-Amber.ac-orange.svg)](https://amber.ac)
 
 **Languages:** [English](README.md) | [中文](docs/i18n/zh-CN/README.md) | [Українська](docs/i18n/uk/README.md) | [Русский](docs/i18n/ru/README.md) | [日本語](docs/i18n/ja/README.md)
 
 **📚 Documentation:** [Docs Home](docs/README.md) | [Getting Started](docs/getting-started/README.md) | [Prompt Writing Guide](docs/prompt-guide.md) ([中文](docs/prompt-guide.zh-CN.md)) | [Changelog](CHANGELOG.md) | [Contributing](CONTRIBUTING.md) | [Security](SECURITY.md)
+
+---
+
+> 📢 **Community-Driven Fork**: This is an independently maintained, community-driven version of NOFX. We focus on stability, user experience, and community needs.
+>
+> **Original Project**: [nofxaios/nofx](https://github.com/nofxaios/nofx)
 
 ---
 
@@ -47,18 +52,6 @@
 - **Universal Data & Backtesting Layer**: Cross-market, cross-timeframe, cross-exchange unified representation and factor library, accumulating transferable "strategy memory"
 - **Multi-Agent Self-Play & Self-Evolution**: Strategies automatically compete and select the best, continuously iterating based on account-level PnL and risk constraints
 - **Integrated Execution & Risk Control**: Low-latency routing, slippage/risk control sandbox, account-level limits, one-click market switching
-
-### 🏢 Backed by [Amber.ac](https://amber.ac)
-
-### 👥 Core Team
-
-- **Tinkle** - [@Web3Tinkle](https://x.com/Web3Tinkle)
-
-### 💼 Seed Funding Round Open
-
-We are currently raising our **seed round**.
-
-**For investment inquiries**, please DM **Tinkle** via Twitter.
 
 ---
 
@@ -121,7 +114,7 @@ A Binance-compatible decentralized perpetual futures exchange!
 - 🌐 **Multi-chain support** - trade on your preferred EVM chain
 
 **Quick Start:**
-1. Register via [Aster Referral Link](https://www.asterdex.com/en/referral/fdfc0e) (get fee discounts!)
+1. Register via [Aster Referral Link](https://www.asterdex.com/en/referral/3E58dc) (get fee discounts!)
 2. Visit [Aster API Wallet](https://www.asterdex.com/en/api-wallet)
 3. Connect your main wallet and create an API wallet
 4. Copy the API Signer address and Private Key
@@ -243,7 +236,7 @@ NOFX is built with a modern, modular architecture:
 
 Before using this system, you need a Binance Futures account. **Use our referral link to save on trading fees:**
 
-**🎁 [Register Binance - Get Fee Discount](https://www.binance.com/join?ref=TINKLEVIP)**
+**🎁 [Register Binance - Get Fee Discount](https://www.binance.com/join?ref=SA020XCM)**
 
 ### Registration Steps:
 
@@ -354,7 +347,7 @@ sudo apt-get install libta-lib0-dev
 ### 2. Clone the Project
 
 ```bash
-git clone https://github.com/tinkle-community/nofx.git
+git clone https://github.com/the-dev-z/nofx.git
 cd nofx
 ```
 
@@ -505,7 +498,7 @@ Open your browser and visit: **🌐 http://localhost:3000**
 
 1. **Visit Hyperliquid with Referral Link** (get benefits!):
 
-   **🎁 [Register Hyperliquid - Join AITRADING](https://app.hyperliquid.xyz/join/AITRADING)**
+   **🎁 [Register Hyperliquid - Join NOFXAI](https://app.hyperliquid.xyz/join/NOFXAI)**
 
 2. **Connect Your Wallet**:
    - Click "Connect Wallet" on the top right
@@ -618,7 +611,7 @@ Hyperliquid supports **Agent Wallets** - secure sub-wallets specifically for tra
 
 **Step 1**: Register and Create Aster API Wallet
 
-1. Register via [Aster Referral Link](https://www.asterdex.com/en/referral/fdfc0e) (get fee discounts!)
+1. Register via [Aster Referral Link](https://www.asterdex.com/en/referral/3E58dc) (get fee discounts!)
 2. Visit [Aster API Wallet](https://www.asterdex.com/en/api-wallet)
 3. Connect your main wallet (MetaMask, WalletConnect, etc.)
 4. Click "Create API Wallet"
@@ -1346,7 +1339,7 @@ We welcome contributions from the community! See our comprehensive guides:
 
 
 ### 🐛 Technical Support
-- **GitHub Issues**: [Submit an Issue](https://github.com/tinkle-community/nofx/issues)
+- **GitHub Issues**: [Submit an Issue](https://github.com/the-dev-z/nofx/issues)
 - **Developer Community**: [Telegram Group](https://t.me/nofx_dev_community)
 
 ---
@@ -1364,9 +1357,3 @@ We welcome contributions from the community! See our comprehensive guides:
 **Last Updated**: 2025-10-30 (v3.0.0)
 
 **⚡ Explore the possibilities of quantitative trading with the power of AI!**
-
----
-
-## ⭐ Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=tinkle-community/nofx&type=Date)](https://star-history.com/#tinkle-community/nofx&Date)

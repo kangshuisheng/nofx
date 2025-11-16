@@ -65,8 +65,8 @@ export function TwoStageKeyModal({
 
   // UX improvement: Use 58 + 6 split (most of the key + last 6 chars)
   // Advantage: Second stage only requires entering 6 characters, much easier to count
-  const expectedPart1Length = expectedLength - 6  // 64 - 6 = 58
-  const expectedPart2Length = 6  // Last 6 characters
+  const expectedPart1Length = expectedLength - 6 // 64 - 6 = 58
+  const expectedPart2Length = 6 // Last 6 characters
 
   useEffect(() => {
     if (isOpen && stage === 1 && stage1Ref.current) {
@@ -112,7 +112,9 @@ export function TwoStageKeyModal({
             ...obfuscationLog,
             `Stage 1: ${new Date().toISOString()} - Auto copy failed, manual required`,
           ])
-          toast.error('Copy failed, please copy the obfuscation string manually')
+          toast.error(
+            'Copy failed, please copy the obfuscation string manually'
+          )
         }
       } else {
         setClipboardStatus('failed')
