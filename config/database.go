@@ -124,6 +124,17 @@ func NewDatabase(dbPath string) (*Database, error) {
 // createTables 创建数据库表
 func (d *Database) createTables() error {
 	queries := []string{
+		// 🔧 用户表必须先创建（其他表依赖它的外键）
+		`CREATE TABLE IF NOT EXISTS users (
+			id TEXT PRIMARY KEY,
+			email TEXT UNIQUE NOT NULL,
+			password_hash TEXT NOT NULL,
+			otp_secret TEXT,
+			otp_verified BOOLEAN DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
 		// AI模型配置表（使用自增ID支持多配置）
 		`CREATE TABLE IF NOT EXISTS ai_models (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -206,17 +217,6 @@ func (d *Database) createTables() error {
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 			FOREIGN KEY (ai_model_id) REFERENCES ai_models(id),
 			FOREIGN KEY (exchange_id) REFERENCES exchanges(id)
-		)`,
-
-		// 用户表
-		`CREATE TABLE IF NOT EXISTS users (
-			id TEXT PRIMARY KEY,
-			email TEXT UNIQUE NOT NULL,
-			password_hash TEXT NOT NULL,
-			otp_secret TEXT,
-			otp_verified BOOLEAN DEFAULT 0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 
 		// 系统配置表
@@ -1429,9 +1429,10 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 
 		// 获取默认名称
 		name := provider + " AI"
-		if provider == "deepseek" {
+		switch provider {
+		case "deepseek":
 			name = "DeepSeek AI"
-		} else if provider == "qwen" {
+		case "qwen":
 			name = "Qwen AI"
 		}
 
