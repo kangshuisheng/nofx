@@ -1197,7 +1197,7 @@ func validateDecisionWithMarketData(d *Decision, accountEquity float64, btcEthLe
 			marketData = mockMarketData
 		} else {
 			// 尝试获取真实市场数据
-			marketData, err = market.Get(d.Symbol)
+			marketData, err = market.Get(d.Symbol, []string{"15m", "1h", "4h"})
 			if err != nil {
 				return fmt.Errorf("无法获取 %s 的市场数据: %w", d.Symbol, err)
 			}
