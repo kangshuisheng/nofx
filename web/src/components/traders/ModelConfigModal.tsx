@@ -39,12 +39,18 @@ export function ModelConfigModal({
     ? configuredModels?.find((m) => m.id === selectedModelId)
     : allModels?.find((m) => m.id === selectedModelId)
 
-  // 如果是编辑现有模型,初始化API Key、Base URL和Model Name
+  // 初始化API Key、Base URL和Model Name
   useEffect(() => {
     if (editingModelId && selectedModel) {
+      // 编辑模式：使用已配置模型的数据
       setApiKey(selectedModel.apiKey || '')
       setBaseUrl(selectedModel.customApiUrl || '')
       setModelName(selectedModel.customModelName || '')
+    } else if (!editingModelId && selectedModel) {
+      // 添加新模式：清空之前的输入
+      setApiKey('')
+      setBaseUrl('')
+      setModelName('')
     }
   }, [editingModelId, selectedModel])
 
