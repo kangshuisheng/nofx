@@ -387,6 +387,26 @@ func (d *Database) createTables() error {
 
 // initDefaultData 初始化默认数据
 func (d *Database) initDefaultData() error {
+	// 🔧 首先创建默认用户（避免外键约束失败）
+	// 检查是否已存在default用户
+	var userCount int
+	err := d.db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = 'default'`).Scan(&userCount)
+	if err != nil {
+		return fmt.Errorf("检查默认用户失败: %w", err)
+	}
+
+	if userCount == 0 {
+		// 创建默认用户
+		_, err = d.db.Exec(`
+			INSERT INTO users (id, email, password_hash, otp_secret, otp_verified)
+			VALUES ('default', 'default@system.local', '', '', 0)
+		`)
+		if err != nil {
+			return fmt.Errorf("创建默认用户失败: %w", err)
+		}
+		log.Printf("✅ 已创建默认用户")
+	}
+
 	// 初始化AI模型（使用default用户）
 	// 注意：遷移到自增 ID 後，需要使用 model_id 而不是 id
 	aiModels := []struct {
@@ -398,7 +418,7 @@ func (d *Database) initDefaultData() error {
 
 	// 檢查表結構，判斷是否已遷移到自增ID結構
 	var hasModelIDColumn int
-	err := d.db.QueryRow(`
+	err = d.db.QueryRow(`
 		SELECT COUNT(*) FROM pragma_table_info('ai_models')
 		WHERE name = 'model_id'
 	`).Scan(&hasModelIDColumn)
@@ -2463,17 +2483,17 @@ func (d *Database) checkDataIntegrity() error {
 // RecordTrade 記錄交易事件到數據庫
 func (db *Database) RecordTrade(traderID, userID, symbol, side, action string, quantity, price float64, reason string, stopLoss, takeProfit, pnl, pnlPercent float64) error {
 	timestamp := time.Now().UnixMilli()
-	
+
 	query := `INSERT INTO trade_history 
 		(trader_id, user_id, symbol, side, action, quantity, price, timestamp, reason, stop_loss, take_profit, pnl, pnl_percent) 
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	
+
 	_, err := db.db.Exec(query, traderID, userID, symbol, side, action, quantity, price, timestamp, reason, stopLoss, takeProfit, pnl, pnlPercent)
 	if err != nil {
 		log.Printf("❌ 記錄交易事件失敗: %v", err)
 		return err
 	}
-	
+
 	log.Printf("✅ 記錄交易事件: %s %s %s %.4f @ %.2f", traderID, action, symbol, quantity, price)
 	return nil
 }
@@ -2483,20 +2503,20 @@ func (db *Database) SaveTraderState(traderID, userID string, callCount int, peak
 	query := `INSERT OR REPLACE INTO trader_state 
 		(trader_id, user_id, call_count, peak_equity, last_reset_time, state_json) 
 		VALUES (?, ?, ?, ?, ?, ?)`
-	
+
 	_, err := db.db.Exec(query, traderID, userID, callCount, peakEquity, lastResetTime, stateJSON)
 	if err != nil {
 		log.Printf("❌ 保存交易員狀態失敗: %v", err)
 		return err
 	}
-	
+
 	return nil
 }
 
 // LoadTraderState 從數據庫恢復交易員狀態
 func (db *Database) LoadTraderState(traderID string) (callCount int, peakEquity float64, lastResetTime int64, stateJSON string, err error) {
 	query := `SELECT call_count, peak_equity, last_reset_time, state_json FROM trader_state WHERE trader_id = ?`
-	
+
 	err = db.db.QueryRow(query, traderID).Scan(&callCount, &peakEquity, &lastResetTime, &stateJSON)
 	if err == sql.ErrNoRows {
 		// 沒有記錄，返回默認值
@@ -2506,7 +2526,7 @@ func (db *Database) LoadTraderState(traderID string) (callCount int, peakEquity 
 		log.Printf("❌ 加載交易員狀態失敗: %v", err)
 		return 0, 0, 0, "{}", err
 	}
-	
+
 	log.Printf("✅ 恢復交易員狀態: %s (調用次數: %d, 峰值淨值: %.2f)", traderID, callCount, peakEquity)
 	return callCount, peakEquity, lastResetTime, stateJSON, nil
 }
@@ -2526,25 +2546,25 @@ func (db *Database) GetOpenPositionsFromHistory(traderID string) (map[string]map
 		GROUP BY symbol, side
 		HAVING net_quantity > 0.0001
 	`
-	
+
 	rows, err := db.db.Query(query, traderID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	positions := make(map[string]map[string]interface{})
-	
+
 	for rows.Next() {
 		var symbol, side string
 		var netQuantity, avgPrice, stopLoss, takeProfit float64
 		var firstSeenTime int64
-		
+
 		err = rows.Scan(&symbol, &side, &netQuantity, &avgPrice, &stopLoss, &takeProfit, &firstSeenTime)
 		if err != nil {
 			continue
 		}
-		
+
 		key := symbol + "_" + side
 		positions[key] = map[string]interface{}{
 			"symbol":          symbol,
@@ -2556,10 +2576,10 @@ func (db *Database) GetOpenPositionsFromHistory(traderID string) (map[string]map
 			"first_seen_time": firstSeenTime,
 		}
 	}
-	
+
 	if len(positions) > 0 {
 		log.Printf("✅ 從數據庫恢復 %d 個持倉記錄", len(positions))
 	}
-	
+
 	return positions, nil
 }
