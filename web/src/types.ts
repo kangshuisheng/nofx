@@ -140,7 +140,9 @@ export interface CreateTraderRequest {
   taker_fee_rate?: number // Taker 费率 (默认 0.0004 = 0.04%)
   maker_fee_rate?: number // Maker 费率 (默认 0.0002 = 0.02%)
   timeframes?: string // 时间线选择 (逗号分隔，例如: "1m,4h,1d")
-  order_strategy?: string // 订单策略 (adaptive, moderate, aggressive 等)
+  order_strategy?: string // 订单策略 (market, limit, conservative_hybrid 等)
+  limit_price_offset?: number // 限价单价格偏移 (默认 0.0005 = 0.05%)
+  limit_timeout_seconds?: number // 限价单超时时间 (默认 300 = 5分钟)
 }
 
 export interface UpdateModelConfigRequest {
