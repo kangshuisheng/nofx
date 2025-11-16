@@ -69,11 +69,9 @@ func TestPnLCalculationWithFees(t *testing.T) {
 			openPrice:  100000.0,
 			closePrice: 101000.0,
 			// Price diff: 0.01 * (101000 - 100000) = 10 USDT
-			// Open fee: 0.01 * 100000 * 0.00035 = 0.35 USDT
 			// Close fee: 0.01 * 101000 * 0.00035 = 0.3535 USDT
-			// Total fees: 0.7035 USDT
-			// Net PnL: 10 - 0.7035 = 9.2965 USDT
-			wantPnLRange: [2]float64{9.296, 9.297},
+			// Net PnL (closing fee only): 10 - 0.3535 = 9.6465 USDT
+			wantPnLRange: [2]float64{9.645, 9.648},
 		},
 		{
 			name:       "Long position loss on Aster",
@@ -83,11 +81,9 @@ func TestPnLCalculationWithFees(t *testing.T) {
 			openPrice:  103960.7,
 			closePrice: 103425.3,
 			// Price diff: 0.002 * (103425.3 - 103960.7) = -1.0708 USDT
-			// Open fee: 0.002 * 103960.7 * 0.00035 = 0.0728 USDT
 			// Close fee: 0.002 * 103425.3 * 0.00035 = 0.0724 USDT
-			// Total fees: 0.1452 USDT
-			// Net PnL: -1.0708 - 0.1452 = -1.216 USDT
-			wantPnLRange: [2]float64{-1.217, -1.215},
+			// Net PnL (closing fee only): -1.0708 - 0.0724 = -1.1432 USDT
+			wantPnLRange: [2]float64{-1.144, -1.142},
 		},
 		{
 			name:       "Short position profit on Hyperliquid",
@@ -97,11 +93,9 @@ func TestPnLCalculationWithFees(t *testing.T) {
 			openPrice:  50000.0,
 			closePrice: 49000.0,
 			// Price diff: 0.01 * (50000 - 49000) = 10 USDT
-			// Open fee: 0.01 * 50000 * 0.00045 = 0.225 USDT
 			// Close fee: 0.01 * 49000 * 0.00045 = 0.2205 USDT
-			// Total fees: 0.4455 USDT
-			// Net PnL: 10 - 0.4455 = 9.5545 USDT
-			wantPnLRange: [2]float64{9.554, 9.555},
+			// Net PnL (closing fee only): 10 - 0.2205 = 9.7795 USDT
+			wantPnLRange: [2]float64{9.778, 9.781},
 		},
 		{
 			name:       "Short position loss on Binance",
@@ -111,11 +105,9 @@ func TestPnLCalculationWithFees(t *testing.T) {
 			openPrice:  3000.0,
 			closePrice: 3100.0,
 			// Price diff: 0.1 * (3000 - 3100) = -10 USDT
-			// Open fee: 0.1 * 3000 * 0.0005 = 0.15 USDT
 			// Close fee: 0.1 * 3100 * 0.0005 = 0.155 USDT
-			// Total fees: 0.305 USDT
-			// Net PnL: -10 - 0.305 = -10.305 USDT
-			wantPnLRange: [2]float64{-10.306, -10.304},
+			// Net PnL (closing fee only): -10 - 0.155 = -10.155 USDT
+			wantPnLRange: [2]float64{-10.156, -10.154},
 		},
 		{
 			name:       "Small position on unknown exchange (uses default rate)",
@@ -125,11 +117,9 @@ func TestPnLCalculationWithFees(t *testing.T) {
 			openPrice:  50000.0,
 			closePrice: 50500.0,
 			// Price diff: 0.001 * (50500 - 50000) = 0.5 USDT
-			// Open fee: 0.001 * 50000 * 0.0005 = 0.025 USDT
 			// Close fee: 0.001 * 50500 * 0.0005 = 0.02525 USDT
-			// Total fees: 0.05025 USDT
-			// Net PnL: 0.5 - 0.05025 = 0.44975 USDT
-			wantPnLRange: [2]float64{0.449, 0.451},
+			// Net PnL (closing fee only): 0.5 - 0.02525 = 0.47475 USDT
+			wantPnLRange: [2]float64{0.474, 0.476},
 		},
 	}
 
@@ -237,12 +227,10 @@ func TestAnalyzePerformance_WithFees(t *testing.T) {
 
 	// Expected P&L with fees (Aster 0.035% taker fee)
 	// Price diff: 0.002 * (103425.3 - 103960.7) = -1.0708 USDT
-	// Open fee: 0.002 * 103960.7 * 0.00035 = 0.0728 USDT
 	// Close fee: 0.002 * 103425.3 * 0.00035 = 0.0724 USDT
-	// Total fees: 0.1452 USDT
-	// Net PnL: -1.0708 - 0.1452 = -1.216 USDT
-	expectedPnLMin := -1.217
-	expectedPnLMax := -1.215
+	// Net PnL (closing fee only): -1.0708 - 0.0724 = -1.1432 USDT
+	expectedPnLMin := -1.144
+	expectedPnLMax := -1.142
 
 	if trade.PnL < expectedPnLMin || trade.PnL > expectedPnLMax {
 		t.Errorf("Trade P&L = %v, want range [%v, %v]", trade.PnL, expectedPnLMin, expectedPnLMax)
@@ -343,20 +331,18 @@ func TestAnalyzePerformance_PartialCloseWithFees(t *testing.T) {
 
 	trade := analysis.RecentTrades[0]
 
-	// Calculate expected P&L (Hyperliquid 0.045% taker fee)
+	// Calculate expected P&L (Hyperliquid 0.045% taker fee, closing fee only)
 	// Partial close: 0.5 * (2100 - 2000) = 50 USDT
-	//   Open fee: 0.5 * 2000 * 0.00045 = 0.45 USDT
 	//   Close fee: 0.5 * 2100 * 0.00045 = 0.4725 USDT
-	//   Partial PnL: 50 - 0.45 - 0.4725 = 49.0775 USDT
+	//   Partial PnL: 50 - 0.4725 = 49.5275 USDT
 	//
 	// Final close: 0.5 * (2150 - 2000) = 75 USDT
-	//   Open fee: 0.5 * 2000 * 0.00045 = 0.45 USDT
 	//   Close fee: 0.5 * 2150 * 0.00045 = 0.48375 USDT
-	//   Final PnL: 75 - 0.45 - 0.48375 = 74.06625 USDT
+	//   Final PnL: 75 - 0.48375 = 74.51625 USDT
 	//
-	// Total PnL: 49.0775 + 74.06625 = 123.14375 USDT
-	expectedPnLMin := 123.14
-	expectedPnLMax := 123.15
+	// Total PnL: 49.5275 + 74.51625 = 124.04375 USDT
+	expectedPnLMin := 124.03
+	expectedPnLMax := 124.05
 
 	if trade.PnL < expectedPnLMin || trade.PnL > expectedPnLMax {
 		t.Errorf("Trade P&L = %v, want range [%v, %v]", trade.PnL, expectedPnLMin, expectedPnLMax)

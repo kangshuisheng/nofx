@@ -69,6 +69,12 @@ export function ModelConfigModal({
   // 可选择的模型列表(所有支持的模型)
   const availableModels = allModels || []
 
+  useEffect(() => {
+    if (!editingModelId && !selectedModelId && availableModels.length > 0) {
+      setSelectedModelId(availableModels[0].id)
+    }
+  }, [editingModelId, selectedModelId, availableModels])
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div

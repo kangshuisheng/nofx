@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +10,24 @@ import (
 	"testing"
 	"time"
 )
+
+func startMCPTestServer(tb testing.TB, handler http.Handler) *httptest.Server {
+	tb.Helper()
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		ln6, err6 := net.Listen("tcp6", "[::1]:0")
+		if err6 != nil {
+			tb.Skipf("skipping test: unable to start HTTP server (IPv4=%v, IPv6=%v)", err, err6)
+		}
+		ln = ln6
+	}
+	server := &httptest.Server{
+		Listener: ln,
+		Config:   &http.Server{Handler: handler},
+	}
+	server.Start()
+	return server
+}
 
 // =============================================================================
 // Test 1: Client Creation
@@ -246,7 +265,7 @@ func TestSetCustomAPI(t *testing.T) {
 
 func TestCallWithMessages_Success(t *testing.T) {
 	// Create mock AI API server
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startMCPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify request method
 		if r.Method != "POST" {
 			t.Errorf("expected POST, got %s", r.Method)
@@ -351,7 +370,7 @@ func TestCallWithMessages_MissingAPIKey(t *testing.T) {
 
 func TestCallWithMessages_Timeout(t *testing.T) {
 	// Create slow mock server
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startMCPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(3 * time.Second) // Longer than client timeout
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -396,7 +415,7 @@ func TestCallWithMessages_HTTPError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mockServer := startMCPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.statusCode)
 				w.Write([]byte(`{"error":"test error"}`))
 			}))
@@ -425,7 +444,7 @@ func TestCallWithMessages_HTTPError(t *testing.T) {
 // =============================================================================
 
 func TestCallWithMessages_InvalidJSON(t *testing.T) {
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startMCPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`invalid json`))
 	}))
@@ -453,7 +472,7 @@ func TestCallWithMessages_InvalidJSON(t *testing.T) {
 
 func TestCallWithMessages_RetrySuccess(t *testing.T) {
 	callCount := 0
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startMCPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 
 		// Fail first 2 attempts with connection closure (EOF error)
@@ -517,7 +536,7 @@ func TestCallWithMessages_RetrySuccess(t *testing.T) {
 
 func TestCallWithMessages_NonRetryableError(t *testing.T) {
 	callCount := 0
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startMCPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		// 503 is not in the retryable list, should fail immediately
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -553,7 +572,7 @@ func TestCallWithMessages_NonRetryableError(t *testing.T) {
 func TestCallWithMessages_RequestBodyValidation(t *testing.T) {
 	var capturedRequest map[string]interface{}
 
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startMCPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Capture request body
 		json.NewDecoder(r.Body).Decode(&capturedRequest)
 
@@ -641,7 +660,7 @@ func TestCallWithMessages_RequestBodyValidation(t *testing.T) {
 // =============================================================================
 
 func TestCallWithMessages_EmptyPrompts(t *testing.T) {
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startMCPTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		response := map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{
@@ -683,7 +702,7 @@ func TestCallWithMessages_EmptyPrompts(t *testing.T) {
 // =============================================================================
 
 func BenchmarkCallWithMessages(b *testing.B) {
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := startMCPTestServer(b, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		response := map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{
