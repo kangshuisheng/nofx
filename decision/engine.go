@@ -641,7 +641,6 @@ func buildUserPrompt(ctx *Context) string {
 			} else {
 				// 只有在趋势市，没有止盈单才是正常的（让利润奔跑）
 				// 在震荡市，没有止盈单需要警告
-				// (为简化，我们先统一提示)
 				sb.WriteString("   ℹ️ (提示: 未设置固定止盈目标)\n")
 			}
 
@@ -656,65 +655,6 @@ func buildUserPrompt(ctx *Context) string {
 	} else {
 		sb.WriteString("当前持仓: 无\n\n")
 	}
-
-	// 持仓（完整市场数据）
-	// if len(ctx.Positions) > 0 {
-	// 	sb.WriteString("## 当前持仓\n")
-	// 	for i, pos := range ctx.Positions {
-	// 		// 计算持仓时长
-	// 		holdingDuration := ""
-	// 		if pos.UpdateTime > 0 {
-	// 			durationMs := time.Now().UnixMilli() - pos.UpdateTime
-	// 			durationMin := durationMs / (1000 * 60) // 转换为分钟
-	// 			if durationMin < 60 {
-	// 				holdingDuration = fmt.Sprintf(" | 持仓时长%d分钟", durationMin)
-	// 			} else {
-	// 				durationHour := durationMin / 60
-	// 				durationMinRemainder := durationMin % 60
-	// 				holdingDuration = fmt.Sprintf(" | 持仓时长%d小时%d分钟", durationHour, durationMinRemainder)
-	// 			}
-	// 		}
-
-	// 		// 计算仓位价值（用于 partial_close 检查）
-	// 		positionValue := math.Abs(pos.Quantity) * pos.MarkPrice
-
-	// 		sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价%.4f 当前价%.4f | 数量%.4f | 仓位价值%.2f USDT | 盈亏%+.2f%% | 盈亏金额%+.2f USDT | 最高收益率%.2f%% | 杠杆%dx | 保证金%.0f | 强平价%.4f%s\n",
-	// 			i+1, pos.Symbol, strings.ToUpper(pos.Side),
-	// 			pos.EntryPrice, pos.MarkPrice, pos.Quantity, positionValue, pos.UnrealizedPnLPct, pos.UnrealizedPnL, pos.PeakPnLPct,
-	// 			pos.Leverage, pos.MarginUsed, pos.LiquidationPrice, holdingDuration))
-
-	// 		// Display stop-loss/take-profit orders for this position to prevent duplicate orders
-	// 		hasStopLoss := false
-
-	// 		for _, order := range ctx.OpenOrders {
-	// 			if order.Symbol != pos.Symbol {
-	// 				continue
-	// 			}
-
-	// 			switch order.Type {
-	// 			case "STOP_MARKET", "STOP":
-	// 				sb.WriteString(fmt.Sprintf("   🛡️ 止损单: %.4f (%s)\n", order.StopPrice, order.Side))
-	// 				hasStopLoss = true
-	// 			case "TAKE_PROFIT_MARKET", "TAKE_PROFIT":
-	// 				sb.WriteString(fmt.Sprintf("   🎯 止盈单: %.4f (%s)\n", order.StopPrice, order.Side))
-	// 			}
-	// 		}
-
-	// 		if !hasStopLoss {
-	// 			sb.WriteString("   ⚠️ **该持仓没有止损保护！**\n")
-	// 		}
-
-	// 		sb.WriteString("\n")
-
-	// 		// 使用FormatMarketData输出完整市场数据
-	// 		if marketData, ok := ctx.MarketDataMap[pos.Symbol]; ok {
-	// 			sb.WriteString(market.Format(marketData))
-	// 			sb.WriteString("\n")
-	// 		}
-	// 	}
-	// } else {
-	// 	sb.WriteString("当前持仓: 无\n\n")
-	// }
 
 	// 候选币种（完整市场数据）
 	sb.WriteString(fmt.Sprintf("## 候选币种 (%d个)\n\n", len(ctx.MarketDataMap)))
