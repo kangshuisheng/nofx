@@ -185,6 +185,8 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       <TradersGrid
         language={language}
         traders={traders}
+        configuredModelsCount={configuredModels.length}
+        configuredExchangesCount={configuredExchanges.length}
         onTraderSelect={handleTraderSelect}
         onEditTrader={handleEditTrader}
         onDeleteTrader={handleDeleteTrader}
