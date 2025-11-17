@@ -28,7 +28,7 @@ services:
       - ./config.db:/app/config.db
       - ./decision_logs:/app/decision_logs
       - ./prompts:/app/prompts
-      - ./secrets:/app/secrets:ro
+      - ./secrets:/app/secrets
       - /etc/localtime:/etc/localtime:ro
     networks:
       - nofx-network
