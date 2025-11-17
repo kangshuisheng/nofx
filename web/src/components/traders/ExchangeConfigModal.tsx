@@ -15,6 +15,7 @@ import { BookOpen, Trash2, HelpCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Tooltip } from './Tooltip'
 import { getShortName } from './utils'
+import { getExchangeId, getExchangeType } from './modelUtils'
 
 interface ExchangeConfigModalProps {
   allExchanges: Exchange[]
@@ -77,9 +78,9 @@ export function ExchangeConfigModal({
 
   // 获取当前编辑的交易所信息
   // 注意：後端返回的是 exchange_id (如 "binance")，而不是數字 id
-  const selectedExchange = allExchanges?.find(
-    (e: any) => e.exchange_id === selectedExchangeId
-  )
+  const selectedExchange = allExchanges?.find((e: any) => {
+    return getExchangeId(e) === selectedExchangeId
+  })
 
   // 如果是编辑现有交易所，初始化表单数据
   useEffect(() => {
@@ -333,9 +334,15 @@ export function ExchangeConfigModal({
                       {t('pleaseSelectExchange', language)}
                     </option>
                     {availableExchanges.map((exchange: any) => (
-                      <option key={exchange.exchange_id} value={exchange.exchange_id}>
+                      <option
+                        key={getExchangeId(exchange)}
+                        value={getExchangeId(exchange)}
+                      >
                         {getShortName(exchange.name)} (
-                        {exchange.type.toUpperCase()})
+                        {(
+                          getExchangeType(exchange) || exchange.type
+                        ).toUpperCase()}
+                        )
                       </option>
                     ))}
                   </select>
@@ -371,13 +378,13 @@ export function ExchangeConfigModal({
             {selectedExchange && (
               <>
                 {/* Binance 和其他 CEX 交易所的字段 */}
-                {((selectedExchange as any).exchange_id === 'binance' ||
+                {(getExchangeId(selectedExchange) === 'binance' ||
                   selectedExchange.type === 'cex') &&
-                  (selectedExchange as any).exchange_id !== 'hyperliquid' &&
-                  (selectedExchange as any).exchange_id !== 'aster' && (
+                  getExchangeId(selectedExchange) !== 'hyperliquid' &&
+                  getExchangeId(selectedExchange) !== 'aster' && (
                     <>
                       {/* 币安用户配置提示 (D1 方案) */}
-                      {(selectedExchange as any).exchange_id === 'binance' && (
+                      {getExchangeId(selectedExchange) === 'binance' && (
                         <div
                           className="mb-4 p-3 rounded cursor-pointer transition-colors"
                           style={{
@@ -519,7 +526,7 @@ export function ExchangeConfigModal({
                         />
                       </div>
 
-                      {(selectedExchange as any).exchange_id === 'okx' && (
+                      {getExchangeId(selectedExchange) === 'okx' && (
                         <div>
                           <label
                             className="block text-sm font-semibold mb-2"
@@ -544,7 +551,7 @@ export function ExchangeConfigModal({
                       )}
 
                       {/* Binance 白名单IP提示 */}
-                      {(selectedExchange as any).exchange_id === 'binance' && (
+                      {getExchangeId(selectedExchange) === 'binance' && (
                         <div
                           className="p-4 rounded"
                           style={{
@@ -604,11 +611,11 @@ export function ExchangeConfigModal({
                   )}
 
                 {/* Aster 交易所的字段 */}
-                {(selectedExchange as any).exchange_id === 'aster' && (
+                {getExchangeId(selectedExchange) === 'aster' && (
                   <>
                     <div>
                       <label
-                        className="block text-sm font-semibold mb-2 flex items-center gap-2"
+                        className="text-sm font-semibold mb-2 flex items-center gap-2"
                         style={{ color: '#EAECEF' }}
                       >
                         {t('user', language)}
@@ -636,7 +643,7 @@ export function ExchangeConfigModal({
 
                     <div>
                       <label
-                        className="block text-sm font-semibold mb-2 flex items-center gap-2"
+                        className="text-sm font-semibold mb-2 flex items-center gap-2"
                         style={{ color: '#EAECEF' }}
                       >
                         {t('signer', language)}
@@ -664,7 +671,7 @@ export function ExchangeConfigModal({
 
                     <div>
                       <label
-                        className="block text-sm font-semibold mb-2 flex items-center gap-2"
+                        className="text-sm font-semibold mb-2 flex items-center gap-2"
                         style={{ color: '#EAECEF' }}
                       >
                         {t('privateKey', language)}
@@ -693,7 +700,7 @@ export function ExchangeConfigModal({
                 )}
 
                 {/* Hyperliquid 交易所的字段 */}
-                {(selectedExchange as any).exchange_id === 'hyperliquid' && (
+                {getExchangeId(selectedExchange) === 'hyperliquid' && (
                   <>
                     {/* 安全提示 banner */}
                     <div
@@ -847,15 +854,15 @@ export function ExchangeConfigModal({
               type="submit"
               disabled={
                 !selectedExchange ||
-                ((selectedExchange as any).exchange_id === 'binance' &&
+                (getExchangeId(selectedExchange) === 'binance' &&
                   (!apiKey.trim() || !secretKey.trim())) ||
-                ((selectedExchange as any).exchange_id === 'okx' &&
+                (getExchangeId(selectedExchange) === 'okx' &&
                   (!apiKey.trim() ||
                     !secretKey.trim() ||
                     !passphrase.trim())) ||
-                ((selectedExchange as any).exchange_id === 'hyperliquid' &&
+                (getExchangeId(selectedExchange) === 'hyperliquid' &&
                   (!apiKey.trim() || !hyperliquidWalletAddr.trim())) || // 验证私钥和钱包地址
-                ((selectedExchange as any).exchange_id === 'aster' &&
+                (getExchangeId(selectedExchange) === 'aster' &&
                   (!asterUser.trim() ||
                     !asterSigner.trim() ||
                     !asterPrivateKey.trim())) ||

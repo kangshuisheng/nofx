@@ -7,3 +7,12 @@ export function getModelId(model: any): string {
 export function getModelProvider(model: any): string {
   return model?.provider || model?.provider_name || ''
 }
+
+export function getExchangeId(exchange: any): string {
+  // normalize exchange id across versions
+  return (exchange && (exchange.exchange_id || exchange.id || exchange.ExchangeID)) || ''
+}
+
+export function getExchangeType(exchange: any): string {
+  return exchange?.type || exchange?.exchange_type || ''
+}

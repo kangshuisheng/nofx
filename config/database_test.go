@@ -231,6 +231,68 @@ func TestEnsureDefaultUserCreatesRecord(t *testing.T) {
 	}
 }
 
+// TestEnsureDefaultUserDoesNotDeleteReferencedModels 验证 ensureDefaultUser 在存在引用时不会删除 default 用户下的 ai_models
+func TestEnsureDefaultUserDoesNotDeleteReferencedModels(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// 获取 default 用户下的 AI 模型
+	models, err := db.GetAIModels("default")
+	if err != nil {
+		t.Fatalf("获取 default 用户的 AI 模型失败: %v", err)
+	}
+	if len(models) == 0 {
+		t.Fatalf("default 用户没有 AI 模型")
+	}
+
+	// 使用 default 用户的第一个模型创建一个 trader（模拟引用）
+	modelID := models[0].ID
+	// 使用 setupTestDB 预先创建的用户之一，避免 FK 引用失败
+	exchangeID := createTestExchange(t, db, "test-user-001", "binance")
+
+	trader := &TraderRecord{
+		ID:                   "test-trader-ensure-default",
+		UserID:               "test-user-001", // 使用已创建的测试用户，避免 FK 失败
+		Name:                 "Tester",
+		AIModelID:            modelID,
+		ExchangeID:           exchangeID,
+		InitialBalance:       100,
+		ScanIntervalMinutes:  2,
+		IsRunning:            false,
+		BTCETHLeverage:       5,
+		AltcoinLeverage:      5,
+		TradingSymbols:       "BTCUSDT",
+		SystemPromptTemplate: "default",
+	}
+
+	if err := db.CreateTrader(trader); err != nil {
+		t.Fatalf("创建引用 default 模型的 trader 失败: %v", err)
+	}
+
+	// 临时关闭外键约束，以便删除 default 用户（用于模拟损坏场景）
+	if _, err := db.db.Exec("PRAGMA foreign_keys=OFF"); err != nil {
+		t.Fatalf("关闭 foreign_keys 失败: %v", err)
+	}
+	// 删除 default 用户，触发 ensureDefaultUser 的自動修復
+	if _, err := db.db.Exec(`DELETE FROM users WHERE id = 'default'`); err != nil {
+		t.Fatalf("删除 default 用户失败: %v", err)
+	}
+
+	// 调用 ensureDefaultUser，它会尝试清理默认模型，但应该跳过，因为有 trader 引用
+	if err := db.ensureDefaultUser(); err != nil {
+		t.Fatalf("ensureDefaultUser 失败: %v", err)
+	}
+
+	// 验证 deepseek 模型仍然存在
+	modelsAfter, err := db.GetAIModels("default")
+	if err != nil {
+		t.Fatalf("获取 default 用户的 AI 模型失败: %v", err)
+	}
+	if len(modelsAfter) == 0 {
+		t.Fatalf("ensureDefaultUser 错误地删除了 default 用户的 AI 模型")
+	}
+}
+
 func TestGetCustomCoinsFromTradingSymbols(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
@@ -882,7 +944,7 @@ func TestConcurrentWritesWithWAL(t *testing.T) {
 	go func() {
 		for i := 0; i < 3; i++ {
 			err := db.UpdateExchange(
-				"user1",
+				"test-user-001",
 				"binance",
 				true,
 				"key1",
@@ -906,7 +968,7 @@ func TestConcurrentWritesWithWAL(t *testing.T) {
 	go func() {
 		for i := 0; i < 3; i++ {
 			err := db.UpdateExchange(
-				"user2",
+				"test-user-002",
 				"hyperliquid",
 				true,
 				"key2",

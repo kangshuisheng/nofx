@@ -600,7 +600,36 @@ func (d *Database) initDefaultData() error {
 
 // EnsureDefaultModels 为外部调用暴露一个初始化默认模型的入口，用于在运行时修复丢失的默认AI模型
 func (d *Database) EnsureDefaultModels() error {
-	return d.initDefaultData()
+	// 防御性：仅确保 default 用户的默认模型存在（不进行删除或外键修改）
+	// 这是一个更安全的入口用于运行时修复 supported-models 列表
+	// 当 d.initDefaultData() 调用过度清理可能触发外键不一致错误时，使用此方法替代
+
+	// 确保 model_id 字段是否存在
+	var hasModelIDColumn int
+	if err := d.db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('ai_models')
+		WHERE name = 'model_id'
+	`).Scan(&hasModelIDColumn); err != nil {
+		return fmt.Errorf("检查ai_models表结构失败: %w", err)
+	}
+
+	// 插入 deepseek 和 qwen（不删除现有数据）
+	if hasModelIDColumn > 0 {
+		if _, err := d.db.Exec(`INSERT OR IGNORE INTO ai_models (model_id, user_id, name, provider, enabled, created_at, updated_at) VALUES (?,'default',? ,?,0,datetime('now'),datetime('now'))`, "deepseek", "DeepSeek AI", "deepseek"); err != nil {
+			return fmt.Errorf("插入 deepseek 失败: %w", err)
+		}
+		if _, err := d.db.Exec(`INSERT OR IGNORE INTO ai_models (model_id, user_id, name, provider, enabled, created_at, updated_at) VALUES (?,'default',? ,?,0,datetime('now'),datetime('now'))`, "qwen", "Qwen AI", "qwen"); err != nil {
+			return fmt.Errorf("插入 qwen 失败: %w", err)
+		}
+	} else {
+		if _, err := d.db.Exec(`INSERT OR IGNORE INTO ai_models (id, user_id, name, provider, enabled, created_at, updated_at) VALUES (?,'default',?,? ,0,datetime('now'),datetime('now'))`, "deepseek", "DeepSeek AI", "deepseek"); err != nil {
+			return fmt.Errorf("插入 deepseek (旧结构) 失败: %w", err)
+		}
+		if _, err := d.db.Exec(`INSERT OR IGNORE INTO ai_models (id, user_id, name, provider, enabled, created_at, updated_at) VALUES (?,'default',?,? ,0,datetime('now'),datetime('now'))`, "qwen", "Qwen AI", "qwen"); err != nil {
+			return fmt.Errorf("插入 qwen (旧结构) 失败: %w", err)
+		}
+	}
+	return nil
 }
 
 // ensureDefaultUser 确保系统保留的 default 用户存在
@@ -657,18 +686,36 @@ func (d *Database) ensureDefaultUser() error {
 
 		// 清理孤立數據
 		if orphanedModels > 0 {
-			if _, err := d.db.Exec(`DELETE FROM ai_models WHERE user_id = 'default'`); err != nil {
-				log.Printf("⚠️  清理孤立 AI models 失敗: %v", err)
+			// 如果有 traders 正在引用 default 用户下的模型，不要删除这些模型以避免外键失败
+			var modelRefs int
+			d.db.QueryRow(`
+				SELECT COUNT(*) FROM traders WHERE ai_model_id IN (SELECT id FROM ai_models WHERE user_id = 'default')
+			`).Scan(&modelRefs)
+			if modelRefs > 0 {
+				log.Printf("   ⚠️ 跳过清理 default 用户的 AI models，因为有 %d 个 traders 引用它们", modelRefs)
 			} else {
-				log.Printf("   ✅ 已清理 %d 個孤立的 AI models", orphanedModels)
+				if _, err := d.db.Exec(`DELETE FROM ai_models WHERE user_id = 'default'`); err != nil {
+					log.Printf("⚠️  清理孤立 AI models 失敗: %v", err)
+				} else {
+					log.Printf("   ✅ 已清理 %d 個孤立的 AI models", orphanedModels)
+				}
 			}
 		}
 
 		if orphanedExchanges > 0 {
-			if _, err := d.db.Exec(`DELETE FROM exchanges WHERE user_id = 'default'`); err != nil {
-				log.Printf("⚠️  清理孤立 exchanges 失敗: %v", err)
+			// 如果有 traders 正在引用 default 用户下的交易所，不要删除这些交易所以避免外键失败
+			var exchangeRefs int
+			d.db.QueryRow(`
+				SELECT COUNT(*) FROM traders WHERE exchange_id IN (SELECT id FROM exchanges WHERE user_id = 'default')
+			`).Scan(&exchangeRefs)
+			if exchangeRefs > 0 {
+				log.Printf("   ⚠️ 跳过清理 default 用户的 exchanges，因为有 %d 个 traders 引用它们", exchangeRefs)
 			} else {
-				log.Printf("   ✅ 已清理 %d 個孤立的 exchanges", orphanedExchanges)
+				if _, err := d.db.Exec(`DELETE FROM exchanges WHERE user_id = 'default'`); err != nil {
+					log.Printf("⚠️  清理孤立 exchanges 失敗: %v", err)
+				} else {
+					log.Printf("   ✅ 已清理 %d 個孤立的 exchanges", orphanedExchanges)
+				}
 			}
 		}
 
