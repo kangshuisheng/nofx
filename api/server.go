@@ -2768,7 +2768,42 @@ func (s *Server) handleGetSupportedModels(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, models)
+	// 将数据库模型转换为前端期望的安全结构 (ID=ModelID)
+	safeModels := make([]SafeModelConfig, len(models))
+	for i, model := range models {
+		safeModels[i] = SafeModelConfig{
+			ID:              model.ModelID,
+			Name:            model.Name,
+			Provider:        model.Provider,
+			Enabled:         model.Enabled,
+			CustomAPIURL:    model.CustomAPIURL,
+			CustomModelName: model.CustomModelName,
+		}
+	}
+
+	// 防御性修复：如果 default 用户的模型为空，尝试重新初始化默认数据一次
+	if len(safeModels) == 0 {
+		log.Printf("⚠️ default 用户的 supported models 为空，尝试重新初始化默认数据")
+		if err := s.database.EnsureDefaultModels(); err != nil {
+			log.Printf("❌ 重新初始化默认模型失败: %v", err)
+		} else {
+			// 重新获取
+			models, _ = s.database.GetAIModels("default")
+			safeModels = make([]SafeModelConfig, len(models))
+			for i, model := range models {
+				safeModels[i] = SafeModelConfig{
+					ID:              model.ModelID,
+					Name:            model.Name,
+					Provider:        model.Provider,
+					Enabled:         model.Enabled,
+					CustomAPIURL:    model.CustomAPIURL,
+					CustomModelName: model.CustomModelName,
+				}
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, safeModels)
 }
 
 // handleGetSupportedExchanges 获取系统支持的交易所列表

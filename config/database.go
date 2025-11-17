@@ -598,6 +598,11 @@ func (d *Database) initDefaultData() error {
 	return nil
 }
 
+// EnsureDefaultModels 为外部调用暴露一个初始化默认模型的入口，用于在运行时修复丢失的默认AI模型
+func (d *Database) EnsureDefaultModels() error {
+	return d.initDefaultData()
+}
+
 // ensureDefaultUser 确保系统保留的 default 用户存在
 // 實現三階段自動修復：檢查 → 插入 → 清理修復
 func (d *Database) ensureDefaultUser() error {
@@ -1794,16 +1799,17 @@ func (d *Database) UpdateExchange(userID, id string, enabled bool, apiKey, secre
 
 		// 根据交易所ID确定基本信息
 		var name, typ string
-		if id == "binance" {
+		switch id {
+		case "binance":
 			name = "Binance Futures"
 			typ = "cex"
-		} else if id == "hyperliquid" {
+		case "hyperliquid":
 			name = "Hyperliquid"
 			typ = "dex"
-		} else if id == "aster" {
+		case "aster":
 			name = "Aster DEX"
 			typ = "dex"
-		} else {
+		default:
 			name = id + " Exchange"
 			typ = "cex"
 		}
