@@ -24,9 +24,17 @@ services:
       - ASTER_USER=${ASTER_USER}
       - ASTER_SIGNER=${ASTER_SIGNER}
       - ASTER_PRIVATE_KEY=${ASTER_PRIVATE_KEY}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+      - ENABLE_CSRF=${ENABLE_CSRF}
+      - FRONTEND_URL=${FRONTEND_URL}
     volumes:
-      - ./prompts:/app/prompts
-      - nofx-decision-logs:/app/decision_logs
+      - ./prompts:/app/prompts:ro
+      - ./data:/app/data
+      - ./decision_logs:/app/decision_logs
+      - /etc/localtime:/etc/localtime:ro
+      - ./config.json:/app/config.json:ro
+      - ./secrets:/app/secrets:ro
+      - /etc/localtime:/etc/localtime:ro
     networks:
       - nofx-network
     healthcheck:
@@ -74,5 +82,3 @@ networks:
     driver: bridge
 
 volumes:
-  nofx-app-data:
-  nofx-decision-logs:
