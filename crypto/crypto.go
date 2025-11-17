@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,13 +53,31 @@ func NewCryptoService(privateKeyPath string) (*CryptoService, error) {
 	// 读取私钥文件
 	privateKeyPEM, err := ioutil.ReadFile(privateKeyPath)
 	if err != nil {
-		// 如果私钥文件不存在，生成新的密钥对
-		if err := GenerateRSAKeyPair(privateKeyPath); err != nil {
-			return nil, fmt.Errorf("failed to generate RSA key pair: %w", err)
-		}
-		privateKeyPEM, err = ioutil.ReadFile(privateKeyPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read generated private key: %w", err)
+		// 文件不存在: 尝试生成
+		if os.IsNotExist(err) {
+			if err := GenerateRSAKeyPair(privateKeyPath); err != nil {
+				// 生成失败（有可能是只读文件系统），尝试从环境变量加载 PEM
+				envKey := strings.TrimSpace(os.Getenv("RSA_PRIVATE_KEY"))
+				if envKey == "" {
+					return nil, fmt.Errorf("failed to generate RSA key pair: %w", err)
+				}
+				privateKeyPEM = []byte(envKey)
+				log.Printf("ℹ️  使用环境变量 RSA_PRIVATE_KEY 作为私钥（生成失败，原因: %v）", err)
+			} else {
+				// 成功生成，读取文件
+				privateKeyPEM, err = ioutil.ReadFile(privateKeyPath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read generated private key: %w", err)
+				}
+			}
+		} else {
+			// 其他读取错误（权限等）: 尝试从环境变量加载 PEM
+			envKey := strings.TrimSpace(os.Getenv("RSA_PRIVATE_KEY"))
+			if envKey == "" {
+				return nil, fmt.Errorf("failed to read private key: %w", err)
+			}
+			privateKeyPEM = []byte(envKey)
+			log.Printf("ℹ️  使用环境变量 RSA_PRIVATE_KEY 作为私钥（读取失败，原因: %v）", err)
 		}
 	}
 
