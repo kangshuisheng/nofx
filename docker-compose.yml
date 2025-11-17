@@ -6,7 +6,7 @@ services:
       dockerfile: ./docker/Dockerfile.backend
     container_name: nofx-trading
     restart: unless-stopped
-    stop_grace_period: 30s  # 允许应用有 30 秒时间优雅关闭
+    stop_grace_period: 30s # 允许应用有 30 秒时间优雅关闭
     ports:
       - "${NOFX_BACKEND_PORT:-8080}:8080"
     volumes:
@@ -14,19 +14,27 @@ services:
       - ./data:/app/data
       - ./decision_logs:/app/decision_logs
       - ./prompts:/app/prompts
-      - ./secrets:/app/secrets:ro  # RSA密钥文件
-      - /etc/localtime:/etc/localtime:ro  # Sync host time
+      - ./secrets:/app/secrets:ro # RSA密钥文件
+      - /etc/localtime:/etc/localtime:ro # Sync host time
     environment:
-      - TZ=${NOFX_TIMEZONE:-Asia/Shanghai}  # Set timezone
-      - AI_MAX_TOKENS=4000  # AI响应的最大token数（默认2000，建议4000-8000）
-      - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY}  # 数据库加密密钥
-      - JWT_SECRET=${JWT_SECRET}  # JWT认证密钥
-      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}  # CORS白名单
-      - ENABLE_CSRF=${ENABLE_CSRF}  # CSRF保护开关（默认关闭，生产环境建议启用）
+      - TZ=${NOFX_TIMEZONE:-Asia/Shanghai} # Set timezone
+      - AI_MAX_TOKENS=4000 # AI响应的最大token数（默认2000，建议4000-8000）
+      - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY} # 数据库加密密钥
+      - JWT_SECRET=${JWT_SECRET} # JWT认证密钥
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS} # CORS白名单
+      - ENABLE_CSRF=${ENABLE_CSRF} # CSRF保护开关（默认关闭，生产环境建议启用）
     networks:
       - nofx-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/api/health",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -46,7 +54,15 @@ services:
     depends_on:
       - nofx
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1/health",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
