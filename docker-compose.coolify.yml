@@ -24,9 +24,16 @@ services:
       - ASTER_USER=${ASTER_USER}
       - ASTER_SIGNER=${ASTER_SIGNER}
       - ASTER_PRIVATE_KEY=${ASTER_PRIVATE_KEY}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+      - ENABLE_CSRF=${ENABLE_CSRF}
+      - FRONTEND_URL=${FRONTEND_URL}
     volumes:
-      - nofx-app-data:/app
-      - nofx-decision-logs:/app/decision_logs
+      - ./config.json:/app/config.json:ro
+      - ./data:/app/data
+      - ./decision_logs:/app/decision_logs
+      - ./prompts:/app/prompts
+      - ./secrets:/app/secrets:ro # RSA密钥文件
+      - /etc/localtime:/etc/localtime:ro # Sync host time
     networks:
       - nofx-network
     healthcheck:
@@ -74,4 +81,3 @@ networks:
     driver: bridge
 
 volumes:
-  nofx-app-data:
