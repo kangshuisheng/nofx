@@ -1057,28 +1057,6 @@ func validateDecisions(decisions []Decision, accountEquity float64, btcEthLevera
 	return nil
 }
 
-// // findMatchingBracket 查找匹配的右括号
-// func findMatchingBracket(s string, start int) int {
-// 	if start >= len(s) || s[start] != '[' {
-// 		return -1
-// 	}
-
-// 	depth := 0
-// 	for i := start; i < len(s); i++ {
-// 		switch s[i] {
-// 		case '[':
-// 			depth++
-// 		case ']':
-// 			depth--
-// 			if depth == 0 {
-// 				return i
-// 			}
-// 		}
-// 	}
-
-// 	return -1
-// }
-
 // positionSizeConfig 定义账户规模分层配置
 type positionSizeConfig struct {
 	MinEquity float64 // 账户最小净值阈值
