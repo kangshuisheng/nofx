@@ -365,6 +365,58 @@ func TestHandleGetModelConfigs(t *testing.T) {
 	t.Logf("✅ handleGetModelConfigs test passed")
 }
 
+// TestHandleGetSupportedModels tests the supported models endpoint
+func TestHandleGetSupportedModels(t *testing.T) {
+	server, db, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// Ensure default models are inserted
+	if err := db.EnsureDefaultModels(); err != nil {
+		t.Fatalf("EnsureDefaultModels failed: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/supported-models", func(c *gin.Context) {
+		server.handleGetSupportedModels(c)
+	})
+
+	req := httptest.NewRequest("GET", "/supported-models", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var models []SafeModelConfig
+	if err := json.Unmarshal(w.Body.Bytes(), &models); err != nil {
+		t.Fatalf("Failed to parse supported models response: %v", err)
+	}
+
+	if len(models) == 0 {
+		t.Fatalf("Expected at least one supported model, got 0")
+	}
+
+	// Check default models exist
+	foundDeepSeek := false
+	foundQwen := false
+	for _, m := range models {
+		if m.ID == "deepseek" {
+			foundDeepSeek = true
+		}
+		if m.ID == "qwen" {
+			foundQwen = true
+		}
+	}
+
+	if !foundDeepSeek || !foundQwen {
+		t.Fatalf("Expected deepseek and qwen in supported models; got: %+v", models)
+	}
+
+	t.Logf("✅ handleGetSupportedModels test passed")
+}
+
 // TestHandleGetExchangeConfigs tests the exchange configs retrieval endpoint
 func TestHandleGetExchangeConfigs(t *testing.T) {
 	server, db, cleanup := setupTestServer(t)
