@@ -230,6 +230,74 @@ docker info | grep -A 10 "Registry Mirrors"
 
 ---
 
+#### ❌ Frontend Build Failed: Cannot find module 'prepare-husky.cjs'
+
+**Error Message:**
+```
+Error: Cannot find module '/build/scripts/prepare-husky.cjs'
+npm error code 1
+npm error command failed
+npm error command sh -c node ./scripts/prepare-husky.cjs
+```
+
+**Root Cause:**
+Docker build process executes in this order:
+1. `COPY web/package*.json ./` (only package files)
+2. `RUN npm ci` (executes `prepare` script) ← **scripts/ directory doesn't exist yet!**
+3. `COPY web/ ./` (copies all files)
+
+The `prepare` script tries to run `scripts/prepare-husky.cjs`, but it hasn't been copied into the container yet.
+
+**Solution (Already Fixed in Latest Version):**
+
+If you're on the latest version (commit 628c3359 or later), this issue is already fixed. Just rebuild:
+
+```bash
+# Pull latest changes
+git pull origin z-dev-v2
+
+# Clean rebuild
+docker compose build --no-cache frontend
+docker compose up -d
+```
+
+**Manual Fix (If Using Older Version):**
+
+1. **Update Dockerfile.frontend:**
+   ```dockerfile
+   # Line 18-19
+   COPY web/package*.json ./
+   RUN npm ci --ignore-scripts  # Add --ignore-scripts flag
+   ```
+
+2. **Or update prepare-husky.cjs:**
+   ```javascript
+   // Add environment detection at the top
+   if (process.env.CI || process.env.DOCKER_BUILD || !require('fs').existsSync('../../.git')) {
+     console.log('[husky] Skip install (CI/Docker environment)')
+     process.exit(0)
+   }
+   ```
+
+**Why `--ignore-scripts` is Safe:**
+- Docker doesn't need git hooks (husky is for local development only)
+- No other lifecycle scripts are used in package.json
+- Build process remains the same
+
+**Verification:**
+```bash
+# Should see this during build:
+[husky] Skip install (CI/Docker environment or HUSKY_INSTALL not set)
+
+# Check build completed:
+docker compose ps
+# frontend should show "Up"
+```
+
+**Related:** Local development still works normally. Run `HUSKY_INSTALL=1 npm install` in `web/` directory to enable git hooks.
+
+---
+
 #### ❌ Backend Won't Start
 
 **Error:** `port 8080 already in use`
