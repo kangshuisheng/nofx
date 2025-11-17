@@ -516,7 +516,7 @@ func buildUserPrompt(ctx *Context) string {
 			case "normal":
 				sb.WriteString("  → 市場平穩，正常交易\n")
 			case "cautious":
-				sb.WriteString("  → ⚠️  市場輕度恐慌，建議降低槓桿至 5-10x\n")
+				sb.WriteString("  → ⚠️  市場輕度恐慌，建議降低槓桿至 5x\n")
 			case "defensive":
 				sb.WriteString("  → ⚠️  市場恐慌，建議收緊止損，避免激進操作\n")
 			case "avoid_new_positions":
@@ -579,26 +579,16 @@ func buildUserPrompt(ctx *Context) string {
 				}
 			}
 
-			// 2. 在Go代码中进行精确的阶段判断
+			// 2. 使用新的calculateManagementState方法进行精确的阶段判断
 			var managementState string
+			var rRatio float64
 			marketData, hasMarketData := ctx.MarketDataMap[pos.Symbol]
+
 			if !hasStopLoss {
 				managementState = "NO_STOP_LOSS"
-			} else if hasMarketData && marketData.LongerTermContext != nil && marketData.LongerTermContext.ATR14 > 0 {
-				profitDist := math.Abs(pos.MarkPrice - pos.EntryPrice)
-				atrThreshold := 1.5 * marketData.LongerTermContext.ATR14
-
-				if profitDist < atrThreshold {
-					managementState = "STAGE_1_INITIAL_RISK"
-				} else {
-					isBreakevenOrInProfit := (pos.Side == "long" && currentStopLossPrice >= pos.EntryPrice) ||
-						(pos.Side == "short" && currentStopLossPrice <= pos.EntryPrice)
-					if isBreakevenOrInProfit {
-						managementState = "STAGE_3_TRAILING"
-					} else {
-						managementState = "STAGE_2_RISK_REMOVAL"
-					}
-				}
+			} else if hasMarketData {
+				// 调用新的状态计算方法
+				managementState, rRatio = calculateManagementState(pos, currentStopLossPrice, marketData)
 			} else {
 				managementState = "CALC_PENDING" // 数据不足
 			}
@@ -621,9 +611,9 @@ func buildUserPrompt(ctx *Context) string {
 			positionValue := math.Abs(pos.Quantity) * pos.MarkPrice
 
 			// 5. 将所有信息，包括新注入的状态，格式化为最终字符串
-			sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价:%.4f 当前价:%.4f | 盈亏:%+.2f%% (%+.2f USDT) | 价值:%.2f USDT | 状态:%s%s\n",
+			sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价:%.4f 当前价:%.4f | 盈亏:%+.2f%% (R:R=%.1f) | 价值:%.2f USDT | 状态:%s%s\n",
 				i+1, pos.Symbol, strings.ToUpper(pos.Side),
-				pos.EntryPrice, pos.MarkPrice, pos.UnrealizedPnLPct, pos.UnrealizedPnL, positionValue,
+				pos.EntryPrice, pos.MarkPrice, pos.UnrealizedPnLPct, rRatio, positionValue,
 				managementState,
 				holdingDuration))
 
@@ -751,6 +741,72 @@ func buildUserPrompt(ctx *Context) string {
 	sb.WriteString("现在请分析并输出决策（思维链 + JSON）\n")
 
 	return sb.String()
+}
+
+// calculateManagementState 根据当前仓位信息、止损价格和市场数据，计算仓位管理的精细状态和R倍数。
+// 这个函数是止损管理逻辑的核心，它将仓位的生命周期划分为几个关键阶段，
+// 以便AI模型能够根据当前盈利情况做出更精细的止损调整决策。
+//
+// 参数:
+//
+//	pos: 当前的仓位信息，包含入场价、标记价格、方向等。
+//	currentStopLossPrice: 当前设置的止损价格。
+//	marketData: 市场数据，主要用于获取ATR等波动性指标。
+//
+// 返回:
+//
+//	string: 表示当前仓位管理状态的枚举值 (e.g., "STAGE_1_INITIAL_RISK", "STAGE_2_RISK_REMOVAL", "STAGE_3_TRAILING")。
+//	float64: 计算出的当前R倍数（盈利距离 / 初始风险距离）。
+func calculateManagementState(pos PositionInfo, currentStopLossPrice float64, marketData *market.Data) (string, float64) {
+	if currentStopLossPrice == 0 {
+		return "NO_STOP_LOSS", 0
+	}
+
+	if marketData == nil || marketData.LongerTermContext == nil || marketData.LongerTermContext.ATR14 == 0 {
+		return "CALC_PENDING", 0
+	}
+
+	// 计算核心指标
+	initialRisk := math.Abs(pos.EntryPrice - currentStopLossPrice)
+	currentProfitDist := math.Abs(pos.MarkPrice - pos.EntryPrice)
+	rRatio := currentProfitDist / initialRisk
+
+	// 判断是否保本
+	isBreakeven := (pos.Side == "long" && currentStopLossPrice >= pos.EntryPrice) ||
+		(pos.Side == "short" && currentStopLossPrice <= pos.EntryPrice)
+
+	// 精细状态判断
+	var state string
+	switch {
+	case rRatio < 0.3:
+		// 小幅盈利，保持初始风险
+		state = "STAGE_1_INITIAL_RISK"
+
+	case rRatio >= 0.3 && rRatio < 0.8:
+		// 中等盈利，可以考虑收紧止损
+		state = "STAGE_1_INITIAL_RISK" // 但提示可以收紧
+
+	case rRatio >= 0.8 && rRatio < 1.0:
+		// 接近保本，准备移除风险
+		state = "STAGE_2_RISK_REMOVAL"
+
+	case rRatio >= 1.0 && rRatio < 1.5:
+		// 已保本，小幅盈利
+		if isBreakeven {
+			state = "STAGE_2_RISK_REMOVAL" // 可以开始锁定部分收益
+		} else {
+			state = "STAGE_3_TRAILING"
+		}
+
+	case rRatio >= 1.5:
+		// 显著盈利，进入积极追踪
+		state = "STAGE_3_TRAILING"
+
+	default:
+		state = "STAGE_1_INITIAL_RISK"
+	}
+
+	return state, rRatio
 }
 
 // parseFullDecisionResponse 解析AI的完整决策响应
