@@ -28,11 +28,8 @@ services:
       - ENABLE_CSRF=${ENABLE_CSRF}
       - FRONTEND_URL=${FRONTEND_URL}
     volumes:
-      - ./config.json:/app/config.json:ro
-      - ./data:/app/data
-      - ./decision_logs:/app/decision_logs
-      - ./secrets:/app/secrets:ro # RSA密钥文件
-      - /etc/localtime:/etc/localtime:ro # Sync host time
+      - ./prompts:/app/prompts
+      - nofx-decision-logs:/app/decision_logs
     networks:
       - nofx-network
     healthcheck:
@@ -80,3 +77,5 @@ networks:
     driver: bridge
 
 volumes:
+  nofx-app-data:
+  nofx-decision-logs:
