@@ -90,8 +90,6 @@ export class HttpClient {
     const response = await fetch(url, {
       method: 'GET',
       headers,
-      // Always include credentials so cookies (including CSRF cookie) are preserved
-      credentials: 'include',
     })
     return this.handleResponse(response)
   }
@@ -104,19 +102,13 @@ export class HttpClient {
     body?: any,
     headers?: Record<string, string>
   ): Promise<Response> {
-    await this.ensureCSRF()
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // Default CSRF header if present in localStorage
-        ...(localStorage.getItem('csrf_token')
-          ? { 'X-CSRF-Token': localStorage.getItem('csrf_token') || '' }
-          : {}),
         ...headers,
       },
       body: body ? JSON.stringify(body) : undefined,
-      credentials: 'include',
     })
     return this.handleResponse(response)
   }
@@ -129,18 +121,13 @@ export class HttpClient {
     body?: any,
     headers?: Record<string, string>
   ): Promise<Response> {
-    await this.ensureCSRF()
     const response = await fetch(url, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...(localStorage.getItem('csrf_token')
-          ? { 'X-CSRF-Token': localStorage.getItem('csrf_token') || '' }
-          : {}),
         ...headers,
       },
       body: body ? JSON.stringify(body) : undefined,
-      credentials: 'include',
     })
     return this.handleResponse(response)
   }
@@ -152,17 +139,9 @@ export class HttpClient {
     url: string,
     headers?: Record<string, string>
   ): Promise<Response> {
-    await this.ensureCSRF()
     const response = await fetch(url, {
       method: 'DELETE',
-      headers: {
-        ...(localStorage.getItem('csrf_token')
-          ? { 'X-CSRF-Token': localStorage.getItem('csrf_token') || '' }
-          : {}),
-        ...headers,
-      },
-      credentials: 'include',
-      // keep parity with other requests
+      headers,
     })
     return this.handleResponse(response)
   }
@@ -171,31 +150,8 @@ export class HttpClient {
    * Generic request method for custom configurations
    */
   async request(url: string, options: RequestInit = {}): Promise<Response> {
-    // Ensure credentials by default
-    options.credentials = options.credentials || 'include'
     const response = await fetch(url, options)
     return this.handleResponse(response)
-  }
-
-  /**
-   * Ensure CSRF token exists in localStorage before mutating requests
-   * Will call /api/csrf-token (include cookies) and store the returned token
-   */
-  private async ensureCSRF(): Promise<void> {
-    // If there's already a token, no-op
-    if (localStorage.getItem('csrf_token')) return
-
-    try {
-      const res = await fetch('/api/csrf-token', { credentials: 'include' })
-      if (!res.ok) return
-      const json = await res.json()
-      if (json && json.csrf_token) {
-        localStorage.setItem('csrf_token', json.csrf_token)
-      }
-    } catch (err) {
-      // Don't block operations; CSRF endpoint may be disabled in dev
-      console.warn('ensureCSRF failed', err)
-    }
   }
 }
 
