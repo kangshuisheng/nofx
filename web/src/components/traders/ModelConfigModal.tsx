@@ -66,7 +66,7 @@ export function ModelConfigModal({
 
   useEffect(() => {
     if (!editingModelId && !selectedModelId && availableModels.length > 0) {
-      setSelectedModelId(availableModels[0].id)
+      setSelectedModelId((availableModels[0] as any).model_id)
     }
   }, [editingModelId, selectedModelId, availableModels])
 
@@ -126,8 +126,8 @@ export function ModelConfigModal({
                   required
                 >
                   <option value="">{t('pleaseSelectModel', language)}</option>
-                  {availableModels.map((model) => (
-                    <option key={model.id} value={model.id}>
+                  {availableModels.map((model: any) => (
+                    <option key={model.model_id} value={model.model_id}>
                       {getShortName(model.name)} ({model.provider})
                     </option>
                   ))}
@@ -142,7 +142,7 @@ export function ModelConfigModal({
               >
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-8 h-8 flex items-center justify-center">
-                    {getModelIcon(selectedModel.provider || selectedModel.id, {
+                    {getModelIcon(selectedModel.provider || (selectedModel as any).model_id, {
                       width: 32,
                       height: 32,
                     }) || (
@@ -150,7 +150,7 @@ export function ModelConfigModal({
                         className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
                         style={{
                           background:
-                            selectedModel.id === 'deepseek'
+                            (selectedModel as any).model_id === 'deepseek'
                               ? '#60a5fa'
                               : '#c084fc',
                           color: '#fff',
@@ -165,7 +165,7 @@ export function ModelConfigModal({
                       {getShortName(selectedModel.name)}
                     </div>
                     <div className="text-xs" style={{ color: '#848E9C' }}>
-                      {selectedModel.provider} • {selectedModel.id}
+                      {selectedModel.provider} • {(selectedModel as any).model_id}
                     </div>
                   </div>
                 </div>
