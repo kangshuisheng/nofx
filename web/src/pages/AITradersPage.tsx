@@ -113,18 +113,28 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     setEditingTrader,
   })
 
-  // 计算派生状态
-  const enabledModels = allModels?.filter((m) => m.enabled) || []
+  // 计算派生状态 - 只在创建交易员时使用已启用且配置完整的
+  const enabledModels = allModels?.filter((m) => m.enabled && m.apiKey) || []
   const enabledExchanges =
     allExchanges?.filter((e) => {
       if (!e.enabled) return false
+
+      // Aster 交易所需要特殊字段
       if (e.id === 'aster') {
-        return e.asterUser?.trim() && e.asterSigner?.trim()
+        return (
+          e.asterUser?.trim() &&
+          e.asterSigner?.trim() &&
+          e.asterPrivateKey?.trim()
+        )
       }
+
+      // Hyperliquid 只需要私钥（作为apiKey），钱包地址可自动生成
       if (e.id === 'hyperliquid') {
-        return e.hyperliquidWalletAddr?.trim()
+        return e.apiKey?.trim()
       }
-      return true
+
+      // Binance 等其他交易所需要 apiKey 和 secretKey
+      return e.apiKey?.trim() && e.secretKey?.trim()
     }) || []
 
   // 检查是否需要显示信号源警告
