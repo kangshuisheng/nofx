@@ -25,9 +25,8 @@ services:
       - ASTER_SIGNER=${ASTER_SIGNER}
       - ASTER_PRIVATE_KEY=${ASTER_PRIVATE_KEY}
     volumes:
-      - ./data:/app/data
-      - ./decision_logs:/app/decision_logs
       - ./prompts:/app/prompts
+      - nofx-decision-logs:/app/decision_logs
     networks:
       - nofx-network
     healthcheck:
