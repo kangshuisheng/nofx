@@ -1509,9 +1509,10 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 
 		// 获取默认名称
 		name := provider + " AI"
-		if provider == "deepseek" {
+		switch provider {
+		case "deepseek":
 			name = "DeepSeek AI"
-		} else if provider == "qwen" {
+		case "qwen":
 			name = "Qwen AI"
 		}
 
