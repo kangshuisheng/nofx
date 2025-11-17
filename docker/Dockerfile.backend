@@ -17,40 +17,20 @@ FROM alpine:${ALPINE_VERSION} AS ta-lib-builder
 ARG TA_LIB_VERSION
 
 RUN apk update && apk add --no-cache \
-    wget tar make gcc g++ musl-dev autoconf automake libtool
+    wget tar make gcc g++ musl-dev autoconf automake
 
-# 使用多个镜像源和重试机制下载 TA-Lib
-RUN set -e && \
-    for url in \
-        "http://prdownloads.sourceforge.net/ta-lib/ta-lib-${TA_LIB_VERSION}-src.tar.gz" \
-        "https://downloads.sourceforge.net/project/ta-lib/ta-lib/${TA_LIB_VERSION}/ta-lib-${TA_LIB_VERSION}-src.tar.gz" \
-        "https://github.com/TA-Lib/ta-lib/releases/download/v${TA_LIB_VERSION}/ta-lib-${TA_LIB_VERSION}-src.tar.gz"; do \
-        echo "Trying to download from: $url" && \
-        if wget --timeout=30 --tries=3 "$url"; then \
-            echo "Download successful from: $url" && break; \
-        else \
-            echo "Download failed from: $url, trying next..." && \
-            rm -f ta-lib-${TA_LIB_VERSION}-src.tar.gz; \
-        fi; \
-    done && \
-    if [ ! -f "ta-lib-${TA_LIB_VERSION}-src.tar.gz" ]; then \
-        echo "All download attempts failed" && exit 1; \
-    fi && \
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-${TA_LIB_VERSION}-src.tar.gz && \
     tar -xzf ta-lib-${TA_LIB_VERSION}-src.tar.gz && \
     cd ta-lib && \
     if [ "$(uname -m)" = "aarch64" ]; then \
-        echo "Configuring for ARM64 architecture..." && \
-        autoreconf -fiv && \
-        CONFIG_GUESS=$(find /usr/share -name config.guess 2>/dev/null | head -1) && \
-        CONFIG_SUB=$(find /usr/share -name config.sub 2>/dev/null | head -1) && \
-        if [ -n "$CONFIG_GUESS" ] && [ -n "$CONFIG_SUB" ]; then \
-            cp "$CONFIG_GUESS" config.guess && \
-            cp "$CONFIG_SUB" config.sub && \
-            chmod +x config.guess config.sub; \
-        fi; \
+        CONFIG_GUESS=$(find /usr/share -name config.guess | head -1) && \
+        CONFIG_SUB=$(find /usr/share -name config.sub | head -1) && \
+        cp "$CONFIG_GUESS" config.guess && \
+        cp "$CONFIG_SUB" config.sub && \
+        chmod +x config.guess config.sub; \
     fi && \
-    ./configure --prefix=/usr/local --disable-shared --enable-static && \
-    make -j1 && make install && \
+    ./configure --prefix=/usr/local && \
+    make && make install && \
     cd .. && rm -rf ta-lib ta-lib-${TA_LIB_VERSION}-src.tar.gz
 
 # ──────────────────────────────────────────────────────────────
@@ -76,48 +56,15 @@ RUN CGO_ENABLED=1 GOOS=linux \
 # ──────────────────────────────────────────────────────────────
 FROM alpine:${ALPINE_VERSION}
 
-# 添加更稳定的镜像源
-RUN echo "https://mirrors.aliyun.com/alpine/v3.22/main" > /etc/apk/repositories && \
-    echo "https://mirrors.aliyun.com/alpine/v3.22/community" >> /etc/apk/repositories && \
-    echo "https://dl-cdn.alpinelinux.org/alpine/v3.22/main" >> /etc/apk/repositories && \
-    echo "https://dl-cdn.alpinelinux.org/alpine/v3.22/community" >> /etc/apk/repositories
-
-RUN set -e && \
-    for i in 1 2 3; do \
-        echo "Attempt $i: Updating package index..." && \
-        if apk update; then \
-            echo "Package index updated successfully" && break; \
-        else \
-            echo "Attempt $i failed, retrying in 5 seconds..." && \
-            sleep 5; \
-        fi; \
-    done && \
-    apk add --no-cache ca-certificates tzdata curl
+RUN apk update && apk add --no-cache ca-certificates tzdata
 
 COPY --from=ta-lib-builder /usr/local /usr/local
 WORKDIR /app
 COPY --from=backend-builder /app/nofx .
 
-# 复制配置文件和提示词模板到镜像中
-COPY config.json.example /app/config.json
-COPY prompts /app/prompts
-
-# 创建空的 beta_codes.txt (可选功能)
-RUN touch /app/beta_codes.txt
-
-# 创建启动脚本
-RUN echo '#!/bin/sh' > /app/start.sh && \
-    echo 'echo "🚀 Starting NOFX Backend Service..."' >> /app/start.sh && \
-    echo 'echo "⏳ Waiting for dependencies to initialize..."' >> /app/start.sh && \
-    echo 'sleep 10' >> /app/start.sh && \
-    echo 'echo "✅ Dependencies ready, starting application..."' >> /app/start.sh && \
-    echo 'echo "📊 Monitoring service health..."' >> /app/start.sh && \
-    echo 'exec ./nofx' >> /app/start.sh && \
-    chmod +x /app/start.sh
-
 EXPOSE 8080
 
-HEALTHCHECK --interval=20s --timeout=30s --start-period=180s --retries=10 \
-  CMD curl -f --max-time 10 http://localhost:8080/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/health || exit 1
 
-CMD ["/app/start.sh"]
+CMD ["./nofx"]

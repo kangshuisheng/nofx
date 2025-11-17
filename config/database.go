@@ -124,17 +124,6 @@ func NewDatabase(dbPath string) (*Database, error) {
 // createTables 创建数据库表
 func (d *Database) createTables() error {
 	queries := []string{
-		// 🔧 用户表必须先创建（其他表依赖它的外键）
-		`CREATE TABLE IF NOT EXISTS users (
-			id TEXT PRIMARY KEY,
-			email TEXT UNIQUE NOT NULL,
-			password_hash TEXT NOT NULL,
-			otp_secret TEXT,
-			otp_verified BOOLEAN DEFAULT 0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
-
 		// AI模型配置表（使用自增ID支持多配置）
 		`CREATE TABLE IF NOT EXISTS ai_models (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -217,6 +206,17 @@ func (d *Database) createTables() error {
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 			FOREIGN KEY (ai_model_id) REFERENCES ai_models(id),
 			FOREIGN KEY (exchange_id) REFERENCES exchanges(id)
+		)`,
+
+		// 用户表
+		`CREATE TABLE IF NOT EXISTS users (
+			id TEXT PRIMARY KEY,
+			email TEXT UNIQUE NOT NULL,
+			password_hash TEXT NOT NULL,
+			otp_secret TEXT,
+			otp_verified BOOLEAN DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 
 		// 系统配置表
@@ -387,84 +387,9 @@ func (d *Database) createTables() error {
 
 // initDefaultData 初始化默认数据
 func (d *Database) initDefaultData() error {
-	// 🔧 在初始化之前，先清理可能违反外键约束的数据
-	log.Printf("🧹 [初始化前清理] 开始清理可能违反外键约束的数据...")
-
-	// 删除引用不存在用户的AI模型记录
-	_, err := d.db.Exec(`
-		DELETE FROM ai_models
-		WHERE user_id NOT IN (SELECT id FROM users)
-	`)
-	if err != nil {
-		log.Printf("⚠️  [初始化前清理] 清理孤立AI模型失败（继续执行）: %v", err)
-	} else {
-		log.Printf("✅ [初始化前清理] 已清理孤立AI模型记录")
-	}
-
-	// 删除引用不存在用户的交易所记录
-	_, err = d.db.Exec(`
-		DELETE FROM exchanges
-		WHERE user_id NOT IN (SELECT id FROM users)
-	`)
-	if err != nil {
-		log.Printf("⚠️  [初始化前清理] 清理孤立交易所失败（继续执行）: %v", err)
-	} else {
-		log.Printf("✅ [初始化前清理] 已清理孤立交易所记录")
-	}
-
-	// 删除引用不存在用户的交易员记录
-	_, err = d.db.Exec(`
-		DELETE FROM traders
-		WHERE user_id NOT IN (SELECT id FROM users)
-	`)
-	if err != nil {
-		log.Printf("⚠️  [初始化前清理] 清理孤立交易员失败（继续执行）: %v", err)
-	} else {
-		log.Printf("✅ [初始化前清理] 已清理孤立交易员记录")
-	}
-
-	// 删除引用不存在交易所的交易员记录
-	_, err = d.db.Exec(`
-		DELETE FROM traders
-		WHERE exchange_id NOT IN (SELECT id FROM exchanges)
-	`)
-	if err != nil {
-		log.Printf("⚠️  [初始化前清理] 清理引用不存在交易所的交易员失败（继续执行）: %v", err)
-	} else {
-		log.Printf("✅ [初始化前清理] 已清理引用不存在交易所的交易员记录")
-	}
-
-	// 删除引用不存在AI模型的交易员记录
-	_, err = d.db.Exec(`
-		DELETE FROM traders
-		WHERE ai_model_id NOT IN (SELECT id FROM ai_models)
-	`)
-	if err != nil {
-		log.Printf("⚠️  [初始化前清理] 清理引用不存在AI模型的交易员失败（继续执行）: %v", err)
-	} else {
-		log.Printf("✅ [初始化前清理] 已清理引用不存在AI模型的交易员记录")
-	}
-
-	log.Printf("✅ [初始化前清理] 数据清理完成")
-
-	// 🔧 首先创建默认用户（避免外键约束失败）
-	// 检查是否已存在default用户
-	var userCount int
-	err = d.db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = 'default'`).Scan(&userCount)
-	if err != nil {
-		return fmt.Errorf("检查默认用户失败: %w", err)
-	}
-
-	if userCount == 0 {
-		// 创建默认用户
-		_, err = d.db.Exec(`
-			INSERT INTO users (id, email, password_hash, otp_secret, otp_verified)
-			VALUES ('default', 'default@system.local', '', '', 0)
-		`)
-		if err != nil {
-			return fmt.Errorf("创建默认用户失败: %w", err)
-		}
-		log.Printf("✅ 已创建默认用户")
+	// 确保 default 用户存在（后续 AI 模型、交易所都依赖此外键）
+	if err := d.ensureDefaultUser(); err != nil {
+		return fmt.Errorf("初始化默认用户失败: %w", err)
 	}
 
 	// 初始化AI模型（使用default用户）
@@ -478,7 +403,7 @@ func (d *Database) initDefaultData() error {
 
 	// 檢查表結構，判斷是否已遷移到自增ID結構
 	var hasModelIDColumn int
-	err = d.db.QueryRow(`
+	err := d.db.QueryRow(`
 		SELECT COUNT(*) FROM pragma_table_info('ai_models')
 		WHERE name = 'model_id'
 	`).Scan(&hasModelIDColumn)
@@ -502,8 +427,8 @@ func (d *Database) initDefaultData() error {
 			if count == 0 {
 				// 不存在則插入，讓 id 自動遞增
 				_, err = d.db.Exec(`
-					INSERT INTO ai_models (model_id, user_id, name, provider, enabled)
-					VALUES (?, 'default', ?, ?, 0)
+					INSERT INTO ai_models (user_id, model_id, name, provider, enabled)
+					VALUES ('default', ?, ?, ?, 0)
 				`, model.modelID, model.name, model.provider)
 				if err != nil {
 					return fmt.Errorf("初始化AI模型失败: %w", err)
@@ -538,7 +463,7 @@ func (d *Database) initDefaultData() error {
 	_, err = d.db.Exec(`
 		DELETE FROM exchanges
 		WHERE user_id = 'default'
-		AND exchange_id IN ('1', '2', '3')
+		AND id IN ('1', '2', '3')
 	`)
 	if err != nil {
 		log.Printf("⚠️ 清理舊交易所記錄失敗（可忽略）: %v", err)
@@ -552,25 +477,56 @@ func (d *Database) initDefaultData() error {
 		{"aster", "Aster DEX", "aster"},
 	}
 
+	// 檢查表結構，判斷是否已遷移到自增ID結構
+	var hasExchangeIDColumn int
+	err = d.db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('exchanges')
+		WHERE name = 'exchange_id'
+	`).Scan(&hasExchangeIDColumn)
+	if err != nil {
+		return fmt.Errorf("检查exchanges表结构失败: %w", err)
+	}
+
 	for _, exchange := range exchanges {
 		var count int
 
-		// 檢查是否已存在該交易所
-		err = d.db.QueryRow(`
-			SELECT COUNT(*) FROM exchanges
-			WHERE exchange_id = ? AND user_id = 'default'
-		`, exchange.exchangeID).Scan(&count)
-		if err != nil {
-			return fmt.Errorf("检查交易所失败: %w", err)
-		}
-
-		if count == 0 {
-			_, err = d.db.Exec(`
-				INSERT INTO exchanges (exchange_id, user_id, name, type, enabled)
-				VALUES (?, 'default', ?, ?, 0)
-			`, exchange.exchangeID, exchange.name, exchange.typ)
+		if hasExchangeIDColumn > 0 {
+			// 新結構：使用 exchange_id
+			err = d.db.QueryRow(`
+				SELECT COUNT(*) FROM exchanges
+				WHERE exchange_id = ? AND user_id = 'default'
+			`, exchange.exchangeID).Scan(&count)
 			if err != nil {
-				return fmt.Errorf("初始化交易所失败: %w", err)
+				return fmt.Errorf("检查交易所失败: %w", err)
+			}
+
+			if count == 0 {
+				_, err = d.db.Exec(`
+					INSERT INTO exchanges (user_id, exchange_id, name, type, enabled)
+					VALUES ('default', ?, ?, ?, 0)
+				`, exchange.exchangeID, exchange.name, exchange.typ)
+				if err != nil {
+					return fmt.Errorf("初始化交易所失败: %w", err)
+				}
+			}
+		} else {
+			// 舊結構：使用 id
+			err = d.db.QueryRow(`
+				SELECT COUNT(*) FROM exchanges
+				WHERE id = ? AND user_id = 'default'
+			`, exchange.exchangeID).Scan(&count)
+			if err != nil {
+				return fmt.Errorf("检查交易所失败: %w", err)
+			}
+
+			if count == 0 {
+				_, err = d.db.Exec(`
+					INSERT INTO exchanges (user_id, id, name, type, enabled)
+					VALUES ('default', ?, ?, ?, 0)
+				`, exchange.exchangeID, exchange.name, exchange.typ)
+				if err != nil {
+					return fmt.Errorf("初始化交易所失败: %w", err)
+				}
 			}
 		}
 	}
@@ -1553,10 +1509,9 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 
 		// 获取默认名称
 		name := provider + " AI"
-		switch provider {
-		case "deepseek":
+		if provider == "deepseek" {
 			name = "DeepSeek AI"
-		case "qwen":
+		} else if provider == "qwen" {
 			name = "Qwen AI"
 		}
 
@@ -1616,10 +1571,9 @@ func (d *Database) UpdateAIModel(userID, id string, enabled bool, apiKey, custom
 		// 沒有找到，創建新的（舊結構）
 		provider := id
 		name := provider + " AI"
-		switch provider {
-		case "deepseek":
+		if provider == "deepseek" {
 			name = "DeepSeek AI"
-		case "qwen":
+		} else if provider == "qwen" {
 			name = "Qwen AI"
 		}
 
@@ -1800,17 +1754,16 @@ func (d *Database) UpdateExchange(userID, id string, enabled bool, apiKey, secre
 
 		// 根据交易所ID确定基本信息
 		var name, typ string
-		switch id {
-		case "binance":
+		if id == "binance" {
 			name = "Binance Futures"
 			typ = "cex"
-		case "hyperliquid":
+		} else if id == "hyperliquid" {
 			name = "Hyperliquid"
 			typ = "dex"
-		case "aster":
+		} else if id == "aster" {
 			name = "Aster DEX"
 			typ = "dex"
-		default:
+		} else {
 			name = id + " Exchange"
 			typ = "cex"
 		}
