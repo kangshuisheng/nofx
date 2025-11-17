@@ -25,7 +25,6 @@ services:
       - ASTER_SIGNER=${ASTER_SIGNER}
       - ASTER_PRIVATE_KEY=${ASTER_PRIVATE_KEY}
     volumes:
-      - ./config.json:/app/config.json:ro
       - ./config.db:/app/config.db
       - ./decision_logs:/app/decision_logs
       - ./prompts:/app/prompts
@@ -67,13 +66,7 @@ services:
     depends_on:
       - nofx-backend
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-f",
-          "http://localhost/health",
-        ]
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
