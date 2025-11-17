@@ -31,8 +31,8 @@ services:
       - ./config.json:/app/config.json:ro
       - ./data:/app/data
       - ./decision_logs:/app/decision_logs
-      - ./secrets:/app/secrets:ro # RSA密钥文件
-      - /etc/localtime:/etc/localtime:ro # Sync host time
+      - ./secrets:/app/secrets:ro
+      - /etc/localtime:/etc/localtime:ro
     networks:
       - nofx-network
     healthcheck:
