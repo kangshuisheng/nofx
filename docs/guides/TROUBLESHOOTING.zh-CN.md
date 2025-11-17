@@ -230,6 +230,74 @@ docker info | grep -A 10 "Registry Mirrors"
 
 ---
 
+#### ❌ 前端构建失败: Cannot find module 'prepare-husky.cjs'
+
+**错误信息:**
+```
+Error: Cannot find module '/build/scripts/prepare-husky.cjs'
+npm error code 1
+npm error command failed
+npm error command sh -c node ./scripts/prepare-husky.cjs
+```
+
+**根本原因:**
+Docker 构建过程按此顺序执行:
+1. `COPY web/package*.json ./` (只复制 package 文件)
+2. `RUN npm ci` (执行 `prepare` 脚本) ← **此时 scripts/ 目录还不存在！**
+3. `COPY web/ ./` (复制所有文件)
+
+`prepare` 脚本尝试运行 `scripts/prepare-husky.cjs`，但它还没有被复制到容器中。
+
+**解决方案（最新版本已修复）:**
+
+如果您使用最新版本（commit 628c3359 或更新），此问题已修复。只需重新构建:
+
+```bash
+# 拉取最新代码
+git pull origin z-dev-v2
+
+# 清理重建
+docker compose build --no-cache frontend
+docker compose up -d
+```
+
+**手动修复（如果使用旧版本）:**
+
+1. **更新 Dockerfile.frontend:**
+   ```dockerfile
+   # 第 18-19 行
+   COPY web/package*.json ./
+   RUN npm ci --ignore-scripts  # 添加 --ignore-scripts 标志
+   ```
+
+2. **或更新 prepare-husky.cjs:**
+   ```javascript
+   // 在文件顶部添加环境检测
+   if (process.env.CI || process.env.DOCKER_BUILD || !require('fs').existsSync('../../.git')) {
+     console.log('[husky] Skip install (CI/Docker environment)')
+     process.exit(0)
+   }
+   ```
+
+**为什么 `--ignore-scripts` 是安全的:**
+- Docker 不需要 git hooks（husky 仅用于本地开发）
+- package.json 中没有其他生命周期脚本
+- 构建过程保持不变
+
+**验证:**
+```bash
+# 构建时应该看到:
+[husky] Skip install (CI/Docker environment or HUSKY_INSTALL not set)
+
+# 检查构建是否完成:
+docker compose ps
+# frontend 应该显示 "Up"
+```
+
+**说明:** 本地开发仍然正常工作。在 `web/` 目录运行 `HUSKY_INSTALL=1 npm install` 可启用 git hooks。
+
+---
+
 #### ❌ 后端无法启动
 
 **错误:** `port 8080 already in use`

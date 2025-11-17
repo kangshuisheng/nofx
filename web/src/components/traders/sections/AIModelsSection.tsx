@@ -27,22 +27,22 @@ export function AIModelsSection({
         {t('aiModels', language)}
       </h3>
       <div className="space-y-2 md:space-y-3">
-        {configuredModels.map((model) => {
-          const inUse = isModelInUse(model.id)
+        {configuredModels.map((model: any) => {
+          const inUse = isModelInUse(model.model_id)
           return (
             <div
-              key={model.id}
+              key={model.model_id}
               className={`flex items-center justify-between p-2 md:p-3 rounded transition-all ${
                 inUse
                   ? 'cursor-not-allowed'
                   : 'cursor-pointer hover:bg-gray-700'
               }`}
               style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
-              onClick={() => onModelClick(model.id)}
+              onClick={() => onModelClick(model.model_id)}
             >
               <div className="flex items-center gap-2 md:gap-3">
                 <div className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center flex-shrink-0">
-                  {getModelIcon(model.provider || model.id, {
+                  {getModelIcon(model.provider || model.model_id, {
                     width: 28,
                     height: 28,
                   }) || (
@@ -50,7 +50,7 @@ export function AIModelsSection({
                       className="w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center text-xs md:text-sm font-bold"
                       style={{
                         background:
-                          model.id === 'deepseek' ? '#60a5fa' : '#c084fc',
+                          model.model_id === 'deepseek' ? '#60a5fa' : '#c084fc',
                         color: '#fff',
                       }}
                     >

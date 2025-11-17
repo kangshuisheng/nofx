@@ -76,8 +76,9 @@ export function ExchangeConfigModal({
   >(null)
 
   // 获取当前编辑的交易所信息
+  // 注意：後端返回的是 exchange_id (如 "binance")，而不是數字 id
   const selectedExchange = allExchanges?.find(
-    (e) => e.id === selectedExchangeId
+    (e: any) => e.exchange_id === selectedExchangeId
   )
 
   // 如果是编辑现有交易所，初始化表单数据
@@ -331,8 +332,8 @@ export function ExchangeConfigModal({
                     <option value="">
                       {t('pleaseSelectExchange', language)}
                     </option>
-                    {availableExchanges.map((exchange) => (
-                      <option key={exchange.id} value={exchange.id}>
+                    {availableExchanges.map((exchange: any) => (
+                      <option key={exchange.exchange_id} value={exchange.exchange_id}>
                         {getShortName(exchange.name)} (
                         {exchange.type.toUpperCase()})
                       </option>
@@ -349,7 +350,7 @@ export function ExchangeConfigModal({
               >
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-8 h-8 flex items-center justify-center">
-                    {getExchangeIcon(selectedExchange.id, {
+                    {getExchangeIcon((selectedExchange as any).exchange_id, {
                       width: 32,
                       height: 32,
                     })}
@@ -360,7 +361,7 @@ export function ExchangeConfigModal({
                     </div>
                     <div className="text-xs" style={{ color: '#848E9C' }}>
                       {selectedExchange.type.toUpperCase()} •{' '}
-                      {selectedExchange.id}
+                      {(selectedExchange as any).exchange_id}
                     </div>
                   </div>
                 </div>
@@ -370,13 +371,13 @@ export function ExchangeConfigModal({
             {selectedExchange && (
               <>
                 {/* Binance 和其他 CEX 交易所的字段 */}
-                {(selectedExchange.id === 'binance' ||
+                {((selectedExchange as any).exchange_id === 'binance' ||
                   selectedExchange.type === 'cex') &&
-                  selectedExchange.id !== 'hyperliquid' &&
-                  selectedExchange.id !== 'aster' && (
+                  (selectedExchange as any).exchange_id !== 'hyperliquid' &&
+                  (selectedExchange as any).exchange_id !== 'aster' && (
                     <>
                       {/* 币安用户配置提示 (D1 方案) */}
-                      {selectedExchange.id === 'binance' && (
+                      {(selectedExchange as any).exchange_id === 'binance' && (
                         <div
                           className="mb-4 p-3 rounded cursor-pointer transition-colors"
                           style={{
@@ -518,7 +519,7 @@ export function ExchangeConfigModal({
                         />
                       </div>
 
-                      {selectedExchange.id === 'okx' && (
+                      {(selectedExchange as any).exchange_id === 'okx' && (
                         <div>
                           <label
                             className="block text-sm font-semibold mb-2"
@@ -543,7 +544,7 @@ export function ExchangeConfigModal({
                       )}
 
                       {/* Binance 白名单IP提示 */}
-                      {selectedExchange.id === 'binance' && (
+                      {(selectedExchange as any).exchange_id === 'binance' && (
                         <div
                           className="p-4 rounded"
                           style={{
@@ -603,7 +604,7 @@ export function ExchangeConfigModal({
                   )}
 
                 {/* Aster 交易所的字段 */}
-                {selectedExchange.id === 'aster' && (
+                {(selectedExchange as any).exchange_id === 'aster' && (
                   <>
                     <div>
                       <label
@@ -692,7 +693,7 @@ export function ExchangeConfigModal({
                 )}
 
                 {/* Hyperliquid 交易所的字段 */}
-                {selectedExchange.id === 'hyperliquid' && (
+                {(selectedExchange as any).exchange_id === 'hyperliquid' && (
                   <>
                     {/* 安全提示 banner */}
                     <div
@@ -846,23 +847,23 @@ export function ExchangeConfigModal({
               type="submit"
               disabled={
                 !selectedExchange ||
-                (selectedExchange.id === 'binance' &&
+                ((selectedExchange as any).exchange_id === 'binance' &&
                   (!apiKey.trim() || !secretKey.trim())) ||
-                (selectedExchange.id === 'okx' &&
+                ((selectedExchange as any).exchange_id === 'okx' &&
                   (!apiKey.trim() ||
                     !secretKey.trim() ||
                     !passphrase.trim())) ||
-                (selectedExchange.id === 'hyperliquid' &&
+                ((selectedExchange as any).exchange_id === 'hyperliquid' &&
                   (!apiKey.trim() || !hyperliquidWalletAddr.trim())) || // 验证私钥和钱包地址
-                (selectedExchange.id === 'aster' &&
+                ((selectedExchange as any).exchange_id === 'aster' &&
                   (!asterUser.trim() ||
                     !asterSigner.trim() ||
                     !asterPrivateKey.trim())) ||
                 (selectedExchange.type === 'cex' &&
-                  selectedExchange.id !== 'hyperliquid' &&
-                  selectedExchange.id !== 'aster' &&
-                  selectedExchange.id !== 'binance' &&
-                  selectedExchange.id !== 'okx' &&
+                  (selectedExchange as any).exchange_id !== 'hyperliquid' &&
+                  (selectedExchange as any).exchange_id !== 'aster' &&
+                  (selectedExchange as any).exchange_id !== 'binance' &&
+                  (selectedExchange as any).exchange_id !== 'okx' &&
                   (!apiKey.trim() || !secretKey.trim()))
               }
               className="flex-1 px-4 py-2 rounded text-sm font-semibold disabled:opacity-50"

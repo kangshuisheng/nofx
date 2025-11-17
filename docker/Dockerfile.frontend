@@ -15,9 +15,12 @@ FROM node:${NODE_VERSION} AS builder
 WORKDIR /build
 
 COPY web/package*.json ./
-RUN npm ci
+# 跳過 husky prepare script（Docker 不需要 git hooks）
+RUN npm ci --ignore-scripts
 
 COPY web/ ./
+# 設置 CI 環境變量（防止任何 git hooks 相關操作）
+ENV CI=true
 RUN npm run build
 
 # ──────────────────────────────────────────────────────────────
@@ -27,6 +30,11 @@ FROM nginx:${NGINX_VERSION}
 
 COPY nginx/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /build/dist /usr/share/nginx/html
+
+# Ensure nginx user can read all assets (avoid 403 on static files)
+RUN chown -R nginx:nginx /usr/share/nginx/html \
+    && find /usr/share/nginx/html -type d -exec chmod 755 {} \; \
+    && find /usr/share/nginx/html -type f -exec chmod 644 {} \;
 
 EXPOSE 80
 
