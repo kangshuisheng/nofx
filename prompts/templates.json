@@ -55,6 +55,17 @@
       },
       "file": "adaptive_relaxed.txt"
     },
+    "adaptive_relaxed_optimized": {
+      "name": {
+        "zh": "自适应激进策略（优化版）",
+        "en": "Adaptive Aggressive Strategy (Optimized)"
+      },
+      "description": {
+        "zh": "优化版本的激进交易策略，改进了风险控制和入场时机",
+        "en": "Optimized version of aggressive trading strategy with improved risk control and entry timing"
+      },
+      "file": "adaptive_relaxed_optimized.txt"
+    },
     "nof1": {
       "name": {
         "zh": "NoF1 英文框架",
