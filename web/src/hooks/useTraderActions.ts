@@ -134,36 +134,10 @@ export function useTraderActions({
     if (!editingTrader || !editingTrader.trader_id) return
 
     try {
-      const enabledModels = allModels?.filter((m) => m.enabled && m.apiKey) || []
-      const enabledExchanges =
-        allExchanges?.filter((e) => {
-          if (!e.enabled) return false
-
-          // Aster 交易所需要特殊字段
-          if (e.id === 'aster') {
-            return (
-              e.asterUser &&
-              e.asterUser.trim() !== '' &&
-              e.asterSigner &&
-              e.asterSigner.trim() !== '' &&
-              e.asterPrivateKey &&
-              e.asterPrivateKey.trim() !== ''
-            )
-          }
-
-          // Hyperliquid 只需要私钥（作为apiKey），钱包地址可自动生成
-          if (e.id === 'hyperliquid') {
-            return e.apiKey && e.apiKey.trim() !== ''
-          }
-
-          // Binance 等其他交易所需要 apiKey 和 secretKey
-          return (
-            e.apiKey &&
-            e.apiKey.trim() !== '' &&
-            e.secretKey &&
-            e.secretKey.trim() !== ''
-          )
-        }) || []
+      // 注意：后端出于安全考虑不返回 apiKey 等敏感字段
+      // enabled=true 表示用户已配置完整的 API Key（后端已验证并存储）
+      const enabledModels = allModels?.filter((m) => m.enabled) || []
+      const enabledExchanges = allExchanges?.filter((e) => e.enabled) || []
 
       const model = enabledModels?.find((m) => m.id === data.ai_model_id)
       const exchange = enabledExchanges?.find((e) => e.id === data.exchange_id)
