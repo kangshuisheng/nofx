@@ -25,8 +25,12 @@ services:
       - ASTER_SIGNER=${ASTER_SIGNER}
       - ASTER_PRIVATE_KEY=${ASTER_PRIVATE_KEY}
     volumes:
+      - ./config.json:/app/config.json:ro
+      - ./config.db:/app/config.db
+      - ./decision_logs:/app/decision_logs
       - ./prompts:/app/prompts
-      - nofx-decision-logs:/app/decision_logs
+      - ./secrets:/app/secrets:ro
+      - /etc/localtime:/etc/localtime:ro
     networks:
       - nofx-network
     healthcheck:

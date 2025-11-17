@@ -20,11 +20,14 @@ ENV VITE_SENTRY_DSN=${VITE_SENTRY_DSN}
 ENV VITE_SENTRY_AUTH_TOKEN=${VITE_SENTRY_AUTH_TOKEN}
 
 COPY web/package*.json ./
-RUN npm ci
+# 跳過兜底的 prepare（Husky）腳本：在 Coolify / Docker 構建中不需要安裝 git hooks
+RUN npm ci --ignore-scripts
 
 COPY web/ ./
+# 設置 CI 環境變量（防止任何 git hooks 相關操作）
+ENV CI=true
 RUN echo "Building with VITE_API_BASE_URL=${VITE_API_BASE_URL}" && \
-    npm run build && \
+  npm run build && \
     echo "Build completed. Contents of dist:" && \
     ls -la dist/
 
