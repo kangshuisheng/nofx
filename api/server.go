@@ -112,8 +112,9 @@ func NewServer(traderManager *manager.TraderManager, database *config.Database, 
 	// 启用 CORS（白名单模式）
 	router.Use(corsMiddleware(allowedOrigins))
 
-	// 启用全局速率限制 (每秒 10 个请求)
-	globalLimiter := middleware.NewIPRateLimiter(rate.Limit(10), 10)
+	// 启用全局速率限制 (每秒 50 个请求)
+	// 注意：前端頁面加載時會並發發送 7-8 個請求，10 req/s 太嚴格
+	globalLimiter := middleware.NewIPRateLimiter(rate.Limit(50), 50)
 	router.Use(middleware.RateLimitMiddleware(globalLimiter))
 
 	// CSRF 保护（Double Submit Cookie 模式）- 可通过环境变量控制
