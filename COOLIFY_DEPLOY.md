@@ -95,6 +95,21 @@ docker network inspect <network_name>
 **原因**: 数据卷挂载问题
 **解决**: 确保 `nofx-data` 卷正确挂载
 
+### 🔐 密钥与提示词（Coolify 特殊说明）
+
+ - Secrets（RSA 私钥）:
+   - Coolify 上的仓库目录有时会以只读方式挂载；如果 `secrets/` 目录被标记为只读，后端无法自动生成 RSA 私钥，报错示例: "open secrets/rsa_key: read-only file system"。
+   - 解决方法：
+     1. 在 Coolify 的环境配置中把 `secrets` 设置为可写卷（移除 :ro），或使用 Docker 命名卷：`secrets:/app/secrets`
+     2. 或者在部署前手动生成密钥并将 `secrets/rsa_key` 和 `secrets/rsa_key.pub` 添加到仓库/卷（推荐通过脚本 `./scripts/setup_encryption.sh` 生成）。
+     3. 另一个可选方式：在 Coolify 环境变量中设置 `RSA_PRIVATE_KEY`（私钥 PEM 文本），应用会在无法写入时自动加载该环境变量作为私钥（出于安全考虑，使用 Coolify 的 Secret 功能保存 PEM 值）。
+
+ - Prompts:
+   - 如果你在 Coolify 的 `docker-compose` 中挂载了 `./prompts:/app/prompts`，但宿主机（Coolify）上该目录为空，会覆盖镜像里内置的提示词，导致日志: "提示词目录 prompts 中没有找到 .txt 文件"。
+   - 解决方法：
+     1. 避免在 Coolify 上绑定挂载 `./prompts`，使用镜像自带资源（删除 `prompts` 卷映射）；或
+     2. 将 `prompts` 目录中的 `.txt` 文件推到仓库并确保 Coolify 在部署时有这些文件，或使用命名卷持久化。
+
 ## 📊 验证部署
 
 ### 1. 健康检查

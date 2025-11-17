@@ -59,6 +59,16 @@ func main() {
 }
 ```
 
+## Coolify / Docker 注意事项
+
+如果部署平台将仓库目录标记为只读（例如某些 Coolify 部署），应用在首次运行时无法写入 `secrets/rsa_key` 从而失败并报错 `open secrets/rsa_key: read-only file system`。
+
+解决方法：
+
+- 预先在宿主机运行 `./scripts/setup_encryption.sh` 生成 RSA 私钥，并把 `secrets` 目录持久化到卷中；
+- 或者取消只读映射，让容器可以写入 `./secrets`；
+- 作为最后手段，可以将 PEM 格式的私钥内容填入 Coolify 的环境变量 `RSA_PRIVATE_KEY`（使用 Coolify 的 Secrets 安全注入），应用会在检测到无法写入时自动读取该环境变量作为私钥。
+
 ### 2. Frontend Integration
 
 ```typescript

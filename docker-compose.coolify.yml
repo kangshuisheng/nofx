@@ -31,8 +31,15 @@ services:
       - ./config.json:/app/config.json:ro
       - ./data:/app/data
       - ./decision_logs:/app/decision_logs
-      - ./prompts:/app/prompts
-      - ./secrets:/app/secrets:ro # RSA密钥文件
+      # The image already contains built-in prompts under /app/prompts.
+      # If you mount host ./prompts it will overlay files from the image; if the host folder is empty
+      # the app will report "no .txt files". To use the built-in templates, remove the following line
+      # or ensure your host ./prompts contains the .txt files.
+      # - ./prompts:/app/prompts
+      # NOTE: secrets 目录 MUST be writable if application should auto-generate RSA keys.
+      # Coolify often marks project directories read-only — if you want the app to auto-create keys,
+      # remove ":ro" so the container can write to ./secrets, or use a named volume.
+      - ./secrets:/app/secrets
       - /etc/localtime:/etc/localtime:ro # Sync host time
     networks:
       - nofx-network
@@ -81,3 +88,5 @@ networks:
     driver: bridge
 
 volumes:
+  # Optional named volume: secrets
+  # secrets: {}
