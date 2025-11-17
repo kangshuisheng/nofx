@@ -1085,9 +1085,6 @@ var (
 	symbolSizeRules = map[string][]positionSizeConfig{
 		"BTCUSDT": btcEthSizeRules,
 		"ETHUSDT": btcEthSizeRules,
-		// 未来可添加更多币种的特殊规则，例如:
-		// "BNBUSDT": bnbSizeRules,
-		// "SOLUSDT": solSizeRules,
 	}
 )
 
