@@ -480,6 +480,29 @@ docker compose up -d
 2. **磁盘空间:**
    ```bash
    df -h  # 确保磁盘未满
+
+4. **Docker 挂载路径问题（常见导致重启清空数据的原因）**
+
+    - 如果你在 Coolify 或 Docker 平台上部署，请确保把 `data/` 目录挂载到容器内的 `/app/data`，以保证 SQLite 数据库文件会被宿主机持久化：
+
+       ```yaml
+       volumes:
+          - ./data:/app/data
+       ```
+
+    - NOFX 默认使用 `data/config.db` 存储配置信息（如果你仍然有旧版 `config.db` 存在于项目根目录，请运行迁移脚本：
+
+       ```bash
+       bash scripts/migrate_db_to_data.sh
+       ```
+
+    - 上传完成后重新启动服务：
+
+       ```bash
+       docker compose up -d
+       ```
+
+    - 一旦 `./data` 挂载成功，重启或 redeploy 时数据库就不会被清空。
    ```
 
 3. **数据库完整性:**

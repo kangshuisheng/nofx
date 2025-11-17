@@ -173,25 +173,7 @@ check_config() {
     print_success "配置文件存在"
 }
 
-# ------------------------------------------------------------------------
-# Validation: Database File (config.db)
-# ------------------------------------------------------------------------
-check_database() {
-    if [ -f "scripts/init-db.sh" ]; then
-        ./scripts/init-db.sh
-    else
-        # 簡單備用檢查
-        if [ -d "config.db" ]; then
-            print_warning "config.db 是目錄，正在修復..."
-            mv config.db "config.db.broken_$(date +%Y%m%d_%H%M%S)"
-            touch config.db
-            print_success "已修復 config.db"
-        elif [ ! -e "config.db" ]; then
-            touch config.db
-            print_info "已創建空的 config.db"
-        fi
-    fi
-}
+...existing code...
 
 # ------------------------------------------------------------------------
 # Utility: Read Environment Variables
@@ -220,18 +202,28 @@ read_env_vars() {
 # Validation: Database File (config.db)
 # ------------------------------------------------------------------------
 check_database() {
+    # 优先使用 data/config.db 作为主数据库位置 （避免容器重建时丢失数据）
+    mkdir -p data
+
+    # 如果旧版本使用根目录 config.db 且 data/config.db 不存在，则迁移
+    if [ -f "config.db" ] && [ ! -f "data/config.db" ]; then
+        print_info "发现根目录 config.db，正在迁移到 data/config.db（保持持久化）..."
+        mv config.db data/config.db
+        print_success "已迁移 config.db 到 data/config.db"
+    fi
+
     if [ -d "config.db" ]; then
         # 如果存在的是目录，删除它
         print_warning "config.db 是目录而非文件，正在删除目录..."
         rm -rf config.db
         print_info "✓ 已删除目录，现在创建文件..."
-        install -m 600 /dev/null config.db
+        install -m 600 /dev/null data/config.db
         print_success "✓ 已创建空数据库文件（权限: 600），系统将在启动时初始化"
-    elif [ ! -f "config.db" ]; then
+        elif [ ! -e "data/config.db" ] && [ ! -e "config.db" ]; then
         # 如果不存在文件，创建它
         print_warning "数据库文件不存在，创建空数据库文件..."
         # 创建空文件以避免Docker创建目录（使用安全权限600）
-        install -m 600 /dev/null config.db
+        install -m 600 /dev/null data/config.db
         print_info "✓ 已创建空数据库文件（权限: 600），系统将在启动时初始化"
     else
         # 文件存在
