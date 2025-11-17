@@ -456,6 +456,45 @@ func (d *Database) initDefaultData() error {
 		}
 	}
 
+	// 确保至少有默认模型存在：如果 default 用户下没有任何 ai_models，则插入 deepseek 和 qwen
+	// 这步是防御性补救，避免在某些环境下初始化被打断导致 supported-models 为空
+	var defaultModelCount int
+	err = d.db.QueryRow(`SELECT COUNT(*) FROM ai_models WHERE user_id = 'default'`).Scan(&defaultModelCount)
+	if err != nil {
+		log.Printf("⚠️ 检查 default 用户的 ai_models 数量失败: %v", err)
+	} else if defaultModelCount == 0 {
+		log.Printf("🔧 default 用户的 ai_models 为空，插入默认模型 deepseek 和 qwen")
+		// 根据表结构插入
+		var hasModelIDColumn int
+		err = d.db.QueryRow(`
+			SELECT COUNT(*) FROM pragma_table_info('ai_models')
+			WHERE name = 'model_id'
+		`).Scan(&hasModelIDColumn)
+		if err != nil {
+			log.Printf("⚠️ 检查ai_models表结构失败: %v", err)
+		} else if hasModelIDColumn > 0 {
+			// 新结构
+			_, err = d.db.Exec(`INSERT OR IGNORE INTO ai_models (model_id, user_id, name, provider, enabled, created_at, updated_at) VALUES (?,'default',? ,?,0,datetime('now'),datetime('now'))`, "deepseek", "DeepSeek AI", "deepseek")
+			if err != nil {
+				log.Printf("❌ 插入 deepseek 失败: %v", err)
+			}
+			_, err = d.db.Exec(`INSERT OR IGNORE INTO ai_models (model_id, user_id, name, provider, enabled, created_at, updated_at) VALUES (?,'default',? ,?,0,datetime('now'),datetime('now'))`, "qwen", "Qwen AI", "qwen")
+			if err != nil {
+				log.Printf("❌ 插入 qwen 失败: %v", err)
+			}
+		} else {
+			// 旧结构
+			_, err = d.db.Exec(`INSERT OR IGNORE INTO ai_models (id, user_id, name, provider, enabled, created_at, updated_at) VALUES (?,'default',?,? ,0,datetime('now'),datetime('now'))`, "deepseek", "DeepSeek AI", "deepseek")
+			if err != nil {
+				log.Printf("❌ 插入 deepseek (旧结构) 失败: %v", err)
+			}
+			_, err = d.db.Exec(`INSERT OR IGNORE INTO ai_models (id, user_id, name, provider, enabled, created_at, updated_at) VALUES (?,'default',?,? ,0,datetime('now'),datetime('now'))`, "qwen", "Qwen AI", "qwen")
+			if err != nil {
+				log.Printf("❌ 插入 qwen (旧结构) 失败: %v", err)
+			}
+		}
+	}
+
 	// 初始化交易所（使用default用户）
 	// 注意：需要兼容不同版本的表結構（遷移前後）
 
