@@ -31,7 +31,6 @@ services:
       - ./config.json:/app/config.json:ro
       - ./data:/app/data
       - ./decision_logs:/app/decision_logs
-      - ./prompts:/app/prompts
       - ./secrets:/app/secrets:ro # RSA密钥文件
       - /etc/localtime:/etc/localtime:ro # Sync host time
     networks:
