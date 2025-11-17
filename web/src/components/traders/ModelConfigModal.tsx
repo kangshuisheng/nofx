@@ -4,6 +4,7 @@ import { t, type Language } from '../../i18n/translations'
 import type { AIModel } from '../../types'
 import { getModelIcon } from '../ModelIcons'
 import { getShortName } from './utils'
+import { getModelId, getModelProvider } from './modelUtils'
 
 interface ModelConfigModalProps {
   allModels: AIModel[]
@@ -37,8 +38,8 @@ export function ModelConfigModal({
   // 获取当前编辑的模型信息 - 编辑时从已配置的模型中查找,新建时从所有支持的模型中查找
   // 注意：後端返回的是 model_id (如 "deepseek")，而不是數字 id
   const selectedModel = editingModelId
-    ? configuredModels?.find((m: any) => m.model_id === selectedModelId)
-    : allModels?.find((m: any) => m.model_id === selectedModelId)
+    ? configuredModels?.find((m: any) => getModelId(m) === selectedModelId)
+    : allModels?.find((m: any) => getModelId(m) === selectedModelId)
 
   // 初始化API Key、Base URL和Model Name
   useEffect(() => {
@@ -72,7 +73,7 @@ export function ModelConfigModal({
 
   useEffect(() => {
     if (!editingModelId && !selectedModelId && availableModels.length > 0) {
-      setSelectedModelId((availableModels[0] as any).model_id)
+      setSelectedModelId(getModelId(availableModels[0] as any))
     }
   }, [editingModelId, selectedModelId, availableModels])
 
@@ -133,8 +134,8 @@ export function ModelConfigModal({
                 >
                   <option value="">{t('pleaseSelectModel', language)}</option>
                   {availableModels.map((model: any) => (
-                    <option key={model.model_id} value={model.model_id}>
-                      {getShortName(model.name)} ({model.provider})
+                      <option key={getModelId(model)} value={getModelId(model)}>
+                        {getShortName(model.name)} ({getModelProvider(model)})
                     </option>
                   ))}
                 </select>
