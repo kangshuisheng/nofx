@@ -339,9 +339,7 @@ export function ExchangeConfigModal({
                         value={getExchangeId(exchange)}
                       >
                         {getShortName(exchange.name)} (
-                        {(
-                          getExchangeType(exchange) || exchange.type
-                        ).toUpperCase()}
+                        {(getExchangeType(exchange) || exchange.type || '').toUpperCase()}
                         )
                       </option>
                     ))}
@@ -367,7 +365,7 @@ export function ExchangeConfigModal({
                       {getShortName(selectedExchange.name)}
                     </div>
                     <div className="text-xs" style={{ color: '#848E9C' }}>
-                      {selectedExchange.type.toUpperCase()} •{' '}
+                      {(selectedExchange.type || '').toUpperCase()} •{' '}
                       {(selectedExchange as any).exchange_id}
                     </div>
                   </div>

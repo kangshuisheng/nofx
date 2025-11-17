@@ -131,13 +131,14 @@ export const getExchangeIcon = (
   props: IconProps = {}
 ) => {
   // 支持完整ID或类型名
-  const type = exchangeType.toLowerCase().includes('binance')
+  const lower = (exchangeType || '').toLowerCase()
+  const type = lower.includes('binance')
     ? 'binance'
-    : exchangeType.toLowerCase().includes('hyperliquid')
+    : lower.includes('hyperliquid')
       ? 'hyperliquid'
-      : exchangeType.toLowerCase().includes('aster')
+      : lower.includes('aster')
         ? 'aster'
-        : exchangeType.toLowerCase()
+        : lower
 
   const iconProps = {
     width: props.width || 24,

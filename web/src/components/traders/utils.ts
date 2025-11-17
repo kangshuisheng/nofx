@@ -1,6 +1,7 @@
 // 获取友好的AI模型名称
 export function getModelDisplayName(modelId: string): string {
-  switch (modelId.toLowerCase()) {
+  const id = (modelId || '').toLowerCase()
+  switch (id) {
     case 'deepseek':
       return 'DeepSeek'
     case 'qwen':
@@ -8,7 +9,7 @@ export function getModelDisplayName(modelId: string): string {
     case 'claude':
       return 'Claude'
     default:
-      return modelId.toUpperCase()
+      return (modelId || '').toUpperCase()
   }
 }
 
