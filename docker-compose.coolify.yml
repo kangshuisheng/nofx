@@ -88,5 +88,3 @@ networks:
     driver: bridge
 
 volumes:
-  # Optional named volume: secrets
-  # secrets: {}
