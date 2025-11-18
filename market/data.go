@@ -724,7 +724,7 @@ func getFundingRate(symbol string) (float64, error) {
 	return rate, nil
 }
 
-// Format 格式化市场数据 (v3.5 - AI分析师版)
+// Format 格式化市场数据
 func Format(data *Data) string {
 	var sb strings.Builder
 
