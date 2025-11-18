@@ -629,7 +629,6 @@ func buildUserPrompt(ctx *Context) string {
 				sb.WriteString(fmt.Sprintf("   🎯 当前止盈: %.4f\n", currentTakeProfitPrice))
 			} else {
 				// 只有在趋势市，没有止盈单才是正常的（让利润奔跑）
-				// 在震荡市，没有止盈单需要警告
 				sb.WriteString("   ℹ️ (提示: 未设置固定止盈目标)\n")
 			}
 
