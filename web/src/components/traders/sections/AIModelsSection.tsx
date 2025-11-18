@@ -2,7 +2,6 @@ import { Brain } from 'lucide-react'
 import { t, Language } from '../../../i18n/translations'
 import { getModelIcon } from '../../ModelIcons'
 import { getShortName } from '../utils'
-import { getModelId } from '../modelUtils'
 import type { AIModel } from '../../../types'
 
 interface AIModelsSectionProps {

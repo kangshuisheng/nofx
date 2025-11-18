@@ -4,7 +4,6 @@ import { t, type Language } from '../../i18n/translations'
 import type { AIModel } from '../../types'
 import { getModelIcon } from '../ModelIcons'
 import { getShortName } from './utils'
-import { getModelId, getModelProvider } from './modelUtils'
 
 interface ModelConfigModalProps {
   allModels: AIModel[]

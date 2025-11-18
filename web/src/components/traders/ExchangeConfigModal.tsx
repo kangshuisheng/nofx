@@ -15,7 +15,7 @@ import { BookOpen, Trash2, HelpCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Tooltip } from './Tooltip'
 import { getShortName } from './utils'
-import { getExchangeId, getExchangeType } from './modelUtils'
+import { getExchangeType } from './modelUtils'
 
 interface ExchangeConfigModalProps {
   allExchanges: Exchange[]
