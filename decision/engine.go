@@ -408,7 +408,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	// 2. 硬约束（风险控制）- 动态生成
 	sb.WriteString("# 硬约束（绝对风控法则）\n\n")
 	sb.WriteString(fmt.Sprintf("1. **最大单笔亏损**: **任何单笔交易的潜在亏损不得超过账户净值的2%%** (后端代码强制验证)。你的计算目标应为1.8%%以确保通过。\n"))
-	sb.WriteString(fmt.Sprintf("2. **最大仓位价值**: \n   - **山寨币**: 名义价值不得超过账户净值的**60%%** (≤ %.2f USDT)\n   - **BTC/ETH**: 名义价值不得超过账户净值的**85%%** (≤ %.2f USDT)\n", accountEquity*0.6, accountEquity*0.85))
+	sb.WriteString(fmt.Sprintf("2. **最大仓位价值**: \n   - **山寨币**: 名义价值不得超过账户净值的**75%%** (≤ %.2f USDT)\n   - **BTC/ETH**: 名义价值不得超过账户净值的**85%%** (≤ %.2f USDT)\n", accountEquity*0.75, accountEquity*0.85))
 	sb.WriteString("3. **最多持仓**: 5个币种\n")
 	sb.WriteString(fmt.Sprintf("4. **杠杆限制**: **山寨币最大%dx** | **BTC/ETH最大%dx**\n", altcoinLeverage, btcEthLeverage))
 	sb.WriteString("5. **保证金**: 总使用率 ≤ 90%\n\n")
