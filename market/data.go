@@ -810,6 +810,37 @@ func Format(data *Data) string {
 		}
 	}
 
+	if data.IntradaySeries != nil {
+		sb.WriteString("- 3min (Precision Timing):\n")
+
+		const m3Length = 8 // 3分钟显示更多数据点
+
+		m3Prices := data.IntradaySeries.MidPrices
+		if len(m3Prices) > m3Length {
+			m3Prices = m3Prices[len(m3Prices)-m3Length:]
+		}
+		sb.WriteString(fmt.Sprintf("  - Prices: %s\n", formatFloatSlice(m3Prices)))
+
+		m3MACDs := data.IntradaySeries.MACDValues
+		if len(m3MACDs) > m3Length {
+			m3MACDs = m3MACDs[len(m3MACDs)-m3Length:]
+		}
+		sb.WriteString(fmt.Sprintf("  - MACD:   %s\n", formatFloatSlice(m3MACDs)))
+
+		m3RSI7s := data.IntradaySeries.RSI7Values
+		if len(m3RSI7s) > m3Length {
+			m3RSI7s = m3RSI7s[len(m3RSI7s)-m3Length:]
+		}
+		sb.WriteString(fmt.Sprintf("  - RSI(7): %s\n", formatFloatSlice(m3RSI7s)))
+
+		m3Volumes := data.IntradaySeries.Volume
+		if len(m3Volumes) > 0 {
+			sb.WriteString(fmt.Sprintf("  - Volume: %.2f\n\n", m3Volumes[len(m3Volumes)-1]))
+		} else {
+			sb.WriteString("\n")
+		}
+	}
+
 	// 3. 4小时周期数据 (趋势判断和风险管理核心)
 	if data.LongerTermContext != nil {
 		sb.WriteString("- 4H (Trend & Risk):\n")

@@ -611,7 +611,7 @@ func buildUserPrompt(ctx *Context) string {
 			positionValue := math.Abs(pos.Quantity) * pos.MarkPrice
 
 			// 5. 将所有信息，包括新注入的状态，格式化为最终字符串
-			sb.WriteString(fmt.Sprintf("%d. %s %s | 入场价:%.4f 当前价:%.4f | 盈亏:%+.2f%% (R:R=%.1f) | 价值:%.2f USDT | 状态:%s%s\n",
+			sb.WriteString(fmt.Sprintf("%d. 🎯 %s %s仓位 | 入场价:%.4f 当前价:%.4f | 盈亏:%+.2f%% (R:R=%.1f) | 价值:%.2f USDT | 状态:%s%s\n",
 				i+1, pos.Symbol, strings.ToUpper(pos.Side),
 				pos.EntryPrice, pos.MarkPrice, pos.UnrealizedPnLPct, rRatio, positionValue,
 				managementState,
