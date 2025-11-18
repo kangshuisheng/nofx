@@ -813,7 +813,7 @@ func Format(data *Data) string {
 	if data.IntradaySeries != nil {
 		sb.WriteString("- 3min (Precision Timing):\n")
 
-		const m3Length = 8 // 3分钟显示更多数据点
+		const m3Length = 8
 
 		m3Prices := data.IntradaySeries.MidPrices
 		if len(m3Prices) > m3Length {
