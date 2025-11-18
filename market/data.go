@@ -733,7 +733,7 @@ func Format(data *Data) string {
 	sb.WriteString(fmt.Sprintf("Price: %s | OI Chg(4h): %.2f%% | Funding: %.6f\n\n",
 		priceStr, data.OpenInterest.Change4h, data.FundingRate))
 
-	// 2. 市场情绪上下文 (来自z-dev-v2分支的强大新数据)
+	// 2. 市场情绪上下文
 	if data.OpenInterest != nil && data.OpenInterest.LongShortRatio > 0 {
 		sb.WriteString("- Market Sentiment Context:\n")
 		longPct := data.OpenInterest.LongShortRatio / (1 + data.OpenInterest.LongShortRatio) * 100
