@@ -48,11 +48,6 @@ func findPromptsDir() string {
 		return "prompts"
 	}
 
-	// 检查Coolify容器环境的标准路径
-	if _, err := os.Stat("/app/prompts"); err == nil {
-		return "/app/prompts"
-	}
-
 	// 向上查找父目录（最多 3 层）
 	for i := 1; i <= 3; i++ {
 		parentPath := strings.Repeat("../", i) + "prompts"
