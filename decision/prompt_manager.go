@@ -40,11 +40,17 @@ var (
 
 // findPromptsDir 智能查找 prompts 目录（支持测试环境）
 // 1. 优先使用当前目录的 prompts/
-// 2. 如果不存在，向上查找父目录（最多 3 层）
+// 2. 检查 /app/prompts（Coolify容器环境）
+// 3. 向上查找父目录（最多 3 层）
 func findPromptsDir() string {
 	// 尝试当前目录
 	if _, err := os.Stat("prompts"); err == nil {
 		return "prompts"
+	}
+
+	// 检查Coolify容器环境的标准路径
+	if _, err := os.Stat("/app/prompts"); err == nil {
+		return "/app/prompts"
 	}
 
 	// 向上查找父目录（最多 3 层）

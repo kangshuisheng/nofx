@@ -35,7 +35,7 @@ services:
       # If you mount host ./prompts it will overlay files from the image; if the host folder is empty
       # the app will report "no .txt files". To use the built-in templates, remove the following line
       # or ensure your host ./prompts contains the .txt files.
-      - ./prompts:/app/prompts
+      # - ./prompts:/app/prompts
       # NOTE: secrets 目录 MUST be writable if application should auto-generate RSA keys.
       # Coolify often marks project directories read-only — if you want the app to auto-create keys,
       # remove ":ro" so the container can write to ./secrets, or use a named volume.
