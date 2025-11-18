@@ -6,6 +6,8 @@ import type { TraderInfo } from '../../../types'
 interface TradersGridProps {
   language: Language
   traders: TraderInfo[] | undefined
+  configuredModelsCount: number
+  configuredExchangesCount: number
   onTraderSelect: (traderId: string) => void
   onEditTrader: (traderId: string) => void
   onDeleteTrader: (traderId: string) => void
@@ -15,6 +17,8 @@ interface TradersGridProps {
 export function TradersGrid({
   language,
   traders,
+  configuredModelsCount,
+  configuredExchangesCount,
   onTraderSelect,
   onEditTrader,
   onDeleteTrader,
@@ -30,6 +34,15 @@ export function TradersGrid({
         <div className="text-xs md:text-sm mb-3 md:mb-4">
           {t('createFirstTrader', language)}
         </div>
+        {(configuredModelsCount === 0 || configuredExchangesCount === 0) && (
+          <div className="text-xs md:text-sm text-yellow-500">
+            {configuredModelsCount === 0 && configuredExchangesCount === 0
+              ? t('configureModelsAndExchangesFirst', language)
+              : configuredModelsCount === 0
+                ? t('configureModelsFirst', language)
+                : t('configureExchangesFirst', language)}
+          </div>
+        )}
       </div>
     )
   }

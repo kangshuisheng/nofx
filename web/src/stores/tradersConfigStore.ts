@@ -48,7 +48,8 @@ export const useTradersConfigStore = create<TradersConfigState>((set, get) => ({
 
   setAllModels: (models) => {
     set({ allModels: models })
-    // 更新 configuredModels
+    // 更新 configuredModels - 顯示所有已啟用或有自定義配置的模型
+    // 注意：後端不返回 apiKey，只能通過 enabled 和 customApiUrl 判斷
     const configuredModels = models.filter((m) => {
       return m.enabled || (m.customApiUrl && m.customApiUrl.trim() !== '')
     })
@@ -57,16 +58,25 @@ export const useTradersConfigStore = create<TradersConfigState>((set, get) => ({
 
   setAllExchanges: (exchanges) => {
     set({ allExchanges: exchanges })
-    // 更新 configuredExchanges
+    // 更新 configuredExchanges - 顯示所有已啟用或有配置資料的交易所
+    // 注意：後端不返回 apiKey/secretKey/asterPrivateKey 等敏感字段
     const configuredExchanges = exchanges.filter((e) => {
+      // 主要依據 enabled 狀態判斷
+      if (e.enabled) return true
+
+      // 額外檢查：如果有非敏感配置字段，也認為是已配置
       if (e.id === 'aster') {
-        return e.asterUser && e.asterUser.trim() !== ''
+        return (
+          (e.asterUser && e.asterUser.trim() !== '') ||
+          (e.asterSigner && e.asterSigner.trim() !== '')
+        )
       }
       if (e.id === 'hyperliquid') {
         return e.hyperliquidWalletAddr && e.hyperliquidWalletAddr.trim() !== ''
       }
-      // 修复: 添加 enabled 判断,与原始逻辑保持一致
-      return e.enabled || (e.apiKey && e.apiKey.trim() !== '')
+
+      // 其他交易所只看 enabled
+      return false
     })
     set({ configuredExchanges })
   },

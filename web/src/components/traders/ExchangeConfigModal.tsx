@@ -77,10 +77,10 @@ export function ExchangeConfigModal({
   >(null)
 
   // 获取当前编辑的交易所信息
-  // 注意：後端返回的是 exchange_id (如 "binance")，而不是數字 id
-  const selectedExchange = allExchanges?.find((e: any) => {
-    return getExchangeId(e) === selectedExchangeId
-  })
+  // 注意：後端返回的字段名是 id (如 "binance")
+  const selectedExchange = allExchanges?.find(
+    (e: any) => e.id === selectedExchangeId
+  )
 
   // 如果是编辑现有交易所，初始化表单数据
   useEffect(() => {
@@ -334,10 +334,7 @@ export function ExchangeConfigModal({
                       {t('pleaseSelectExchange', language)}
                     </option>
                     {availableExchanges.map((exchange: any) => (
-                      <option
-                        key={getExchangeId(exchange)}
-                        value={getExchangeId(exchange)}
-                      >
+                      <option key={exchange.id} value={exchange.id}>
                         {getShortName(exchange.name)} (
                         {(getExchangeType(exchange) || exchange.type || '').toUpperCase()}
                         )
@@ -355,7 +352,7 @@ export function ExchangeConfigModal({
               >
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-8 h-8 flex items-center justify-center">
-                    {getExchangeIcon((selectedExchange as any).exchange_id, {
+                    {getExchangeIcon(selectedExchange.id, {
                       width: 32,
                       height: 32,
                     })}
@@ -365,8 +362,8 @@ export function ExchangeConfigModal({
                       {getShortName(selectedExchange.name)}
                     </div>
                     <div className="text-xs" style={{ color: '#848E9C' }}>
-                      {(selectedExchange.type || '').toUpperCase()} •{' '}
-                      {(selectedExchange as any).exchange_id}
+                      {selectedExchange.type.toUpperCase()} •{' '}
+                      {selectedExchange.id}
                     </div>
                   </div>
                 </div>
@@ -376,13 +373,13 @@ export function ExchangeConfigModal({
             {selectedExchange && (
               <>
                 {/* Binance 和其他 CEX 交易所的字段 */}
-                {(getExchangeId(selectedExchange) === 'binance' ||
+                {(selectedExchange.id === 'binance' ||
                   selectedExchange.type === 'cex') &&
-                  getExchangeId(selectedExchange) !== 'hyperliquid' &&
-                  getExchangeId(selectedExchange) !== 'aster' && (
+                  selectedExchange.id !== 'hyperliquid' &&
+                  selectedExchange.id !== 'aster' && (
                     <>
                       {/* 币安用户配置提示 (D1 方案) */}
-                      {getExchangeId(selectedExchange) === 'binance' && (
+                      {selectedExchange.id === 'binance' && (
                         <div
                           className="mb-4 p-3 rounded cursor-pointer transition-colors"
                           style={{
@@ -524,7 +521,7 @@ export function ExchangeConfigModal({
                         />
                       </div>
 
-                      {getExchangeId(selectedExchange) === 'okx' && (
+                      {selectedExchange.id === 'okx' && (
                         <div>
                           <label
                             className="block text-sm font-semibold mb-2"
@@ -549,7 +546,7 @@ export function ExchangeConfigModal({
                       )}
 
                       {/* Binance 白名单IP提示 */}
-                      {getExchangeId(selectedExchange) === 'binance' && (
+                      {selectedExchange.id === 'binance' && (
                         <div
                           className="p-4 rounded"
                           style={{
@@ -609,7 +606,7 @@ export function ExchangeConfigModal({
                   )}
 
                 {/* Aster 交易所的字段 */}
-                {getExchangeId(selectedExchange) === 'aster' && (
+                {selectedExchange.id === 'aster' && (
                   <>
                     <div>
                       <label
@@ -698,7 +695,7 @@ export function ExchangeConfigModal({
                 )}
 
                 {/* Hyperliquid 交易所的字段 */}
-                {getExchangeId(selectedExchange) === 'hyperliquid' && (
+                {selectedExchange.id === 'hyperliquid' && (
                   <>
                     {/* 安全提示 banner */}
                     <div
@@ -852,23 +849,23 @@ export function ExchangeConfigModal({
               type="submit"
               disabled={
                 !selectedExchange ||
-                (getExchangeId(selectedExchange) === 'binance' &&
+                (selectedExchange.id === 'binance' &&
                   (!apiKey.trim() || !secretKey.trim())) ||
-                (getExchangeId(selectedExchange) === 'okx' &&
+                (selectedExchange.id === 'okx' &&
                   (!apiKey.trim() ||
                     !secretKey.trim() ||
                     !passphrase.trim())) ||
-                (getExchangeId(selectedExchange) === 'hyperliquid' &&
+                (selectedExchange.id === 'hyperliquid' &&
                   (!apiKey.trim() || !hyperliquidWalletAddr.trim())) || // 验证私钥和钱包地址
-                (getExchangeId(selectedExchange) === 'aster' &&
+                (selectedExchange.id === 'aster' &&
                   (!asterUser.trim() ||
                     !asterSigner.trim() ||
                     !asterPrivateKey.trim())) ||
                 (selectedExchange.type === 'cex' &&
-                  (selectedExchange as any).exchange_id !== 'hyperliquid' &&
-                  (selectedExchange as any).exchange_id !== 'aster' &&
-                  (selectedExchange as any).exchange_id !== 'binance' &&
-                  (selectedExchange as any).exchange_id !== 'okx' &&
+                  selectedExchange.id !== 'hyperliquid' &&
+                  selectedExchange.id !== 'aster' &&
+                  selectedExchange.id !== 'binance' &&
+                  selectedExchange.id !== 'okx' &&
                   (!apiKey.trim() || !secretKey.trim()))
               }
               className="flex-1 px-4 py-2 rounded text-sm font-semibold disabled:opacity-50"

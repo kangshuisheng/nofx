@@ -112,8 +112,9 @@ func NewServer(traderManager *manager.TraderManager, database *config.Database, 
 	// 启用 CORS（白名单模式）
 	router.Use(corsMiddleware(allowedOrigins))
 
-	// 启用全局速率限制 (每秒 10 个请求)
-	globalLimiter := middleware.NewIPRateLimiter(rate.Limit(10), 10)
+	// 启用全局速率限制 (每秒 50 个请求)
+	// 注意：前端頁面加載時會並發發送 7-8 個請求，10 req/s 太嚴格
+	globalLimiter := middleware.NewIPRateLimiter(rate.Limit(50), 50)
 	router.Use(middleware.RateLimitMiddleware(globalLimiter))
 
 	// CSRF 保护（Double Submit Cookie 模式）- 可通过环境变量控制
@@ -2768,38 +2769,16 @@ func (s *Server) handleGetSupportedModels(c *gin.Context) {
 		return
 	}
 
-	// 将数据库模型转换为前端期望的安全结构 (ID=ModelID)
+	// 转换为安全的响应结构，移除敏感信息
 	safeModels := make([]SafeModelConfig, len(models))
 	for i, model := range models {
 		safeModels[i] = SafeModelConfig{
-			ID:              model.ModelID,
+			ID:              model.ModelID, // 返回 model_id（例如 "deepseek"）而不是自增 ID
 			Name:            model.Name,
 			Provider:        model.Provider,
 			Enabled:         model.Enabled,
 			CustomAPIURL:    model.CustomAPIURL,
 			CustomModelName: model.CustomModelName,
-		}
-	}
-
-	// 防御性修复：如果 default 用户的模型为空，尝试重新初始化默认数据一次
-	if len(safeModels) == 0 {
-		log.Printf("⚠️ default 用户的 supported models 为空，尝试重新初始化默认数据")
-		if err := s.database.EnsureDefaultModels(); err != nil {
-			log.Printf("❌ 重新初始化默认模型失败: %v", err)
-		} else {
-			// 重新获取
-			models, _ = s.database.GetAIModels("default")
-			safeModels = make([]SafeModelConfig, len(models))
-			for i, model := range models {
-				safeModels[i] = SafeModelConfig{
-					ID:              model.ModelID,
-					Name:            model.Name,
-					Provider:        model.Provider,
-					Enabled:         model.Enabled,
-					CustomAPIURL:    model.CustomAPIURL,
-					CustomModelName: model.CustomModelName,
-				}
-			}
 		}
 	}
 
