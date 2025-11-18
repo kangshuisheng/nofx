@@ -813,7 +813,7 @@ func Format(data *Data) string {
 	if data.IntradaySeries != nil {
 		sb.WriteString("- 3min (Precision Timing):\n")
 
-		const m3Length = 8
+		const m3Length = 6 // 保持6个数据点用于精确入场时机判断
 
 		m3Prices := data.IntradaySeries.MidPrices
 		if len(m3Prices) > m3Length {
