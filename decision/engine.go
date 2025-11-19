@@ -445,7 +445,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	// ⚠️ 重要提醒：防止 AI 误读市场数据中的数字
 	sb.WriteString("⚠️ **重要提醒：计算 position_size_usd 的正确方法**\n\n")
 	sb.WriteString(fmt.Sprintf("- 当前账户净值：**%.2f USDT**\n", accountEquity))
-	sb.WriteString(fmt.Sprintf("- 山寨币开仓范围：**12 - %.0f USDT** (最大0.6倍净值)\n", accountEquity*0.6))
+	sb.WriteString(fmt.Sprintf("- 山寨币开仓范围：**12 - %.0f USDT** (最大0.75倍净值)\n", accountEquity*0.75))
 	sb.WriteString(fmt.Sprintf("- BTC/ETH开仓范围：**%.0f - %.0f USDT** (最大0.85倍净值)\n", minBTCETH, accountEquity*0.85))
 	sb.WriteString("- ❌ **不要使用市场数据中的任何数字**（如 Open Interest 合约数、Volume、价格等）作为 position_size_usd\n")
 	sb.WriteString("- ✅ **position_size_usd 必须根据账户净值和上述范围计算**\n")
@@ -487,260 +487,547 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	return sb.String()
 }
 
-// buildUserPrompt 构建 User Prompt（动态数据）
+// buildUserPrompt 构建 User Prompt（动态数据核心）
+// 这是一个“总指挥”函数，负责拼装各个模块的情报
 func buildUserPrompt(ctx *Context) string {
 	var sb strings.Builder
 
-	// 系统状态
-	sb.WriteString(fmt.Sprintf("时间: %s | 周期: #%d | 运行: %d分钟\n\n",
-		ctx.CurrentTime, ctx.CallCount, ctx.RuntimeMinutes))
+	// 1. 抬头信息：时间与运行状态
+	sb.WriteString(fmt.Sprintf("# 📅 交易简报 | 时间: %s | 运行时长: %d分钟 | 决策周期: #%d\n\n",
+		ctx.CurrentTime, ctx.RuntimeMinutes, ctx.CallCount))
 
-	// BTC 市场
-	if btcData, hasBTC := ctx.MarketDataMap["BTCUSDT"]; hasBTC {
-		sb.WriteString(fmt.Sprintf("BTC: %.2f (1h: %+.2f%%, 4h: %+.2f%%) | MACD: %.4f | RSI: %.2f\n\n",
-			btcData.CurrentPrice, btcData.PriceChange1h, btcData.PriceChange4h,
-			btcData.CurrentMACD, btcData.CurrentRSI7))
-	}
+	// 2. 宏观情报：先看天吃饭 (BTC + VIX)
+	sb.WriteString(buildMarketContextSection(ctx))
 
-	// ⚡ 全局市場情緒（VIX 恐慌指數 + 美股狀態）
+	// 3. 账户风控：告诉 AI 具体的数字限制
+	sb.WriteString(buildAccountSection(ctx))
+
+	// 4. 持仓巡检：这是最关键的部分，集成了 Go 的状态判断逻辑
+	sb.WriteString(buildPositionsSection(ctx))
+
+	// 5. 猎物雷达：候选币种数据
+	sb.WriteString(buildCandidatesSection(ctx))
+
+	// 6. 历史表现与结尾指令
+	sb.WriteString(buildPerformanceAndFooter(ctx))
+
+	return sb.String()
+}
+
+// buildMarketContextSection 构建宏观市场数据部分
+func buildMarketContextSection(ctx *Context) string {
+	var sb strings.Builder
+	sb.WriteString("## 🌍 1. 宏观市场情报 (Global Context)\n")
+	sb.WriteString("> 这里的状态决定了是否允许开新仓 (Long/Short)。\n\n")
+
+	// 1.1 VIX 恐慌指数 (如有)
 	if ctx.GlobalSentiment != nil {
-		sb.WriteString("## 📊 全局市場風險情緒\n\n")
-
-		// VIX 恐慌指數
-		if ctx.GlobalSentiment.VIX > 0 {
-			sb.WriteString(fmt.Sprintf("VIX 恐慌指數: %.2f (%s)\n",
-				ctx.GlobalSentiment.VIX, ctx.GlobalSentiment.FearLevel))
-
-			// 根據建議給出風控提示
-			switch ctx.GlobalSentiment.Recommendation {
-			case "normal":
-				sb.WriteString("  → 市場平穩，正常交易\n")
-			case "cautious":
-				sb.WriteString("  → ⚠️  市場輕度恐慌，建議降低槓桿至 5x\n")
-			case "defensive":
-				sb.WriteString("  → ⚠️  市場恐慌，建議收緊止損，避免激進操作\n")
-			case "avoid_new_positions":
-				sb.WriteString("  → 🚨 極度恐慌，強烈建議觀望，不要新開倉\n")
-			}
-		}
-
-		// 美股狀態（僅在交易時段顯示）
-		if ctx.GlobalSentiment.USMarket != nil && ctx.GlobalSentiment.USMarket.IsOpen {
-			sb.WriteString(fmt.Sprintf("美股狀態: %s (S&P 500 過去 1h: %+.2f%%)\n",
-				ctx.GlobalSentiment.USMarket.SPXTrend, ctx.GlobalSentiment.USMarket.SPXChange1h))
-
-			if ctx.GlobalSentiment.USMarket.Warning != "" {
-				sb.WriteString(fmt.Sprintf("  %s\n", ctx.GlobalSentiment.USMarket.Warning))
-			}
-		}
-
-		sb.WriteString("\n")
+		sb.WriteString(fmt.Sprintf("- **市场情绪 (VIX)**: %.2f [%s]\n",
+			ctx.GlobalSentiment.VIX, ctx.GlobalSentiment.FearLevel))
+		sb.WriteString(fmt.Sprintf("  👉 **风控建议**: %s\n", ctx.GlobalSentiment.Recommendation))
 	}
 
-	// 账户
-	sb.WriteString(fmt.Sprintf("账户: 净值%.2f | 余额%.2f (%.1f%%) | 盈亏%+.2f%% | 保证金%.1f%% | 持仓%d个\n\n",
-		ctx.Account.TotalEquity,
-		ctx.Account.AvailableBalance,
-		(ctx.Account.AvailableBalance/ctx.Account.TotalEquity)*100,
-		ctx.Account.TotalPnLPct,
-		ctx.Account.MarginUsedPct,
-		ctx.Account.PositionCount))
-
-	if len(ctx.Positions) > 0 {
-		sb.WriteString("## 当前持仓\n")
-		for i, pos := range ctx.Positions {
-
-			// 1. 从ctx.OpenOrders中精确查找当前有效的止损单和止盈单
-			var currentStopLossPrice float64
-			var currentTakeProfitPrice float64
-			var hasStopLoss bool
-			var hasTakeProfit bool
-
-			for _, order := range ctx.OpenOrders {
-				isMatchingOrder := order.Symbol == pos.Symbol &&
-					((pos.Side == "long" && order.Side == "SELL") || (pos.Side == "short" && order.Side == "BUY"))
-
-				if !isMatchingOrder {
-					continue
-				}
-
-				switch order.Type {
-				case "STOP_MARKET", "STOP":
-					currentStopLossPrice = order.StopPrice
-					hasStopLoss = true
-				case "TAKE_PROFIT_MARKET", "TAKE_PROFIT":
-					currentTakeProfitPrice = order.StopPrice
-					hasTakeProfit = true
-				}
-
-				// 如果都找到了，可以提前退出循环
-				if hasStopLoss && hasTakeProfit {
-					break
-				}
-			}
-
-			// 2. 使用新的calculateManagementState方法进行精确的阶段判断
-			var managementState string
-			var rRatio float64
-			marketData, hasMarketData := ctx.MarketDataMap[pos.Symbol]
-
-			if !hasStopLoss {
-				managementState = "NO_STOP_LOSS"
-			} else if hasMarketData {
-				// 调用新的状态计算方法
-				managementState, rRatio = calculateManagementState(pos, currentStopLossPrice, marketData)
-			} else {
-				managementState = "CALC_PENDING" // 数据不足
-			}
-
-			// 3. 计算持仓时长
-			holdingDuration := ""
-			if pos.UpdateTime > 0 {
-				durationMs := time.Now().UnixMilli() - pos.UpdateTime
-				durationMin := durationMs / (1000 * 60)
-				if durationMin < 60 {
-					holdingDuration = fmt.Sprintf(" | 时长:%dm", durationMin)
-				} else {
-					durationHour := durationMin / 60
-					durationMinRemainder := durationMin % 60
-					holdingDuration = fmt.Sprintf(" | 时长:%dh%dm", durationHour, durationMinRemainder)
-				}
-			}
-
-			// 4. 计算仓位价值
-			positionValue := math.Abs(pos.Quantity) * pos.MarkPrice
-
-			// 5. 将所有信息，包括新注入的状态，格式化为最终字符串
-			sb.WriteString(fmt.Sprintf("%d. 🎯 %s %s仓位 | 入场价:%.4f 当前价:%.4f | 盈亏:%+.2f%% (R:R=%.1f) | 价值:%.2f USDT | 状态:%s%s\n",
-				i+1, pos.Symbol, strings.ToUpper(pos.Side),
-				pos.EntryPrice, pos.MarkPrice, pos.UnrealizedPnLPct, rRatio, positionValue,
-				managementState,
-				holdingDuration))
-
-			// 6. 显示当前有效的挂单信息 (完整版)
-			if hasStopLoss {
-				sb.WriteString(fmt.Sprintf("   🛡️ 当前止损: %.4f\n", currentStopLossPrice))
-			} else {
-				sb.WriteString("   ⚠️ **该持仓没有止损保护！**\n")
-			}
-
-			// --- 恢复并优化止盈单显示 ---
-			if hasTakeProfit {
-				sb.WriteString(fmt.Sprintf("   🎯 当前止盈: %.4f\n", currentTakeProfitPrice))
-			} else {
-				// 只有在趋势市，没有止盈单才是正常的（让利润奔跑）
-				sb.WriteString("   ℹ️ (提示: 未设置固定止盈目标)\n")
-			}
-
-			sb.WriteString("\n")
-
-			// 7. 输出详细市场数据
-			if marketData != nil {
-				sb.WriteString(market.Format(marketData))
-				sb.WriteString("\n")
-			}
+	// 1.2 BTC 领头羊状态
+	if btcData, ok := ctx.MarketDataMap["BTCUSDT"]; ok {
+		trendStr := "震荡"
+		if btcData.CurrentPrice > btcData.CurrentEMA20 {
+			trendStr = "多头偏强 (Price > EMA20)"
+		} else {
+			trendStr = "空头偏强 (Price < EMA20)"
 		}
+
+		sb.WriteString(fmt.Sprintf("- **BTC 状态**: 价格 %.2f | 1h: %+.2f%% | 4h: %+.2f%%\n",
+			btcData.CurrentPrice, btcData.PriceChange1h, btcData.PriceChange4h))
+		sb.WriteString(fmt.Sprintf("  👉 **大盘趋势**: %s | MACD: %.2f | RSI: %.2f\n",
+			trendStr, btcData.CurrentMACD, btcData.CurrentRSI7))
 	} else {
-		sb.WriteString("当前持仓: 无\n\n")
+		sb.WriteString("- **BTC 状态**: 数据获取失败，请谨慎操作。\n")
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// buildAccountSection 构建账户与硬性风控部分
+func buildAccountSection(ctx *Context) string {
+	var sb strings.Builder
+	sb.WriteString("## 💼 2. 账户资金与硬性风控 (Risk Limits)\n")
+	sb.WriteString("> 所有开仓指令必须通过以下验证，否则会被拒绝。\n\n")
+
+	// 计算具体的风控数值，直接告诉 AI 结果
+	maxRiskUSD := ctx.Account.TotalEquity * 0.018 // 1.8% 单笔最大亏损
+
+	// 获取 BTC 和 山寨 的具体仓位上限
+	minBTCSize := calculateMinPositionSize("BTCUSDT", ctx.Account.TotalEquity)
+	maxPosBTC := ctx.Account.TotalEquity * 0.85
+	maxPosAlt := ctx.Account.TotalEquity * 0.75
+
+	sb.WriteString(fmt.Sprintf("- **账户净值**: %.2f USDT | **可用余额**: %.2f USDT\n",
+		ctx.Account.TotalEquity, ctx.Account.AvailableBalance))
+	sb.WriteString(fmt.Sprintf("- **持仓占用**: %d / 3 个位置\n", ctx.Account.PositionCount))
+
+	sb.WriteString("- **本轮开仓限制 (Hard Constraints)**:\n")
+	sb.WriteString(fmt.Sprintf("  1. **最大亏损 (Risk)**: 单笔不得超过 **%.2f USDT** (净值的 1.8%%)\n", maxRiskUSD))
+	sb.WriteString(fmt.Sprintf("  2. **BTC 开仓价值**: %.0f - %.0f USDT\n", minBTCSize, maxPosBTC))
+	sb.WriteString(fmt.Sprintf("  3. **山寨币开仓价值**: 12 - %.0f USDT\n", maxPosAlt))
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// buildPositionsSection 构建持仓管理部分 (核心逻辑优化)
+func buildPositionsSection(ctx *Context) string {
+	if len(ctx.Positions) == 0 {
+		return "## 🛡️ 3. 当前持仓管理 (Positions)\n- 目前空仓 (No Positions)，请专注于寻找猎物。\n\n"
 	}
 
-	// 候选币种（完整市场数据）
-	sb.WriteString(fmt.Sprintf("## 候选币种 (%d个)\n\n", len(ctx.MarketDataMap)))
-	displayedCount := 0
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("## 🛡️ 3. 当前持仓管理 (%d 个持仓)\n", len(ctx.Positions)))
+	sb.WriteString("> 任务：检查每个持仓的 [系统判定状态] 并执行相应的 [AI 行动指南]。\n\n")
+
+	for i, pos := range ctx.Positions {
+		// 1. 获取基础数据
+		marketData := ctx.MarketDataMap[pos.Symbol]
+
+		// 2. 查找当前止损/止盈单
+		var currentSL, currentTP float64
+		hasSL, hasTP := false, false
+		for _, order := range ctx.OpenOrders {
+			if order.Symbol != pos.Symbol {
+				continue
+			}
+			if (pos.Side == "long" && order.Side == "SELL") || (pos.Side == "short" && order.Side == "BUY") {
+				if order.Type == "STOP_MARKET" || order.Type == "STOP" {
+					currentSL = order.StopPrice
+					hasSL = true
+				}
+				if order.Type == "TAKE_PROFIT_MARKET" || order.Type == "TAKE_PROFIT" {
+					currentTP = order.StopPrice
+					hasTP = true
+				}
+			}
+		}
+
+		// 3. 计算管理状态 (调用 Go 的逻辑)
+		state := "NO_STOP_LOSS"
+		rRatio := 0.0
+		if hasSL && marketData != nil {
+			state, rRatio = calculateManagementState(pos, currentSL, marketData)
+		}
+
+		// 4. 生成具体的行动指南 (将 Go 状态翻译成人话)
+		actionGuide := ""
+		statusIcon := ""
+
+		switch state {
+		case "NO_STOP_LOSS":
+			statusIcon = "🚨"
+			actionGuide = "**极度危险**：该持仓没有止损！请立即输出 `update_stop_loss` (建议距离 ATR*1.5)。"
+		case "STAGE_1_INITIAL_RISK":
+			statusIcon = "🥚"
+			actionGuide = "**孵化期**：R:R < 0.8。除非价格跌破关键技术结构，否则 **HOLD**。给交易呼吸空间。"
+		case "STAGE_2_RISK_REMOVAL":
+			statusIcon = "🛡️"
+			// 检查是否真保本了
+			isSafe := (pos.Side == "long" && currentSL >= pos.EntryPrice) || (pos.Side == "short" && currentSL <= pos.EntryPrice)
+			if isSafe {
+				actionGuide = "**安全期**：风险已移除。保持持有，等待利润奔跑。"
+			} else {
+				actionGuide = "**行动请求**：系统判定应移除风险。请输出 `update_stop_loss` 将止损移至入场价附近 (Breakeven)。"
+			}
+		case "STAGE_3_TRAILING":
+			statusIcon = "💰"
+			actionGuide = "**获利期**：R:R > 1.5。请检查是否满足 `partial_close` (R:R>2.5) 或根据 ATR 收紧止损来锁定利润。"
+		default:
+			statusIcon = "❓"
+			actionGuide = "数据不足，建议 HOLD。"
+		}
+
+		// 5. 拼装显示
+		posValue := math.Abs(pos.Quantity) * pos.MarkPrice
+		sb.WriteString(fmt.Sprintf("### %d. %s %s %s (价值: %.1f U)\n",
+			i+1, statusIcon, pos.Symbol, strings.ToUpper(pos.Side), posValue))
+
+		sb.WriteString(fmt.Sprintf("   - **盈亏**: %+.2f%% (R:R = %.2f)\n", pos.UnrealizedPnLPct, rRatio))
+		sb.WriteString(fmt.Sprintf("   - **价格**: 入场 %.4f | 当前 %.4f | 止损 %.4f\n", pos.EntryPrice, pos.MarkPrice, currentSL))
+
+		if hasTP {
+			sb.WriteString(fmt.Sprintf("   - **止盈**: %.4f\n", currentTP))
+		}
+
+		sb.WriteString(fmt.Sprintf("   - **状态**: `%s`\n", state))
+		sb.WriteString(fmt.Sprintf("   👉 **AI 行动指南**: %s\n", actionGuide)) // 关键行：直接指导 AI
+
+		// 附带市场数据供验证
+		if marketData != nil {
+			sb.WriteString("\n   [参考数据]\n")
+			sb.WriteString(market.Format(marketData))
+		}
+		sb.WriteString("\n\n")
+	}
+	return sb.String()
+}
+
+// buildCandidatesSection 构建候选币种部分
+func buildCandidatesSection(ctx *Context) string {
+	// 1. 建立持仓索引，用于过滤
+	holdingMap := make(map[string]bool)
+	for _, pos := range ctx.Positions {
+		holdingMap[pos.Symbol] = true
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## 🎯 4. 猎物扫描 (Candidate Setup)\n")
+	sb.WriteString("> 任务：对以下币种进行【算分审计】，寻找得分 ≥ 32 的机会。\n\n")
+
+	validCount := 0
 	for _, coin := range ctx.CandidateCoins {
-		marketData, hasData := ctx.MarketDataMap[coin.Symbol]
-		if !hasData {
+		// 过滤掉已经持有的币种
+		if holdingMap[coin.Symbol] {
 			continue
 		}
-		displayedCount++
 
-		sourceTags := ""
-		if len(coin.Sources) > 1 {
-			sourceTags = " (AI500+OI_Top双重信号)"
-		} else if len(coin.Sources) == 1 && coin.Sources[0] == "oi_top" {
-			sourceTags = " (OI_Top持仓增长)"
+		marketData, ok := ctx.MarketDataMap[coin.Symbol]
+		if !ok {
+			continue
 		}
 
-		// 使用FormatMarketData输出完整市场数据
-		sb.WriteString(fmt.Sprintf("### %d. %s%s\n\n", displayedCount, coin.Symbol, sourceTags))
+		validCount++
+		sourceTag := "AI500"
+		if len(coin.Sources) > 0 {
+			sourceTag = strings.Join(coin.Sources, "+")
+		}
+
+		sb.WriteString(fmt.Sprintf("### [%d] %s (%s)\n", validCount, coin.Symbol, sourceTag))
+
+		// 核心：直接展示 Market Data 供 AI 算分
+		// 这里直接利用 market.Format 的详细输出，包含 4H/1H/15m/3m
 		sb.WriteString(market.Format(marketData))
 		sb.WriteString("\n")
 	}
-	sb.WriteString("\n")
 
-	// 夏普比率（直接传值，不要复杂格式化）
-	if ctx.Performance != nil {
-		// 直接从interface{}中提取SharpeRatio
-		type PerformanceData struct {
-			SharpeRatio float64 `json:"sharpe_ratio"`
-		}
-		var perfData PerformanceData
-		if jsonData, err := json.Marshal(ctx.Performance); err == nil {
-			if err := json.Unmarshal(jsonData, &perfData); err == nil {
-				sb.WriteString(fmt.Sprintf("## 📊 夏普比率: %.2f\n\n", perfData.SharpeRatio))
-			}
-		}
+	if validCount == 0 {
+		sb.WriteString("(当前无符合条件的候选币种，或候选币种已全部在持仓中)\n\n")
 	}
+	return sb.String()
+}
 
-	// 历史交易记录（用于 AI 学习）- 使用 Performance.RecentTrades 以显示完整的盈亏数据
+// buildPerformanceAndFooter 构建历史记录和结尾
+func buildPerformanceAndFooter(ctx *Context) string {
+	var sb strings.Builder
+
+	// 历史表现
 	if ctx.Performance != nil {
-		// 提取 RecentTrades
+		// 这里使用简单的 JSON 序列化再解析有点绕，但为了保持类型兼容先这样做
+		// 理想情况下 ctx.Performance 应该是一个具体的 Struct 类型
 		type PerformanceData struct {
+			SharpeRatio  float64               `json:"sharpe_ratio"`
 			RecentTrades []logger.TradeOutcome `json:"recent_trades"`
 		}
 		var perfData PerformanceData
 		if jsonData, err := json.Marshal(ctx.Performance); err == nil {
-			if err := json.Unmarshal(jsonData, &perfData); err == nil && len(perfData.RecentTrades) > 0 {
-				sb.WriteString("## 📜 近期交易记录（最近10笔）\n\n")
-
-				for i, trade := range perfData.RecentTrades {
-					// 判断盈亏（成功/失败）
-					resultIcon := "✅"
-					if trade.PnL < 0 {
-						resultIcon = "❌"
+			if err := json.Unmarshal(jsonData, &perfData); err == nil {
+				sb.WriteString(fmt.Sprintf("## 📜 历史战绩参考 (Sharpe: %.2f)\n", perfData.SharpeRatio))
+				if len(perfData.RecentTrades) > 0 {
+					sb.WriteString("最近 3 笔交易:\n")
+					// 只显示最近 3 笔，节省 Token，让 AI 更有重点
+					count := 0
+					for _, trade := range perfData.RecentTrades {
+						if count >= 3 {
+							break
+						}
+						icon := "✅"
+						if trade.PnL < 0 {
+							icon = "❌"
+						}
+						sb.WriteString(fmt.Sprintf("- %s %s %s: %+.2f%%\n", icon, trade.Symbol, trade.Side, trade.PnLPct))
+						count++
 					}
-
-					// 格式化时间范围
-					openTimeStr := trade.OpenTime.Format("01-02 15:04")
-					closeTimeStr := trade.CloseTime.Format("15:04")
-
-					// 方向大写
-					direction := strings.ToUpper(trade.Side)
-
-					// 止损标记
-					stopLossTag := ""
-					if trade.WasStopLoss {
-						stopLossTag = " 🛡️ 止损"
-					}
-
-					// 格式化盈亏百分比（添加符号）
-					pnlPctStr := fmt.Sprintf("%+.2f%%", trade.PnLPct)
-
-					// 格式化盈亏金额（添加符号）
-					pnlStr := fmt.Sprintf("%+.2f", trade.PnL)
-
-					// 第一行：时间、币种、方向、杠杆
-					sb.WriteString(fmt.Sprintf("%s %d. [%s→%s] %s %s (%dx杠杆)%s\n",
-						resultIcon, i+1, openTimeStr, closeTimeStr,
-						trade.Symbol, direction, trade.Leverage, stopLossTag))
-
-					// 第二行：开倉价 → 平倉价 (盈亏百分比)
-					sb.WriteString(fmt.Sprintf("   开仓: @ %.2f → 平仓: @ %.2f (%s)\n",
-						trade.OpenPrice, trade.ClosePrice, pnlPctStr))
-
-					// 第三行：盈亏金额 | 持仓时长
-					sb.WriteString(fmt.Sprintf("   盈亏: %s USDT | 持仓: %s\n\n",
-						pnlStr, trade.Duration))
+					sb.WriteString("\n")
 				}
 			}
 		}
 	}
 
-	sb.WriteString("---\n\n")
-	sb.WriteString("现在请分析并输出决策（思维链 + JSON）\n")
+	sb.WriteString("---\n")
+	sb.WriteString("现在，请开始你的思维链分析 `<reasoning>`，然后输出 JSON 决策。\n")
+	sb.WriteString("记住：**少动多看，只打高分牌**。\n")
 
 	return sb.String()
 }
+
+// 	// 预计算持仓符号集合，用于在候选币种部分过滤已持仓币种
+// 	positionSymbols := make(map[string]bool)
+// 	for _, pos := range ctx.Positions {
+// 		positionSymbols[pos.Symbol] = true
+// 	}
+
+// 	// 系统状态
+// 	sb.WriteString(fmt.Sprintf("时间: %s | 周期: #%d | 运行: %d分钟\n\n",
+// 		ctx.CurrentTime, ctx.CallCount, ctx.RuntimeMinutes))
+
+// 	// BTC 市场
+// 	if btcData, hasBTC := ctx.MarketDataMap["BTCUSDT"]; hasBTC {
+// 		sb.WriteString(fmt.Sprintf("BTC: %.2f (1h: %+.2f%%, 4h: %+.2f%%) | MACD: %.4f | RSI: %.2f\n\n",
+// 			btcData.CurrentPrice, btcData.PriceChange1h, btcData.PriceChange4h,
+// 			btcData.CurrentMACD, btcData.CurrentRSI7))
+// 	}
+
+// 	// ⚡ 全局市場情緒（VIX 恐慌指數 + 美股狀態）
+// 	if ctx.GlobalSentiment != nil {
+// 		sb.WriteString("## 📊 全局市場風險情緒\n\n")
+
+// 		// VIX 恐慌指數
+// 		if ctx.GlobalSentiment.VIX > 0 {
+// 			sb.WriteString(fmt.Sprintf("VIX 恐慌指數: %.2f (%s)\n",
+// 				ctx.GlobalSentiment.VIX, ctx.GlobalSentiment.FearLevel))
+
+// 			// 根據建議給出風控提示
+// 			switch ctx.GlobalSentiment.Recommendation {
+// 			case "normal":
+// 				sb.WriteString("  → 市場平穩，正常交易\n")
+// 			case "cautious":
+// 				sb.WriteString("  → ⚠️  市場輕度恐慌，建議降低槓桿至 5x\n")
+// 			case "defensive":
+// 				sb.WriteString("  → ⚠️  市場恐慌，建議收緊止損，避免激進操作\n")
+// 			case "avoid_new_positions":
+// 				sb.WriteString("  → 🚨 極度恐慌，強烈建議觀望，不要新開倉\n")
+// 			}
+// 		}
+
+// 		// 美股狀態（僅在交易時段顯示）
+// 		if ctx.GlobalSentiment.USMarket != nil && ctx.GlobalSentiment.USMarket.IsOpen {
+// 			sb.WriteString(fmt.Sprintf("美股狀態: %s (S&P 500 過去 1h: %+.2f%%)\n",
+// 				ctx.GlobalSentiment.USMarket.SPXTrend, ctx.GlobalSentiment.USMarket.SPXChange1h))
+
+// 			if ctx.GlobalSentiment.USMarket.Warning != "" {
+// 				sb.WriteString(fmt.Sprintf("  %s\n", ctx.GlobalSentiment.USMarket.Warning))
+// 			}
+// 		}
+
+// 		sb.WriteString("\n")
+// 	}
+
+// 	// 账户
+// 	sb.WriteString(fmt.Sprintf("账户: 净值%.2f | 余额%.2f (%.1f%%) | 盈亏%+.2f%% | 保证金%.1f%% | 持仓%d个\n\n",
+// 		ctx.Account.TotalEquity,
+// 		ctx.Account.AvailableBalance,
+// 		(ctx.Account.AvailableBalance/ctx.Account.TotalEquity)*100,
+// 		ctx.Account.TotalPnLPct,
+// 		ctx.Account.MarginUsedPct,
+// 		ctx.Account.PositionCount))
+
+// 	if len(ctx.Positions) > 0 {
+// 		sb.WriteString("## 当前持仓\n")
+// 		for i, pos := range ctx.Positions {
+
+// 			// 1. 从ctx.OpenOrders中精确查找当前有效的止损单和止盈单
+// 			var currentStopLossPrice float64
+// 			var currentTakeProfitPrice float64
+// 			var hasStopLoss bool
+// 			var hasTakeProfit bool
+
+// 			for _, order := range ctx.OpenOrders {
+// 				isMatchingOrder := order.Symbol == pos.Symbol &&
+// 					((pos.Side == "long" && order.Side == "SELL") || (pos.Side == "short" && order.Side == "BUY"))
+
+// 				if !isMatchingOrder {
+// 					continue
+// 				}
+
+// 				switch order.Type {
+// 				case "STOP_MARKET", "STOP":
+// 					currentStopLossPrice = order.StopPrice
+// 					hasStopLoss = true
+// 				case "TAKE_PROFIT_MARKET", "TAKE_PROFIT":
+// 					currentTakeProfitPrice = order.StopPrice
+// 					hasTakeProfit = true
+// 				}
+
+// 				// 如果都找到了，可以提前退出循环
+// 				if hasStopLoss && hasTakeProfit {
+// 					break
+// 				}
+// 			}
+
+// 			// 2. 使用新的calculateManagementState方法进行精确的阶段判断
+// 			var managementState string
+// 			var rRatio float64
+// 			marketData, hasMarketData := ctx.MarketDataMap[pos.Symbol]
+
+// 			if !hasStopLoss {
+// 				managementState = "NO_STOP_LOSS"
+// 			} else if hasMarketData {
+// 				// 调用新的状态计算方法
+// 				managementState, rRatio = calculateManagementState(pos, currentStopLossPrice, marketData)
+// 			} else {
+// 				managementState = "CALC_PENDING" // 数据不足
+// 			}
+
+// 			// 3. 计算持仓时长
+// 			holdingDuration := ""
+// 			if pos.UpdateTime > 0 {
+// 				durationMs := time.Now().UnixMilli() - pos.UpdateTime
+// 				durationMin := durationMs / (1000 * 60)
+// 				if durationMin < 60 {
+// 					holdingDuration = fmt.Sprintf(" | 时长:%dm", durationMin)
+// 				} else {
+// 					durationHour := durationMin / 60
+// 					durationMinRemainder := durationMin % 60
+// 					holdingDuration = fmt.Sprintf(" | 时长:%dh%dm", durationHour, durationMinRemainder)
+// 				}
+// 			}
+
+// 			// 4. 计算仓位价值
+// 			positionValue := math.Abs(pos.Quantity) * pos.MarkPrice
+
+// 			// 5. 将所有信息，包括新注入的状态，格式化为最终字符串
+// 			sb.WriteString(fmt.Sprintf("%d. 🎯 %s %s仓位 | 入场价:%.4f 当前价:%.4f | 盈亏:%+.2f%% (R:R=%.1f) | 价值:%.2f USDT | 状态:%s%s\n",
+// 				i+1, pos.Symbol, strings.ToUpper(pos.Side),
+// 				pos.EntryPrice, pos.MarkPrice, pos.UnrealizedPnLPct, rRatio, positionValue,
+// 				managementState,
+// 				holdingDuration))
+
+// 			// 6. 显示当前有效的挂单信息 (完整版)
+// 			if hasStopLoss {
+// 				sb.WriteString(fmt.Sprintf("   🛡️ 当前止损: %.4f\n", currentStopLossPrice))
+// 			} else {
+// 				sb.WriteString("   ⚠️ **该持仓没有止损保护！**\n")
+// 			}
+
+// 			// --- 恢复并优化止盈单显示 ---
+// 			if hasTakeProfit {
+// 				sb.WriteString(fmt.Sprintf("   🎯 当前止盈: %.4f\n", currentTakeProfitPrice))
+// 			} else {
+// 				// 只有在趋势市，没有止盈单才是正常的（让利润奔跑）
+// 				// sb.WriteString("   ℹ️ (提示: 未设置固定止盈目标)\n")
+// 			}
+
+// 			sb.WriteString("\n")
+
+// 			// 7. 输出详细市场数据
+// 			if marketData != nil {
+// 				sb.WriteString(market.Format(marketData))
+// 				sb.WriteString("\n")
+// 			}
+// 		}
+// 	} else {
+// 		sb.WriteString("当前持仓: 无\n\n")
+// 	}
+
+// 	// 候选币种（完整市场数据）
+// 	// 候选币种：排除已持仓的币种（避免重复显示和噪音）
+// 	// 统计将要显示的候选币种数量（有市场数据且未在持仓中）
+// 	candidateDisplayCount := 0
+// 	for _, coin := range ctx.CandidateCoins {
+// 		if _, has := ctx.MarketDataMap[coin.Symbol]; !has {
+// 			continue
+// 		}
+// 		if positionSymbols[coin.Symbol] {
+// 			// 如果已经持仓，则跳过以避免重复
+// 			continue
+// 		}
+// 		candidateDisplayCount++
+// 	}
+
+// 	sb.WriteString(fmt.Sprintf("## 候选币种 (%d个)\n\n", candidateDisplayCount))
+// 	displayedCount := 0
+// 	for _, coin := range ctx.CandidateCoins {
+// 		marketData, hasData := ctx.MarketDataMap[coin.Symbol]
+// 		if !hasData {
+// 			continue
+// 		}
+// 		// 跳过已持仓的候选币种，减少AI分析噪音
+// 		if positionSymbols[coin.Symbol] {
+// 			continue
+// 		}
+// 		displayedCount++
+
+// 		sourceTags := ""
+// 		if len(coin.Sources) > 1 {
+// 			sourceTags = " (AI500+OI_Top双重信号)"
+// 		} else if len(coin.Sources) == 1 && coin.Sources[0] == "oi_top" {
+// 			sourceTags = " (OI_Top持仓增长)"
+// 		}
+
+// 		// 使用FormatMarketData输出完整市场数据
+// 		sb.WriteString(fmt.Sprintf("### %d. %s%s\n\n", displayedCount, coin.Symbol, sourceTags))
+// 		sb.WriteString(market.Format(marketData))
+// 		sb.WriteString("\n")
+// 	}
+// 	sb.WriteString("\n")
+
+// 	// 夏普比率（直接传值，不要复杂格式化）
+// 	if ctx.Performance != nil {
+// 		// 直接从interface{}中提取SharpeRatio
+// 		type PerformanceData struct {
+// 			SharpeRatio float64 `json:"sharpe_ratio"`
+// 		}
+// 		var perfData PerformanceData
+// 		if jsonData, err := json.Marshal(ctx.Performance); err == nil {
+// 			if err := json.Unmarshal(jsonData, &perfData); err == nil {
+// 				sb.WriteString(fmt.Sprintf("## 📊 夏普比率: %.2f\n\n", perfData.SharpeRatio))
+// 			}
+// 		}
+// 	}
+
+// 	// 历史交易记录（用于 AI 学习）- 使用 Performance.RecentTrades 以显示完整的盈亏数据
+// 	if ctx.Performance != nil {
+// 		// 提取 RecentTrades
+// 		type PerformanceData struct {
+// 			RecentTrades []logger.TradeOutcome `json:"recent_trades"`
+// 		}
+// 		var perfData PerformanceData
+// 		if jsonData, err := json.Marshal(ctx.Performance); err == nil {
+// 			if err := json.Unmarshal(jsonData, &perfData); err == nil && len(perfData.RecentTrades) > 0 {
+// 				sb.WriteString("## 📜 近期交易记录（最近10笔）\n\n")
+
+// 				for i, trade := range perfData.RecentTrades {
+// 					// 判断盈亏（成功/失败）
+// 					resultIcon := "✅"
+// 					if trade.PnL < 0 {
+// 						resultIcon = "❌"
+// 					}
+
+// 					// 格式化时间范围
+// 					openTimeStr := trade.OpenTime.Format("01-02 15:04")
+// 					closeTimeStr := trade.CloseTime.Format("15:04")
+
+// 					// 方向大写
+// 					direction := strings.ToUpper(trade.Side)
+
+// 					// 止损标记
+// 					stopLossTag := ""
+// 					if trade.WasStopLoss {
+// 						stopLossTag = " 🛡️ 止损"
+// 					}
+
+// 					// 格式化盈亏百分比（添加符号）
+// 					pnlPctStr := fmt.Sprintf("%+.2f%%", trade.PnLPct)
+
+// 					// 格式化盈亏金额（添加符号）
+// 					pnlStr := fmt.Sprintf("%+.2f", trade.PnL)
+
+// 					// 第一行：时间、币种、方向、杠杆
+// 					sb.WriteString(fmt.Sprintf("%s %d. [%s→%s] %s %s (%dx杠杆)%s\n",
+// 						resultIcon, i+1, openTimeStr, closeTimeStr,
+// 						trade.Symbol, direction, trade.Leverage, stopLossTag))
+
+// 					// 第二行：开倉价 → 平倉价 (盈亏百分比)
+// 					sb.WriteString(fmt.Sprintf("   开仓: @ %.2f → 平仓: @ %.2f (%s)\n",
+// 						trade.OpenPrice, trade.ClosePrice, pnlPctStr))
+
+// 					// 第三行：盈亏金额 | 持仓时长
+// 					sb.WriteString(fmt.Sprintf("   盈亏: %s USDT | 持仓: %s\n\n",
+// 						pnlStr, trade.Duration))
+// 				}
+// 			}
+// 		}
+// 	}
+
+// 	sb.WriteString("---\n\n")
+// 	sb.WriteString("现在请分析并输出决策（思维链 + JSON）\n")
+
+// 	return sb.String()
+// }
 
 // calculateManagementState 根据当前仓位信息、止损价格和市场数据，计算仓位管理的精细状态和R倍数。
 // 这个函数是止损管理逻辑的核心，它将仓位的生命周期划分为几个关键阶段，

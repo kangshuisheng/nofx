@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -708,6 +709,10 @@ func (l *DecisionLogger) AnalyzePerformance(lookbackCycles int) (*PerformanceAna
 
 	// 计算夏普比率（需要至少2个数据点）
 	analysis.SharpeRatio = l.calculateSharpeRatio(records)
+
+	// DEBUG: 输出最近交易计数，便于诊断 AI 学习没有数据的问题
+	log.Printf("🔎 AnalyzePerformance: Found %d recent trades, TotalTrades=%d, window=%d cycles",
+		len(analysis.RecentTrades), analysis.TotalTrades, lookbackCycles)
 
 	return analysis, nil
 }

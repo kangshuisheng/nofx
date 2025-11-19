@@ -730,8 +730,17 @@ func Format(data *Data) string {
 
 	// 1. 核心摘要信息
 	priceStr := formatPriceWithDynamicPrecision(data.CurrentPrice)
-	sb.WriteString(fmt.Sprintf("Price: %s | OI Chg(4h): %.2f%% | Funding: %.6f\n\n",
-		priceStr, data.OpenInterest.Change4h, data.FundingRate))
+	fundingIcon := ""
+	if math.Abs(data.FundingRate) > 0.0004 {
+		fundingIcon = "⚠️"
+	} // 费率过高预警
+	oiIcon := ""
+	if math.Abs(data.OpenInterest.Change4h) > 3.0 {
+		oiIcon = "🔥"
+	} // OI剧烈变化
+
+	sb.WriteString(fmt.Sprintf("Price: %s | OI Chg(4h): %.2f%%%s | Funding: %.6f%s\n\n",
+		priceStr, data.OpenInterest.Change4h, oiIcon, data.FundingRate, fundingIcon))
 
 	// 2. 市场情绪上下文
 	if data.OpenInterest != nil && data.OpenInterest.LongShortRatio > 0 {
