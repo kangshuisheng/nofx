@@ -2246,6 +2246,48 @@ func (d *Database) GetAllTimeframes() []string {
 	return result
 }
 
+// GetAllConfiguredTimeframes 获取所有交易员配置的时间线并集（不受 is_running 过滤）
+// 用于 WSMonitor 在服务启动时加载所有被配置的时间线，避免重启后因未自动启动trader而漏掉时间线
+func (d *Database) GetAllConfiguredTimeframes() []string {
+	rows, err := d.db.Query(`
+		SELECT DISTINCT timeframes
+		FROM traders
+		WHERE timeframes != ''
+	`)
+	if err != nil {
+		log.Printf("查询 trader timeframes (all) 失败: %v", err)
+		return []string{"4h"} // 默认返回 4h
+	}
+	defer rows.Close()
+
+	timeframeSet := make(map[string]bool)
+	for rows.Next() {
+		var timeframes string
+		if err := rows.Scan(&timeframes); err != nil {
+			continue
+		}
+		// 解析逗号分隔的时间线
+		for _, tf := range strings.Split(timeframes, ",") {
+			tf = strings.TrimSpace(tf)
+			if tf != "" {
+				timeframeSet[tf] = true
+			}
+		}
+	}
+
+	// 转换为切片
+	result := make([]string, 0, len(timeframeSet))
+	for tf := range timeframeSet {
+		result = append(result, tf)
+	}
+
+	if len(result) == 0 {
+		return []string{"15m", "1h", "4h"}
+	}
+	log.Printf("📊 从数据库加载所有配置的时间线（不区分运行状态）: %v", result)
+	return result
+}
+
 // Close 关闭数据库连接
 func (d *Database) Close() error {
 	return d.db.Close()

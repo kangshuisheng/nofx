@@ -219,6 +219,61 @@ func TestTimeframes_GetAllTimeframes(t *testing.T) {
 	t.Logf("   結果: %v", allTf)
 }
 
+// TestTimeframes_GetAllConfiguredTimeframes 确保 GetAllConfiguredTimeframes 不受 is_running 过滤
+func TestTimeframes_GetAllConfiguredTimeframes(t *testing.T) {
+	db, cleanup := setupTestDBForTimeframes(t)
+	defer cleanup()
+
+	userID := "test-user-tf-001"
+	aiModelID, exchangeID := setupAIModelAndExchange(t, db, userID)
+
+	traders := []struct {
+		id        string
+		tf        string
+		isRunning bool
+	}{
+		{"tc1", "1m,4h", false},
+		{"tc2", "4h,1d", false},
+		{"tc3", "5m,15m", false},
+	}
+
+	for _, tr := range traders {
+		trader := &TraderRecord{
+			ID:                  tr.id,
+			UserID:              userID,
+			Name:                tr.id,
+			AIModelID:           aiModelID,
+			ExchangeID:          exchangeID,
+			InitialBalance:      1000.0,
+			ScanIntervalMinutes: 60,
+			IsRunning:           tr.isRunning,
+			Timeframes:          tr.tf,
+		}
+		_ = db.CreateTrader(trader)
+	}
+
+	allTf := db.GetAllConfiguredTimeframes()
+	expected := map[string]bool{
+		"1m":  true,
+		"4h":  true,
+		"1d":  true,
+		"5m":  true,
+		"15m": true,
+	}
+
+	resSet := make(map[string]bool)
+	for _, tf := range allTf {
+		resSet[tf] = true
+	}
+
+	for exp := range expected {
+		if !resSet[exp] {
+			t.Errorf("Expected timeframe %s present, got %v", exp, allTf)
+		}
+	}
+	t.Logf("✅ GetAllConfiguredTimeframes 测试通过: %v", allTf)
+}
+
 // TestTimeframes_GetTraderConfig 測試完整配置返回
 func TestTimeframes_GetTraderConfig(t *testing.T) {
 	db, cleanup := setupTestDBForTimeframes(t)

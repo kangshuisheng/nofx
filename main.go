@@ -283,6 +283,17 @@ func main() {
 	adminModeStr, _ := database.GetSystemConfig("admin_mode")
 	adminMode := adminModeStr != "false"
 
+	// 允许用环境变量覆盖 admin mode，便于部署时禁用自动启动（CI/生产场景）
+	if env := os.Getenv("NOFX_AUTO_START"); env != "" {
+		// 支持 true/false (忽略大小写)
+		adminMode = strings.ToLower(env) == "true"
+		if adminMode {
+			log.Printf("ℹ️  NOFX_AUTO_START 环境变量启用自动启动 override=true")
+		} else {
+			log.Printf("ℹ️  NOFX_AUTO_START 环境变量禁用自动启动 override=false")
+		}
+	}
+
 	if adminMode {
 		log.Printf("ℹ️  Admin mode: enabled (服務重啟時自動恢復運行中的 traders)")
 	} else {
@@ -430,8 +441,8 @@ func main() {
 	log.Printf("✅ 数据源管理器已启动，包含 %d 个数据源", 2)
 
 	// 启动流行情数据 - 默认使用所有交易员设置的币种 如果没有设置币种 则优先使用系统默认
-	// 获取所有活跃 trader 的时间线配置（合并后的并集）
-	timeframes := database.GetAllTimeframes()
+	// 获取所有交易员配置的时间线（合并后的并集）以确保重启/未运行状态也不会丢失长期周期数据
+	timeframes := database.GetAllConfiguredTimeframes()
 	go market.NewWSMonitor(150, timeframes, dataSourceManager).Start(database.GetCustomCoins())
 	//go market.NewWSMonitor(150, timeframes).Start([]string{}) //这里是一个使用方式 传入空的话 则使用market市场的所有币种
 	// 设置优雅退出
