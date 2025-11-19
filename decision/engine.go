@@ -754,20 +754,7 @@ func buildPerformanceAndFooter(ctx *Context) string {
 	return sb.String()
 }
 
-// calculateManagementState 根据当前仓位信息、止损价格和市场数据，计算仓位管理的精细状态和R倍数。
-// 这个函数是止损管理逻辑的核心，它将仓位的生命周期划分为几个关键阶段，
-// 以便AI模型能够根据当前盈利情况做出更精细的止损调整决策。
-//
-// 参数:
-//
-//	pos: 当前的仓位信息，包含入场价、标记价格、方向等。
-//	currentStopLossPrice: 当前设置的止损价格。
-//	marketData: 市场数据，主要用于获取ATR等波动性指标。
-//
-// 返回:
-//
-//	string: 表示当前仓位管理状态的枚举值 (e.g., "STAGE_1_INITIAL_RISK", "STAGE_2_RISK_REMOVAL", "STAGE_3_TRAILING")。
-//	float64: 计算出的当前R倍数（盈利距离 / 初始风险距离）。
+// calculateManagementState 计算持仓的管理状态和 R:R 比例
 func calculateManagementState(pos PositionInfo, currentStopLossPrice float64, marketData *market.Data) (string, float64) {
 	if currentStopLossPrice == 0 {
 		return "NO_STOP_LOSS", 0
@@ -777,40 +764,54 @@ func calculateManagementState(pos PositionInfo, currentStopLossPrice float64, ma
 		return "CALC_PENDING", 0
 	}
 
-	// 计算核心指标
+	// 1. 计算初始风险距离 (总是正数)
 	initialRisk := math.Abs(pos.EntryPrice - currentStopLossPrice)
-	currentProfitDist := math.Abs(pos.MarkPrice - pos.EntryPrice)
+	if initialRisk == 0 {
+		initialRisk = marketData.LongerTermContext.ATR14 // 防止除以0
+	}
+
+	// 2. ✅ 修复：计算当前盈利距离 (区分方向，亏损为负数)
+	var currentProfitDist float64
+	if pos.Side == "long" {
+		currentProfitDist = pos.MarkPrice - pos.EntryPrice
+	} else {
+		// 空单：入场价 - 当前价 (如果当前价更高，结果为负)
+		currentProfitDist = pos.EntryPrice - pos.MarkPrice
+	}
+
+	// 3. 计算 R:R (亏损时 R:R 为负数)
 	rRatio := currentProfitDist / initialRisk
 
-	// 判断是否保本
+	// 4. 判断是否已保本
 	isBreakeven := (pos.Side == "long" && currentStopLossPrice >= pos.EntryPrice) ||
 		(pos.Side == "short" && currentStopLossPrice <= pos.EntryPrice)
 
-	// 精细状态判断
+	// 5. 精细状态判断
 	var state string
 	switch {
 	case rRatio < 0.3:
-		// 小幅盈利，保持初始风险
+		// 包含负数的情况 (亏损)，都属于孵化期
 		state = "STAGE_1_INITIAL_RISK"
 
 	case rRatio >= 0.3 && rRatio < 0.8:
-		// 中等盈利，可以考虑收紧止损
-		state = "STAGE_1_INITIAL_RISK" // 但提示可以收紧
+		// 小赚
+		state = "STAGE_1_INITIAL_RISK"
 
 	case rRatio >= 0.8 && rRatio < 1.0:
-		// 接近保本，准备移除风险
+		// 接近保本
 		state = "STAGE_2_RISK_REMOVAL"
 
 	case rRatio >= 1.0 && rRatio < 1.5:
-		// 已保本，小幅盈利
+		// 已保本或该保本了
 		if isBreakeven {
-			state = "STAGE_2_RISK_REMOVAL" // 可以开始锁定部分收益
+			state = "STAGE_2_RISK_REMOVAL"
 		} else {
-			state = "STAGE_3_TRAILING"
+			// 还没保本，但利润够了，提示去保本
+			state = "STAGE_2_RISK_REMOVAL"
 		}
 
 	case rRatio >= 1.5:
-		// 显著盈利，进入积极追踪
+		// 大赚
 		state = "STAGE_3_TRAILING"
 
 	default:
