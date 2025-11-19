@@ -568,7 +568,7 @@ func buildAccountSection(ctx *Context) string {
 	sb.WriteString("- **本轮开仓限制 (Hard Constraints)**:\n")
 	sb.WriteString(fmt.Sprintf("  1. **最大亏损 (Risk)**: 单笔不得超过 **%.2f USDT** (净值的 1.8%%)\n", maxRiskUSD))
 	sb.WriteString(fmt.Sprintf("  2. **BTC/ETH 开仓价值**: %.0f - %.0f USDT\n", minBTCSize, maxPosBTC))
-	sb.WriteString(fmt.Sprintf("  3. **山寨币开仓价值**: 24 - %.0f USDT\n", maxPosAlt))
+	sb.WriteString(fmt.Sprintf("  3. **山寨币开仓价值**: 36 - %.0f USDT\n", maxPosAlt))
 	sb.WriteString("\n")
 	return sb.String()
 }
