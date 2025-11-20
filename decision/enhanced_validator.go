@@ -8,10 +8,11 @@ import (
 
 // EnhancedValidator 增强版验证器
 type EnhancedValidator struct {
-	AccountEquity   float64
-	BTCETHLeverage  int
-	AltcoinLeverage int
-	MarketData      map[string]*market.Data
+	AccountEquity    float64
+	BTCETHLeverage   int
+	AltcoinLeverage  int
+	MarketData       map[string]*market.Data
+	CurrentPositions []PositionInfo
 }
 
 // ValidationResult 验证结果
@@ -24,12 +25,13 @@ type ValidationResult struct {
 }
 
 // NewEnhancedValidator 创建增强验证器
-func NewEnhancedValidator(accountEquity float64, btcLeverage, altcoinLeverage int) *EnhancedValidator {
+func NewEnhancedValidator(accountEquity float64, btcLeverage, altcoinLeverage int, currentPositions []PositionInfo) *EnhancedValidator {
 	return &EnhancedValidator{
-		AccountEquity:   accountEquity,
-		BTCETHLeverage:  btcLeverage,
-		AltcoinLeverage: altcoinLeverage,
-		MarketData:      make(map[string]*market.Data),
+		AccountEquity:    accountEquity,
+		BTCETHLeverage:   btcLeverage,
+		AltcoinLeverage:  altcoinLeverage,
+		MarketData:       make(map[string]*market.Data),
+		CurrentPositions: currentPositions,
 	}
 }
 

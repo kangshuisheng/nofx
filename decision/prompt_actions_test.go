@@ -103,7 +103,7 @@ func TestValidateDecisionAcceptsAllActions(t *testing.T) {
 			}
 
 			// 使用模拟数据进行测试，避免依赖真实市场数据连接
-			err := validateDecisionWithMarketData(&decision, 100.0, 5, 5, createMockMarketData())
+			err := validateDecisionWithMarketData(&decision, 100.0, 5, 5, nil, createMockMarketData())
 			if err != nil {
 				t.Errorf("❌ validateDecision rejected valid action '%s': %v", action, err)
 			} else {

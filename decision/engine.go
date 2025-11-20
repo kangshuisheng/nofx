@@ -156,6 +156,7 @@ func GetFullDecisionWithCustomPrompt(ctx *Context, mcpClient mcp.AIClient, custo
 	if err := fetchMarketDataForContext(ctx); err != nil {
 		return nil, fmt.Errorf("获取市场数据失败: %w", err)
 	}
+
 	fetchDuration := time.Since(fetchStart).Seconds()
 	log.Printf("⏱️  市場數據獲取耗時: %.2fs（%d 個幣種）", fetchDuration, len(ctx.MarketDataMap))
 
@@ -182,7 +183,7 @@ func GetFullDecisionWithCustomPrompt(ctx *Context, mcpClient mcp.AIClient, custo
 	}
 
 	// 4. 解析AI响应
-	decision, err := parseFullDecisionResponse(aiResponse, ctx.Account.TotalEquity, ctx.BTCETHLeverage, ctx.AltcoinLeverage)
+	decision, err := parseFullDecisionResponse(aiResponse, ctx.Account.TotalEquity, ctx.BTCETHLeverage, ctx.AltcoinLeverage, ctx.Positions)
 
 	// 无论是否有错误，都要保存 SystemPrompt 和 UserPrompt（用于调试和决策未执行后的问题定位）
 	if decision != nil {
@@ -553,24 +554,53 @@ func buildAccountSection(ctx *Context) string {
 	sb.WriteString("## 💼 2. 账户资金与硬性风控 (Risk Limits)\n")
 	sb.WriteString("> 所有开仓指令必须通过以下验证，否则会被拒绝。\n\n")
 
-	// 计算具体的风控数值，直接告诉 AI 结果
-	maxRiskUSD := ctx.Account.TotalEquity * 0.018 // 1.8% 单笔最大亏损
-
-	// 获取 BTC 和 山寨 的具体仓位上限
-	minBTCSize := calculateMinPositionSize("BTCUSDT", ctx.Account.TotalEquity)
-	maxPosBTC := ctx.Account.TotalEquity * 0.85
-	maxPosAlt := ctx.Account.TotalEquity * 0.75
-
+	// 展示账户状态
 	sb.WriteString(fmt.Sprintf("- **账户净值**: %.2f USDT | **可用余额**: %.2f USDT\n",
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance))
-	sb.WriteString(fmt.Sprintf("- **持仓占用**: %d / 3 个位置\n", ctx.Account.PositionCount))
 
-	sb.WriteString("- **本轮开仓限制 (Hard Constraints)**:\n")
-	sb.WriteString(fmt.Sprintf("  1. **最大亏损 (Risk)**: 单笔不得超过 **%.2f USDT** (净值的 1.8%%)\n", maxRiskUSD))
-	sb.WriteString(fmt.Sprintf("  2. **BTC/ETH 开仓价值**: %.0f - %.0f USDT\n", minBTCSize, maxPosBTC))
-	sb.WriteString(fmt.Sprintf("  3. **山寨币开仓价值**: 36 - %.0f USDT\n", maxPosAlt))
+	// 提示：V6.0 模式下只允许 1 个持仓
+	sb.WriteString(fmt.Sprintf("- **持仓占用**: %d / 1 个位置 \n", ctx.Account.PositionCount))
+
+	// ==================== V6.0 核心修改：写死数值 ====================
+	sb.WriteString("- **本轮开仓限制 (Hard Constraints - Micro Mode)**:\n")
+
+	// 1. 锁死最大亏损额：24U 的 10% 也就 2.4U，我们写 2U 作为心理防线
+	sb.WriteString("  1. **最大亏损 (Risk)**: 严格控制止损，单笔硬损不超过 **2.00 USDT**。\n")
+
+	// 2. 锁死开仓金额：直接告诉 AI 只能开 24
+	sb.WriteString("  2. **开仓价值 (Position Size)**: **必须严格等于 24 USDT** (测试期严禁重仓)。\n")
+
+	// 3. 锁死持仓数量
+	sb.WriteString("  3. **持仓限制**: 同一时间只能持有 **1 个** 仓位。\n")
+
 	sb.WriteString("\n")
+	// ==============================================================
+
 	return sb.String()
+
+	// 赌博版本！ 慎用
+	// var sb strings.Builder
+	// sb.WriteString("## 💼 2. 账户资金与硬性风控 (Risk Limits)\n")
+	// sb.WriteString("> 所有开仓指令必须通过以下验证，否则会被拒绝。\n\n")
+
+	// // 计算具体的风控数值，直接告诉 AI 结果
+	// maxRiskUSD := ctx.Account.TotalEquity * 0.018 // 1.8% 单笔最大亏损
+
+	// // 获取 BTC 和 山寨 的具体仓位上限
+	// minBTCSize := calculateMinPositionSize("BTCUSDT", ctx.Account.TotalEquity)
+	// maxPosBTC := ctx.Account.TotalEquity * 0.85
+	// maxPosAlt := ctx.Account.TotalEquity * 0.75
+
+	// sb.WriteString(fmt.Sprintf("- **账户净值**: %.2f USDT | **可用余额**: %.2f USDT\n",
+	// 	ctx.Account.TotalEquity, ctx.Account.AvailableBalance))
+	// sb.WriteString(fmt.Sprintf("- **持仓占用**: %d / 3 个位置\n", ctx.Account.PositionCount))
+
+	// sb.WriteString("- **本轮开仓限制 (Hard Constraints)**:\n")
+	// sb.WriteString(fmt.Sprintf("  1. **最大亏损 (Risk)**: 单笔不得超过 **%.2f USDT** (净值的 1.8%%)\n", maxRiskUSD))
+	// sb.WriteString(fmt.Sprintf("  2. **BTC/ETH 开仓价值**: %.0f - %.0f USDT\n", minBTCSize, maxPosBTC))
+	// sb.WriteString(fmt.Sprintf("  3. **山寨币开仓价值**: 36 - %.0f USDT\n", maxPosAlt))
+	// sb.WriteString("\n")
+	// return sb.String()
 }
 
 // buildPositionsSection 构建持仓管理部分 (核心逻辑优化)
@@ -821,8 +851,49 @@ func calculateManagementState(pos PositionInfo, currentStopLossPrice float64, ma
 	return state, rRatio
 }
 
+// CheckEmergencyExit 检查是否需要紧急离场（趋势破坏）
+// 返回值: (是否需要平仓, 原因)
+func CheckEmergencyExit(pos PositionInfo, marketData *market.Data) (bool, string) {
+	// 如果没有市场数据，无法判断
+	if marketData == nil || marketData.MidTermSeries15m == nil {
+		return false, ""
+	}
+
+	// 获取 15m EMA20 (趋势生命线)
+	emaValues := marketData.MidTermSeries15m.EMA20Values
+	if len(emaValues) == 0 {
+		return false, ""
+	}
+	currentEMA := emaValues[len(emaValues)-1]
+	currentPrice := marketData.CurrentPrice
+
+	// 容差率 (0.1%) - 防止刚好碰到就平仓
+	tolerance := 0.001
+
+	// ================= 空单逃跑逻辑 =================
+	if pos.Side == "short" {
+		// 逻辑: 价格有效站上 15m EMA20
+		// 如果当前价 > EMA * (1 + 容差)，说明趋势可能反转
+		threshold := currentEMA * (1 + tolerance)
+		if currentPrice > threshold {
+			return true, fmt.Sprintf("硬风控: 价格(%.2f) 强势站上 15m EMA20(%.2f)，空头结构破坏", currentPrice, currentEMA)
+		}
+	}
+
+	// ================= 多单逃跑逻辑 =================
+	if pos.Side == "long" {
+		// 逻辑: 价格有效跌破 15m EMA20
+		threshold := currentEMA * (1 - tolerance)
+		if currentPrice < threshold {
+			return true, fmt.Sprintf("硬风控: 价格(%.2f) 有效跌破 15m EMA20(%.2f)，多头结构破坏", currentPrice, currentEMA)
+		}
+	}
+
+	return false, ""
+}
+
 // parseFullDecisionResponse 解析AI的完整决策响应
-func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int) (*FullDecision, error) {
+func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, currentPositions []PositionInfo) (*FullDecision, error) {
 	// 1. 提取思维链
 	cotTrace := extractCoTTrace(aiResponse)
 
@@ -836,7 +907,7 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 	}
 
 	// 3. 验证决策
-	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage); err != nil {
+	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, currentPositions); err != nil {
 		return &FullDecision{
 			CoTTrace:  cotTrace,
 			Decisions: decisions,
@@ -1060,9 +1131,9 @@ func compactArrayOpen(s string) string {
 }
 
 // validateDecisions 验证所有决策（需要账户信息和杠杆配置）
-func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
+func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, currentPositions []PositionInfo) error {
 	for i, decision := range decisions {
-		if err := validateDecision(&decision, accountEquity, btcEthLeverage, altcoinLeverage); err != nil {
+		if err := validateDecision(&decision, accountEquity, btcEthLeverage, altcoinLeverage, currentPositions); err != nil {
 			return fmt.Errorf("决策 #%d 验证失败: %w", i+1, err)
 		}
 	}
@@ -1130,12 +1201,12 @@ func calculateMinPositionSize(symbol string, accountEquity float64) float64 {
 }
 
 // validateDecision 验证单个决策的有效性（增强版）
-func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
-	return validateDecisionWithMarketData(d, accountEquity, btcEthLeverage, altcoinLeverage, nil)
+func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, currentPositions []PositionInfo) error {
+	return validateDecisionWithMarketData(d, accountEquity, btcEthLeverage, altcoinLeverage, currentPositions, nil)
 }
 
 // validateDecisionWithMarketData 验证单个决策的有效性（支持模拟数据)
-func validateDecisionWithMarketData(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, mockMarketData *market.Data) error {
+func validateDecisionWithMarketData(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, currentPositions []PositionInfo, mockMarketData *market.Data) error {
 	// 验证action
 	validActions := map[string]bool{
 		"open_long":          true,
@@ -1156,7 +1227,7 @@ func validateDecisionWithMarketData(d *Decision, accountEquity float64, btcEthLe
 	// 开仓操作必须提供完整参数
 	if d.Action == "open_long" || d.Action == "open_short" {
 		// 使用增强版验证器进行详细检查
-		validator := NewEnhancedValidator(accountEquity, btcEthLeverage, altcoinLeverage)
+		validator := NewEnhancedValidator(accountEquity, btcEthLeverage, altcoinLeverage, currentPositions)
 
 		// 获取市场数据用于验证
 		var marketData *market.Data
@@ -1173,6 +1244,61 @@ func validateDecisionWithMarketData(d *Decision, accountEquity float64, btcEthLe
 			}
 		}
 		validator.MarketData[d.Symbol] = marketData
+
+		// ==================== V6.0 新增：硬性物理过滤器 ====================
+
+		// 1. 同向持仓限制 (防止 BTC/ETH/SOL 同时开空)
+		// 逻辑：如果我已经有了任意一个空单，就不允许开新的空单
+		if d.Action == "open_short" || d.Action == "open_long" {
+			for _, pos := range currentPositions {
+				// 如果想做空，且手里已经有空单了 -> 拒绝
+				if d.Action == "open_short" && pos.Side == "short" {
+					return fmt.Errorf("风控拦截: 已持有空单 (%s)，禁止多币种同向赌博", pos.Symbol)
+				}
+				// 如果想做多，且手里已经有多单了 -> 拒绝
+				if d.Action == "open_long" && pos.Side == "long" {
+					return fmt.Errorf("风控拦截: 已持有多单 (%s)，禁止多币种同向赌博", pos.Symbol)
+				}
+			}
+		}
+
+		// 2. RSI 硬性熔断 (防止地板空/天花板多)
+		// 这种计算 Go 比 AI 准，而且绝对不会幻觉
+		if marketData != nil {
+			rsi := marketData.CurrentRSI7 // 使用 7周期 RSI 更灵敏
+
+			if d.Action == "open_short" {
+				if rsi < 30 {
+					return fmt.Errorf("风控拦截: RSI (%.2f) 处于超卖区，禁止追空", rsi)
+				}
+			}
+			if d.Action == "open_long" {
+				if rsi > 70 {
+					return fmt.Errorf("风控拦截: RSI (%.2f) 处于超买区，禁止追高", rsi)
+				}
+			}
+
+			// 3. 乖离率 (EMA Deviation) 保护
+			// 防止在暴跌后追单
+			if marketData.MidTermSeries15m != nil && len(marketData.MidTermSeries15m.EMA20Values) > 0 {
+				ema20 := marketData.MidTermSeries15m.EMA20Values[len(marketData.MidTermSeries15m.EMA20Values)-1]
+				price := marketData.CurrentPrice
+
+				// 计算偏离度
+				deviation := (price - ema20) / ema20
+
+				// 开空时，如果价格已经比 EMA 低了 1% 以上，说明跌太急了
+				if d.Action == "open_short" && deviation < -0.01 {
+					return fmt.Errorf("风控拦截: 乖离率过大 (%.2f%%)，价格远离均线，禁止追空", deviation*100)
+				}
+				// 开多时，如果价格已经比 EMA 高了 1% 以上
+				if d.Action == "open_long" && deviation > 0.01 {
+					return fmt.Errorf("风控拦截: 乖离率过大 (%.2f%%)，价格远离均线，禁止追多", deviation*100)
+				}
+			}
+		}
+
+		// ================================================================
 
 		// 执行增强验证
 		result := validator.ValidateDecision(d)

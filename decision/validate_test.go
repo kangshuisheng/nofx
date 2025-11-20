@@ -106,7 +106,7 @@ func TestLeverageFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 使用模拟数据进行测试，避免依赖真实市场数据连接
-			err := validateDecisionWithMarketData(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage, createMockMarketData())
+			err := validateDecisionWithMarketData(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage, nil, createMockMarketData())
 
 			// 检查错误状态
 			if (err != nil) != tt.wantError {
@@ -299,7 +299,7 @@ func TestUpdateStopLossValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateDecision(&tt.decision, 1000.0, 10, 5)
+			err := validateDecision(&tt.decision, 1000.0, 10, 5, nil)
 
 			if (err != nil) != tt.wantError {
 				t.Errorf("validateDecision() error = %v, wantError %v", err, tt.wantError)
@@ -359,7 +359,7 @@ func TestUpdateTakeProfitValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateDecision(&tt.decision, 1000.0, 10, 5)
+			err := validateDecision(&tt.decision, 1000.0, 10, 5, nil)
 
 			if (err != nil) != tt.wantError {
 				t.Errorf("validateDecision() error = %v, wantError %v", err, tt.wantError)
@@ -419,7 +419,7 @@ func TestPartialCloseValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateDecision(&tt.decision, 1000.0, 10, 5)
+			err := validateDecision(&tt.decision, 1000.0, 10, 5, nil)
 
 			if (err != nil) != tt.wantError {
 				t.Errorf("validateDecision() error = %v, wantError %v", err, tt.wantError)

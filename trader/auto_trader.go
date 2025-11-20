@@ -128,6 +128,7 @@ type AutoTrader struct {
 	lastPositions         map[string]decision.PositionInfo // 上一次周期的持仓快照 (用于检测被动平仓)
 	positionStopLoss      map[string]float64               // 持仓止损价格 (symbol_side -> stop_loss_price)
 	positionTakeProfit    map[string]float64               // 持仓止盈价格 (symbol_side -> take_profit_price)
+	marketDataFailCount   map[string]int                   // 市场数据获取连续失败次数 (symbol -> count)
 	stopMonitorCh         chan struct{}                    // 用于停止监控goroutine
 	monitorWg             sync.WaitGroup                   // 用于等待监控goroutine结束
 	peakPnLCache          map[string]float64               // 最高收益缓存 (symbol -> 峰值盈亏百分比)
@@ -291,6 +292,7 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		lastPositions:         make(map[string]decision.PositionInfo),
 		positionStopLoss:      make(map[string]float64),
 		positionTakeProfit:    make(map[string]float64),
+		marketDataFailCount:   make(map[string]int),
 		stopMonitorCh:         make(chan struct{}),
 		monitorWg:             sync.WaitGroup{},
 		peakPnLCache:          make(map[string]float64),
@@ -334,7 +336,7 @@ func (at *AutoTrader) Run() error {
 
 	log.Println("🚀 AI驱动自动交易系统启动")
 	log.Printf("💰 初始余额: %.2f USDT", at.initialBalance)
-	log.Printf("⚙️  扫描间隔: %v", at.config.ScanInterval)
+	log.Printf("⚙️  监控间隔: 10秒 | AI决策间隔: %v", at.config.ScanInterval)
 	log.Println("🤖 AI将全权决定杠杆、仓位大小、止损止盈等参数")
 	at.monitorWg.Add(1)
 	defer at.monitorWg.Done()
@@ -342,23 +344,136 @@ func (at *AutoTrader) Run() error {
 	// 启动回撤监控
 	at.startDrawdownMonitor()
 
-	ticker := time.NewTicker(at.config.ScanInterval)
-	defer ticker.Stop()
+	// 监控循环：每 10 秒一次 (用于硬风控)
+	monitorTicker := time.NewTicker(10 * time.Second)
+	defer monitorTicker.Stop()
 
-	// 首次立即执行
+	// 首次立即执行 AI 决策
 	if err := at.runCycle(); err != nil {
-		log.Printf("❌ 执行失败: %v", err)
+		log.Printf("❌ 首次执行失败: %v", err)
 	}
+	// 记录上次 AI 调用的时间
+	lastAICallTime := time.Now()
 
 	for at.isRunning {
 		select {
-		case <-ticker.C:
-			if err := at.runCycle(); err != nil {
-				log.Printf("❌ 执行失败: %v", err)
+		case <-monitorTicker.C:
+			// 1. 执行高频监控 (每 10 秒)
+			if err := at.runMonitoringCycle(); err != nil {
+				log.Printf("⚠️ 监控循环异常: %v", err)
 			}
+
+			// 2. 检查是否触发 AI 决策 (根据配置间隔)
+			if time.Since(lastAICallTime) >= at.config.ScanInterval {
+				// 启动 AI 决策 (异步执行，不阻塞监控)
+				go func() {
+					if err := at.runCycle(); err != nil {
+						log.Printf("❌ AI决策执行失败: %v", err)
+					}
+				}()
+				lastAICallTime = time.Now()
+			}
+
 		case <-at.stopMonitorCh:
 			log.Printf("[%s] ⏹ 收到停止信号，退出自动交易主循环", at.name)
 			return nil
+		}
+	}
+
+	return nil
+}
+
+// runMonitoringCycle 运行高频监控周期 (硬风控)
+func (at *AutoTrader) runMonitoringCycle() error {
+	// 1. 获取当前持仓
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fmt.Errorf("获取持仓失败: %w", err)
+	}
+
+	// 如果没有持仓，直接返回
+	if len(positions) == 0 {
+		return nil
+	}
+
+	// 2. 检查每个持仓的紧急离场条件
+	for _, pos := range positions {
+		symbol, _ := SafeString(pos, "symbol")
+		side, _ := SafeString(pos, "side")
+		quantity, _ := SafeFloat64(pos, "positionAmt")
+		entryPrice, _ := SafeFloat64(pos, "entryPrice")
+		markPrice, _ := SafeFloat64(pos, "markPrice")
+		unrealizedPnL, _ := SafeFloat64(pos, "unRealizedProfit")
+
+		if quantity == 0 {
+			continue
+		}
+		if quantity < 0 {
+			quantity = -quantity
+		}
+
+		// 获取市场数据 (仅需 15m K线用于 EMA 计算)
+		// 为了速度，这里只获取 15m 数据
+		marketData, err := market.Get(symbol, []string{"15m"})
+		if err != nil {
+			// 记录连续失败次数
+			at.marketDataFailCount[symbol]++
+			if at.marketDataFailCount[symbol] >= 3 {
+				log.Printf("🚨 [监控] %s 市场数据连续 %d 次获取失败，硬风控失效！", symbol, at.marketDataFailCount[symbol])
+			}
+			log.Printf("⚠️ [监控] 获取 %s 市场数据失败 (第 %d 次): %v", symbol, at.marketDataFailCount[symbol], err)
+			continue
+		} else {
+			// 成功获取，重置计数器
+			at.marketDataFailCount[symbol] = 0
+		}
+
+		// 构造完整的 PositionInfo (用于未来扩展)
+		posInfo := decision.PositionInfo{
+			Symbol:        symbol,
+			Side:          side,
+			Quantity:      quantity,
+			EntryPrice:    entryPrice,
+			MarkPrice:     markPrice,
+			UnrealizedPnL: unrealizedPnL,
+		}
+
+		// 调用 engine 中的硬风控逻辑
+		shouldExit, reason := decision.CheckEmergencyExit(posInfo, marketData)
+		if shouldExit {
+			log.Printf("🚨 [紧急离场触发] %s: %s", symbol, reason)
+
+			// 执行平仓
+			action := "close_short"
+			if side == "long" {
+				action = "close_long"
+			}
+
+			// 构造决策对象
+			d := decision.Decision{
+				Symbol:    symbol,
+				Action:    action,
+				Reasoning: "[监控] " + reason,
+			}
+
+			// 执行平仓
+			record := logger.DecisionAction{
+				Action:    action,
+				Symbol:    symbol,
+				Timestamp: time.Now(),
+			}
+
+			if err := at.executeDecisionWithRecord(&d, &record); err != nil {
+				log.Printf("❌ [监控] 紧急平仓失败 (%s): %v", symbol, err)
+			} else {
+				log.Printf("✅ [监控] 紧急平仓成功 (%s)", symbol)
+				// 记录到日志
+				at.decisionLogger.LogDecision(&logger.DecisionRecord{
+					Success:      true,
+					ExecutionLog: []string{fmt.Sprintf("紧急平仓触发: %s", reason)},
+					Decisions:    []logger.DecisionAction{record},
+				})
+			}
 		}
 	}
 
