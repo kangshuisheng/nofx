@@ -1082,6 +1082,27 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 		}
 	}
 
+	// 🎯 狙击镜功能：EMA偏离度检查 (防止追涨杀跌)
+	// 规则：价格不能偏离 EMA20 超过 动态阈值 (基础2.0% 或 1.5倍4H_ATR)
+	// 适应性：如果市场波动极大(ATR高)，允许更大的偏离度，防止踏空强力反弹
+	if marketData.CurrentEMA20 > 0 {
+		deviation := (marketData.CurrentPrice - marketData.CurrentEMA20) / marketData.CurrentEMA20 * 100
+
+		// 计算动态阈值
+		maxDeviation := 2.0
+		if marketData.LongerTermContext != nil && marketData.LongerTermContext.ATR14 > 0 {
+			atrPercent := (marketData.LongerTermContext.ATR14 / marketData.CurrentPrice) * 100
+			dynamicLimit := atrPercent * 1.5
+			if dynamicLimit > maxDeviation {
+				maxDeviation = dynamicLimit
+			}
+		}
+
+		if deviation > maxDeviation {
+			return fmt.Errorf("❌ 价格偏离 EMA20 过大 (%.2f%% > %.2f%%)，拒绝追高。请等待回调。", deviation, maxDeviation)
+		}
+	}
+
 	// 计算数量
 	quantity := decision.PositionSizeUSD / marketData.CurrentPrice
 	actionRecord.Quantity = quantity
@@ -1229,6 +1250,26 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 				decision.Symbol, priceDetails)
 		} else {
 			log.Printf("✅ %s 价格验证通过（多数据源一致性检查）", decision.Symbol)
+		}
+	}
+
+	// 🎯 狙击镜功能：EMA偏离度检查 (防止追涨杀跌)
+	// 规则：价格不能偏离 EMA20 超过 动态阈值 (基础2.0% 或 1.5倍4H_ATR)
+	if marketData.CurrentEMA20 > 0 {
+		deviation := (marketData.CurrentEMA20 - marketData.CurrentPrice) / marketData.CurrentEMA20 * 100
+
+		// 计算动态阈值
+		maxDeviation := 2.0
+		if marketData.LongerTermContext != nil && marketData.LongerTermContext.ATR14 > 0 {
+			atrPercent := (marketData.LongerTermContext.ATR14 / marketData.CurrentPrice) * 100
+			dynamicLimit := atrPercent * 1.5
+			if dynamicLimit > maxDeviation {
+				maxDeviation = dynamicLimit
+			}
+		}
+
+		if deviation > maxDeviation {
+			return fmt.Errorf("❌ 价格偏离 EMA20 过大 (%.2f%% > %.2f%%)，拒绝追空。请等待反弹。", deviation, maxDeviation)
 		}
 	}
 

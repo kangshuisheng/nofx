@@ -453,6 +453,7 @@ func calculateMidTermSeries1h(klines []Kline) *MidTermData1h {
 		MACDValues:  make([]float64, 0, 10),
 		RSI7Values:  make([]float64, 0, 10),
 		RSI14Values: make([]float64, 0, 10),
+		Volume:      make([]float64, 0, 10),
 	}
 
 	// 获取最近10个数据点
@@ -463,6 +464,7 @@ func calculateMidTermSeries1h(klines []Kline) *MidTermData1h {
 
 	for i := start; i < len(klines); i++ {
 		data.MidPrices = append(data.MidPrices, klines[i].Close)
+		data.Volume = append(data.Volume, klines[i].Volume)
 
 		// 计算每个点的EMA20
 		if i >= 19 {
@@ -495,6 +497,8 @@ func calculateLongerTermData(klines []Kline) *LongerTermData {
 	data := &LongerTermData{
 		MACDValues:  make([]float64, 0, 10),
 		RSI14Values: make([]float64, 0, 10),
+		EMA20Values: make([]float64, 0, 10),
+		EMA50Values: make([]float64, 0, 10),
 	}
 
 	// 计算EMA
@@ -516,7 +520,7 @@ func calculateLongerTermData(klines []Kline) *LongerTermData {
 		data.AverageVolume = sum / float64(len(klines))
 	}
 
-	// 计算MACD和RSI序列
+	// 计算MACD, RSI和EMA序列
 	start := len(klines) - 10
 	if start < 0 {
 		start = 0
@@ -530,6 +534,14 @@ func calculateLongerTermData(klines []Kline) *LongerTermData {
 		if i >= 14 {
 			rsi14 := calculateRSI(klines[:i+1], 14)
 			data.RSI14Values = append(data.RSI14Values, rsi14)
+		}
+		if i >= 19 {
+			ema20 := calculateEMA(klines[:i+1], 20)
+			data.EMA20Values = append(data.EMA20Values, ema20)
+		}
+		if i >= 49 {
+			ema50 := calculateEMA(klines[:i+1], 50)
+			data.EMA50Values = append(data.EMA50Values, ema50)
 		}
 	}
 
@@ -759,64 +771,76 @@ func Format(data *Data) string {
 
 	// 3. 更高时间周期上下文
 	sb.WriteString("- Higher Timeframe Context:\n")
-	if data.DailyContext != nil && len(data.DailyContext.MidPrices) > 0 && len(data.DailyContext.EMA20Values) > 0 && len(data.DailyContext.MACDValues) > 0 {
-		sb.WriteString(fmt.Sprintf("  - Daily_Close: %.4f\n", data.DailyContext.MidPrices[len(data.DailyContext.MidPrices)-1]))
-		sb.WriteString(fmt.Sprintf("  - Daily_EMA20: %.4f\n", data.DailyContext.EMA20Values[len(data.DailyContext.EMA20Values)-1]))
-		sb.WriteString(fmt.Sprintf("  - Daily_MACD:  %.4f\n", data.DailyContext.MACDValues[len(data.DailyContext.MACDValues)-1]))
+	if data.DailyContext != nil && len(data.DailyContext.MidPrices) > 0 {
+		// 展示最近5天的日线数据,帮助判断大趋势
+		const dailyLen = 5
+
+		prices := data.DailyContext.MidPrices
+		if len(prices) > dailyLen {
+			prices = prices[len(prices)-dailyLen:]
+		}
+		sb.WriteString(fmt.Sprintf("  - Daily_Close: %s\n", formatFloatSlice(prices)))
+
+		if len(data.DailyContext.EMA20Values) > 0 {
+			ema20s := data.DailyContext.EMA20Values
+			if len(ema20s) > dailyLen {
+				ema20s = ema20s[len(ema20s)-dailyLen:]
+			}
+			sb.WriteString(fmt.Sprintf("  - Daily_EMA20: %s\n", formatFloatSlice(ema20s)))
+		}
+
+		if len(data.DailyContext.MACDValues) > 0 {
+			macds := data.DailyContext.MACDValues
+			if len(macds) > dailyLen {
+				macds = macds[len(macds)-dailyLen:]
+			}
+			sb.WriteString(fmt.Sprintf("  - Daily_MACD:  %s\n", formatFloatSlice(macds)))
+		}
 	} else {
 		sb.WriteString("  - Daily_Data: N/A\n")
 	}
 
 	if data.MidTermSeries1h != nil && len(data.MidTermSeries1h.MACDValues) > 0 {
-		sb.WriteString(fmt.Sprintf("  - H1_MACD:     %.4f\n\n", data.MidTermSeries1h.MACDValues[len(data.MidTermSeries1h.MACDValues)-1]))
+		// H1数据将在下方详细展示,此处不再重复
 	} else {
 		sb.WriteString("  - H1_Data:     N/A\n\n")
 	}
 
-	// 2. 15分钟周期数据 (入场信号核心)
-	if data.MidTermSeries15m != nil {
-		sb.WriteString("- 15min (Entry Signal):\n")
+	// 2. 1H周期数据 (触发形态核心 - 中长线策略)
+	if data.MidTermSeries1h != nil {
+		sb.WriteString("- 1H (Trigger Pattern):\n")
 
-		const seriesLength = 6 // 保持6个数据点用于趋势和背离判断
+		const seriesLength = 10 // 增加到10个数据点,提供更多历史上下文
 
-		prices := data.MidTermSeries15m.MidPrices
+		prices := data.MidTermSeries1h.MidPrices
 		if len(prices) > seriesLength {
 			prices = prices[len(prices)-seriesLength:]
 		}
 		sb.WriteString(fmt.Sprintf("  - Prices: %s\n", formatFloatSlice(prices)))
 
-		macds := data.MidTermSeries15m.MACDValues
+		ema20s := data.MidTermSeries1h.EMA20Values
+		if len(ema20s) > seriesLength {
+			ema20s = ema20s[len(ema20s)-seriesLength:]
+		}
+		sb.WriteString(fmt.Sprintf("  - EMA20:  %s\n", formatFloatSlice(ema20s)))
+
+		macds := data.MidTermSeries1h.MACDValues
 		if len(macds) > seriesLength {
 			macds = macds[len(macds)-seriesLength:]
 		}
 		sb.WriteString(fmt.Sprintf("  - MACD:   %s\n", formatFloatSlice(macds)))
 
-		rsi14s := data.MidTermSeries15m.RSI14Values
+		rsi14s := data.MidTermSeries1h.RSI14Values
 		if len(rsi14s) > seriesLength {
 			rsi14s = rsi14s[len(rsi14s)-seriesLength:]
 		}
 		sb.WriteString(fmt.Sprintf("  - RSI(14):%s\n", formatFloatSlice(rsi14s)))
 
-		// 为清单中的成交量规则提供精确数据
-		if data.IntradaySeries != nil && len(data.IntradaySeries.Volume) > 0 {
-			volumes := data.IntradaySeries.Volume
-
-			currentVolume := volumes[len(volumes)-1]
-			sb.WriteString(fmt.Sprintf("  - Current_Volume: %.2f\n", currentVolume))
-
-			if len(volumes) >= 6 {
-				sum := 0.0
-				for i := len(volumes) - 6; i < len(volumes)-1; i++ {
-					sum += volumes[i]
-				}
-				avgVolume := sum / 5.0
-				sb.WriteString(fmt.Sprintf("  - Avg_Volume_Last_5_Bars: %.2f\n\n", avgVolume))
-			} else {
-				sb.WriteString("\n")
-			}
-		} else {
-			sb.WriteString("\n")
+		volumes := data.MidTermSeries1h.Volume
+		if len(volumes) > seriesLength {
+			volumes = volumes[len(volumes)-seriesLength:]
 		}
+		sb.WriteString(fmt.Sprintf("  - Volume: %s\n\n", formatFloatSlice(volumes)))
 	}
 
 	// 3分钟周期数据 (精准时间点)
@@ -851,20 +875,37 @@ func Format(data *Data) string {
 	// 	}
 	// }
 
-	// 3. 4小时周期数据 (趋势判断和风险管理核心)
+	// 3. 4H周期数据 (趋势判断和风险管理核心)
 	if data.LongerTermContext != nil {
 		sb.WriteString("- 4H (Trend & Risk):\n")
 
 		sb.WriteString(fmt.Sprintf("  - EMAs: EMA20(%.3f) vs EMA50(%.3f)\n",
 			data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
 
+		// 展示EMA序列,帮助判断趋势斜率
+		if len(data.LongerTermContext.EMA20Values) > 0 {
+			sb.WriteString(fmt.Sprintf("  - EMA20_Seq: %s\n", formatFloatSlice(data.LongerTermContext.EMA20Values)))
+		}
+		if len(data.LongerTermContext.EMA50Values) > 0 {
+			sb.WriteString(fmt.Sprintf("  - EMA50_Seq: %s\n", formatFloatSlice(data.LongerTermContext.EMA50Values)))
+		}
+
 		sb.WriteString(fmt.Sprintf("  - ATR(14) for StopLoss: %.4f\n", data.LongerTermContext.ATR14))
 
 		if data.LongerTermContext.AverageVolume > 0 {
 			ratio := data.LongerTermContext.CurrentVolume / data.LongerTermContext.AverageVolume
-			sb.WriteString(fmt.Sprintf("  - Volume_Ratio_Current_Avg: %.2f\n\n", ratio))
+			sb.WriteString(fmt.Sprintf("  - Volume_Ratio_Current_Avg: %.2f\n", ratio))
 		} else {
-			sb.WriteString("  - Volume_Ratio_Current_Avg: 0.00\n\n")
+			sb.WriteString("  - Volume_Ratio_Current_Avg: 0.00\n")
+		}
+
+		if len(data.LongerTermContext.MACDValues) > 0 {
+			sb.WriteString(fmt.Sprintf("  - MACD: %s\n", formatFloatSlice(data.LongerTermContext.MACDValues)))
+		}
+		if len(data.LongerTermContext.RSI14Values) > 0 {
+			sb.WriteString(fmt.Sprintf("  - RSI(14): %s\n\n", formatFloatSlice(data.LongerTermContext.RSI14Values)))
+		} else {
+			sb.WriteString("\n")
 		}
 	}
 	return sb.String()

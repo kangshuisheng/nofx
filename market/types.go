@@ -73,12 +73,15 @@ type MidTermData1h struct {
 	MACDValues  []float64
 	RSI7Values  []float64
 	RSI14Values []float64
+	Volume      []float64 // 新增: 1小时成交量
 }
 
 // LongerTermData 长期数据(4小时时间框架)
 type LongerTermData struct {
 	EMA20         float64
 	EMA50         float64
+	EMA20Values   []float64 // 新增: EMA20历史序列
+	EMA50Values   []float64 // 新增: EMA50历史序列
 	ATR3          float64
 	ATR14         float64
 	CurrentVolume float64
