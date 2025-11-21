@@ -773,7 +773,7 @@ func Format(data *Data) string {
 	sb.WriteString("- Higher Timeframe Context:\n")
 	if data.DailyContext != nil && len(data.DailyContext.MidPrices) > 0 {
 		// 展示最近5天的日线数据,帮助判断大趋势
-		const dailyLen = 5
+		const dailyLen = 6
 
 		prices := data.DailyContext.MidPrices
 		if len(prices) > dailyLen {

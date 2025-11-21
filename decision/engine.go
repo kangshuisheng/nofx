@@ -554,56 +554,34 @@ func buildAccountSection(ctx *Context) string {
 	sb.WriteString("## 💼 2. 账户资金与硬性风控 (Risk Limits)\n")
 	sb.WriteString("> 所有开仓指令必须通过以下验证，否则会被拒绝。\n\n")
 
-	// 展示账户状态
+	// 计算具体的风控数值，直接告诉 AI 结果
+	maxRiskUSD := ctx.Account.TotalEquity * 0.03 // 3% 单笔最大亏损
+
+	// 获取 BTC 和 山寨 的具体仓位上限
+	// minBTCSize := calculateMinPositionSize("BTCUSDT", ctx.Account.TotalEquity)
+	maxPosBTC := ctx.Account.TotalEquity * 0.85
+	maxPosAlt := ctx.Account.TotalEquity * 0.75
+
+	// 🔒 测试阶段：设置开仓价值上限为 50 USDT (保证金)
+	if maxPosBTC > 36 {
+		maxPosBTC = 36
+	}
+	if maxPosAlt > 24 {
+		maxPosAlt = 24
+	}
+
 	sb.WriteString(fmt.Sprintf("- **账户净值**: %.2f USDT | **可用余额**: %.2f USDT\n",
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance))
+	sb.WriteString(fmt.Sprintf("- **持仓占用**: %d / 3 个位置\n", ctx.Account.PositionCount))
 
-	// 提示：V6.0 模式下只允许 1 个持仓
-	sb.WriteString(fmt.Sprintf("- **持仓占用**: %d / 1 个位置 \n", ctx.Account.PositionCount))
-
-	// ==================== V6.0 核心修改：写死数值 ====================
-	sb.WriteString("- **本轮开仓限制 (Hard Constraints - Micro Mode)**:\n")
-
-	// 1. 锁死最大亏损额：24U 的 10% 也就 2.4U，我们写 2U 作为心理防线
-	sb.WriteString("  1. **最大亏损 (Risk)**: 严格控制止损，单笔硬损不超过 **2.00 USDT**。\n")
-
-	// 2. 锁死开仓金额：直接告诉 AI 只能开 24
-	sb.WriteString("  2. **开仓价值 (Position Size)**: **必须严格等于 24 USDT** (测试期严禁重仓)。\n")
-
-	// 3. 锁死持仓数量
-	sb.WriteString("  3. **持仓限制**: 同一时间只能持有 **1 个** 仓位。\n")
-
+	sb.WriteString("- **本轮开仓限制 (Hard Constraints)**:\n")
+	sb.WriteString(fmt.Sprintf("  1. **最大亏损 (Risk)**: 单笔不得超过 **%.2f USDT** (净值的 3%%)\n", maxRiskUSD))
+	sb.WriteString(fmt.Sprintf("  2. **BTC/ETH 开仓价值**: 24 - %.0f USDT\n", maxPosBTC))
+	sb.WriteString(fmt.Sprintf("  3. **山寨币开仓价值**: 12 - %.0f USDT\n", maxPosAlt))
 	sb.WriteString("\n")
-	// ==============================================================
-
 	return sb.String()
-
-	// 赌博版本！ 慎用
-	// var sb strings.Builder
-	// sb.WriteString("## 💼 2. 账户资金与硬性风控 (Risk Limits)\n")
-	// sb.WriteString("> 所有开仓指令必须通过以下验证，否则会被拒绝。\n\n")
-
-	// // 计算具体的风控数值，直接告诉 AI 结果
-	// maxRiskUSD := ctx.Account.TotalEquity * 0.018 // 1.8% 单笔最大亏损
-
-	// // 获取 BTC 和 山寨 的具体仓位上限
-	// minBTCSize := calculateMinPositionSize("BTCUSDT", ctx.Account.TotalEquity)
-	// maxPosBTC := ctx.Account.TotalEquity * 0.85
-	// maxPosAlt := ctx.Account.TotalEquity * 0.75
-
-	// sb.WriteString(fmt.Sprintf("- **账户净值**: %.2f USDT | **可用余额**: %.2f USDT\n",
-	// 	ctx.Account.TotalEquity, ctx.Account.AvailableBalance))
-	// sb.WriteString(fmt.Sprintf("- **持仓占用**: %d / 3 个位置\n", ctx.Account.PositionCount))
-
-	// sb.WriteString("- **本轮开仓限制 (Hard Constraints)**:\n")
-	// sb.WriteString(fmt.Sprintf("  1. **最大亏损 (Risk)**: 单笔不得超过 **%.2f USDT** (净值的 1.8%%)\n", maxRiskUSD))
-	// sb.WriteString(fmt.Sprintf("  2. **BTC/ETH 开仓价值**: %.0f - %.0f USDT\n", minBTCSize, maxPosBTC))
-	// sb.WriteString(fmt.Sprintf("  3. **山寨币开仓价值**: 36 - %.0f USDT\n", maxPosAlt))
-	// sb.WriteString("\n")
-	// return sb.String()
 }
 
-// buildPositionsSection 构建持仓管理部分 (核心逻辑优化)
 func buildPositionsSection(ctx *Context) string {
 	if len(ctx.Positions) == 0 {
 		return "## 🛡️ 3. 当前持仓管理 (Positions)\n- 目前空仓 (No Positions)，请专注于寻找猎物。\n\n"
