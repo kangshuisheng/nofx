@@ -1213,9 +1213,11 @@ func validateDecisionWithMarketData(d *Decision, accountEquity float64, btcEthLe
 			}
 		}
 
-		// 2. RSI 硬性熔断 (防止地板空/天花板多)
-		// 这种计算 Go 比 AI 准，而且绝对不会幻觉
-		if marketData != nil {
+		// 2. RSI 硬性熔断 (中长线策略: 已禁用)
+		// 理由: 中长线策略基于大周期趋势（日线/4H EMA 共振），短期 RSI 超买超卖是正常现象
+		// 例如：下跌趋势中，RSI 可能长期处于超卖区（< 30），这是趋势强度的体现而非反转信号
+		// 风控依赖: 止损设置(ATR*3) + 同向持仓限制 + 乖离率保护
+		if false && marketData != nil { // 使用 false 禁用此逻辑，保留代码以便未来恢复
 			rsi := marketData.CurrentRSI7 // 使用 7周期 RSI 更灵敏
 
 			if d.Action == "open_short" {

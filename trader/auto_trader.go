@@ -1049,6 +1049,12 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *decision.Decision, act
 func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, actionRecord *logger.DecisionAction) error {
 	log.Printf("  📈 开多仓: %s", decision.Symbol)
 
+	// 🔄 防重复挂单：取消同方向的旧限价单（如果存在）
+	// 这样可以避免价格未到达旧挂单价位时，重复挂单导致仓位叠加
+	if err := at.cancelPendingLimitOrders(decision.Symbol, decision.Action); err != nil {
+		log.Printf("⚠️ 检查挂单失败: %v (不阻断流程)", err)
+	}
+
 	// ⚠️ 关键：检查是否已有同币种同方向持仓，如果有则拒绝开仓（防止仓位叠加超限）
 	positions, err := at.trader.GetPositions()
 	if err == nil {
@@ -1222,6 +1228,12 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 // executeOpenShortWithRecord 执行开空仓并记录详细信息
 func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, actionRecord *logger.DecisionAction) error {
 	log.Printf("  📉 开空仓: %s", decision.Symbol)
+
+	// 🔄 防重复挂单：取消同方向的旧限价单（如果存在）
+	// 这样可以避免价格未到达旧挂单价位时，重复挂单导致仓位叠加
+	if err := at.cancelPendingLimitOrders(decision.Symbol, decision.Action); err != nil {
+		log.Printf("⚠️ 检查挂单失败: %v (不阻断流程)", err)
+	}
 
 	// ⚠️ 关键：检查是否已有同币种同方向持仓，如果有则拒绝开仓（防止仓位叠加超限）
 	positions, err := at.trader.GetPositions()
@@ -2940,6 +2952,52 @@ func (at *AutoTrader) syncAutoClosedPositions() error {
 						symbol, strings.ToUpper(side), pnl, pnlPct)
 				}
 			}
+		}
+	}
+
+	return nil
+}
+
+// cancelPendingLimitOrders 取消同币种同方向的未成交限价单（防止重复挂单导致加仓）
+// 方案B：自动取消旧的限价单，再下新单（适合价格变化时调整挂单位置）
+func (at *AutoTrader) cancelPendingLimitOrders(symbol, action string) error {
+	// 1. 获取所有未成交订单
+	openOrders, err := at.trader.GetOpenOrders(symbol)
+	if err != nil {
+		return fmt.Errorf("获取挂单失败: %w", err)
+	}
+
+	// 2. 确定要取消的订单方向
+	targetSide := "BUY" // open_long 对应 BUY
+	if action == "open_short" {
+		targetSide = "SELL"
+	}
+
+	// 3. 检查是否存在同方向的 LIMIT 订单
+	var hasLimitOrder bool
+	var limitOrderInfo string
+	for _, order := range openOrders {
+		// 只关注普通 LIMIT 订单，排除止损止盈单
+		// 止损止盈单的类型通常是: STOP_MARKET, TAKE_PROFIT_MARKET, STOP, TAKE_PROFIT
+		if order.Type == "LIMIT" && order.Side == targetSide {
+			hasLimitOrder = true
+			limitOrderInfo = fmt.Sprintf("%s %s @ %.4f (ID: %d)",
+				order.Symbol, order.Side, order.Price, order.OrderID)
+			log.Printf("🔄 检测到旧限价单: %s", limitOrderInfo)
+		}
+	}
+
+	// 4. 如果存在同方向的 LIMIT 订单，取消所有订单（简化方案）
+	// 注意：这里取消所有订单，开仓后系统会自动重新设置止损止盈单
+	if hasLimitOrder {
+		log.Printf("📊 检测到同方向限价单，准备取消该币种所有挂单")
+		if err := at.trader.CancelAllOrders(symbol); err != nil {
+			log.Printf("⚠️ 取消挂单失败: %v (不阻断流程，继续开仓)", err)
+			// 不返回错误，让"同向持仓限制"来保护
+		} else {
+			log.Printf("✅ 已取消旧挂单，准备下新单")
+			// 短暂延迟，确保交易所处理完取消请求
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
 
