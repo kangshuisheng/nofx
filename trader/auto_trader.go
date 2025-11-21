@@ -1103,13 +1103,16 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 		}
 	}
 
-	// 计算数量
-	quantity := decision.PositionSizeUSD / marketData.CurrentPrice
+	// 计算数量 (PositionSizeUSD 视为保证金，需乘以杠杆)
+	// 修正: 用户输入 24U 通常指保证金，而非名义价值。
+	// 名义价值 = 保证金 * 杠杆
+	notionalValue := decision.PositionSizeUSD * float64(decision.Leverage)
+	quantity := notionalValue / marketData.CurrentPrice
 	actionRecord.Quantity = quantity
 	actionRecord.Price = marketData.CurrentPrice
 
 	// ⚠️ 保证金验证：防止保证金不足错误（code=-2019）
-	requiredMargin := decision.PositionSizeUSD / float64(decision.Leverage)
+	requiredMargin := decision.PositionSizeUSD
 
 	balance, err := at.trader.GetBalance()
 	if err != nil {
@@ -1120,8 +1123,8 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 		availableBalance = avail
 	}
 
-	// 手续费估算（Taker费率 0.04%）
-	estimatedFee := decision.PositionSizeUSD * 0.0004
+	// 手续费估算（Taker费率 0.04% * 名义价值）
+	estimatedFee := notionalValue * 0.0004
 	totalRequired := requiredMargin + estimatedFee
 
 	if totalRequired > availableBalance {
@@ -1273,13 +1276,16 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 		}
 	}
 
-	// 计算数量
-	quantity := decision.PositionSizeUSD / marketData.CurrentPrice
+	// 计算数量 (PositionSizeUSD 视为保证金，需乘以杠杆)
+	// 修正: 用户输入 24U 通常指保证金，而非名义价值。
+	// 名义价值 = 保证金 * 杠杆
+	notionalValue := decision.PositionSizeUSD * float64(decision.Leverage)
+	quantity := notionalValue / marketData.CurrentPrice
 	actionRecord.Quantity = quantity
 	actionRecord.Price = marketData.CurrentPrice
 
 	// ⚠️ 保证金验证：防止保证金不足错误（code=-2019）
-	requiredMargin := decision.PositionSizeUSD / float64(decision.Leverage)
+	requiredMargin := decision.PositionSizeUSD
 
 	balance, err := at.trader.GetBalance()
 	if err != nil {
@@ -1290,8 +1296,8 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 		availableBalance = avail
 	}
 
-	// 手续费估算（Taker费率 0.04%）
-	estimatedFee := decision.PositionSizeUSD * 0.0004
+	// 手续费估算（Taker费率 0.04% * 名义价值）
+	estimatedFee := notionalValue * 0.0004
 	totalRequired := requiredMargin + estimatedFee
 
 	if totalRequired > availableBalance {
