@@ -412,9 +412,9 @@ func (at *AutoTrader) runMonitoringCycle() error {
 			quantity = -quantity
 		}
 
-		// 获取市场数据 (仅需 15m K线用于 EMA 计算)
-		// 为了速度，这里只获取 15m 数据
-		marketData, err := market.Get(symbol, []string{"15m"})
+		// 获取市场数据 (中长线策略: 使用1h/4h数据进行监控)
+		// 注: 虽然硬风控已禁用,但仍需获取数据用于未来扩展
+		marketData, err := market.Get(symbol, []string{"1h", "4h"})
 		if err != nil {
 			// 记录连续失败次数
 			at.marketDataFailCount[symbol]++

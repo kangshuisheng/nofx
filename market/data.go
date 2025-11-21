@@ -34,10 +34,10 @@ func Get(symbol string, timeframes []string) (*Data, error) {
 	// 标准化symbol
 	symbol = Normalize(symbol)
 
-	// 设置默认时间线（如果未指定）
+	// 设置默认时间线（如果未指定） - 🔧 中长线策略优化
 	if len(timeframes) == 0 {
-		timeframes = []string{"15m", "1h", "4h"}
-		log.Printf("⚠️  %s 未指定时间线，使用默认值: %v", symbol, timeframes)
+		timeframes = []string{"1h", "4h", "1d"}
+		log.Printf("⚠️  %s 未指定时间线，使用默认值(中长线): %v", symbol, timeframes)
 	}
 
 	// 创建时间线查找映射（提高查找效率）

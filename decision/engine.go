@@ -650,7 +650,7 @@ func buildPositionsSection(ctx *Context) string {
 		switch state {
 		case "NO_STOP_LOSS":
 			statusIcon = "🚨"
-			actionGuide = "**极度危险**：该持仓没有止损！请立即输出 `update_stop_loss` (建议距离 ATR*1.5)。"
+			actionGuide = "**极度危险**:该持仓没有止损!请立即输出 `update_stop_loss` (建议距离 ATR*3,中长线策略)。"
 		case "STAGE_1_INITIAL_RISK":
 			statusIcon = "🥚"
 			actionGuide = "**孵化期**：R:R < 0.8。除非价格跌破关键技术结构，否则 **HOLD**。给交易呼吸空间。"
@@ -853,42 +853,15 @@ func calculateManagementState(pos PositionInfo, currentStopLossPrice float64, ma
 
 // CheckEmergencyExit 检查是否需要紧急离场（趋势破坏）
 // 返回值: (是否需要平仓, 原因)
+//
+// 🔧 中长线策略优化: 完全禁用硬风控
+// 理由:
+// 1. 中长线策略不在意短期波动,给交易足够的呼吸空间
+// 2. 止损已调整为ATR*3,有足够的容错空间
+// 3. 完全交给AI根据大周期趋势判断,避免被正常回调扫出
 func CheckEmergencyExit(pos PositionInfo, marketData *market.Data) (bool, string) {
-	// 如果没有市场数据，无法判断
-	if marketData == nil || marketData.MidTermSeries15m == nil {
-		return false, ""
-	}
-
-	// 获取 15m EMA20 (趋势生命线)
-	emaValues := marketData.MidTermSeries15m.EMA20Values
-	if len(emaValues) == 0 {
-		return false, ""
-	}
-	currentEMA := emaValues[len(emaValues)-1]
-	currentPrice := marketData.CurrentPrice
-
-	// 容差率 (0.1%) - 防止刚好碰到就平仓
-	tolerance := 0.001
-
-	// ================= 空单逃跑逻辑 =================
-	if pos.Side == "short" {
-		// 逻辑: 价格有效站上 15m EMA20
-		// 如果当前价 > EMA * (1 + 容差)，说明趋势可能反转
-		threshold := currentEMA * (1 + tolerance)
-		if currentPrice > threshold {
-			return true, fmt.Sprintf("硬风控: 价格(%.2f) 强势站上 15m EMA20(%.2f)，空头结构破坏", currentPrice, currentEMA)
-		}
-	}
-
-	// ================= 多单逃跑逻辑 =================
-	if pos.Side == "long" {
-		// 逻辑: 价格有效跌破 15m EMA20
-		threshold := currentEMA * (1 - tolerance)
-		if currentPrice < threshold {
-			return true, fmt.Sprintf("硬风控: 价格(%.2f) 有效跌破 15m EMA20(%.2f)，多头结构破坏", currentPrice, currentEMA)
-		}
-	}
-
+	// 中长线策略: 完全禁用紧急平仓,交给AI决策
+	// 如果方向错了,通过止损或AI主动平仓处理
 	return false, ""
 }
 
