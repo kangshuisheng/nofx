@@ -562,12 +562,25 @@ func buildAccountSection(ctx *Context) string {
 	maxPosBTC := ctx.Account.TotalEquity * 0.85
 	maxPosAlt := ctx.Account.TotalEquity * 0.75
 
-	// 🔒 测试阶段：设置开仓价值上限为 50 USDT (保证金)
-	if maxPosBTC > 36 {
-		maxPosBTC = 36
+	// 🔒 测试阶段：设置名义价值上限
+	// 名义价值 = 保证金 × 杠杆，因此保证金上限 = 名义价值上限 / 杠杆
+	// BTC/ETH: 5x 杠杆 → 保证金上限 = 80 / 5 = 16 USDT (名义价值 80 USDT)
+	// 山寨币: 3x 杠杆 → 保证金上限 = 60 / 3 = 20 USDT (名义价值 60 USDT)
+	maxNotionalValueBTC := 80.0 // BTC/ETH 名义价值上限（USDT）
+	maxNotionalValueAlt := 60.0 // 山寨币名义价值上限（USDT）
+
+	// 动态计算保证金上限（根据杠杆倍数）
+	btcEthLeverage := float64(ctx.BTCETHLeverage)   // 默认 5x
+	altcoinLeverage := float64(ctx.AltcoinLeverage) // 默认 3x
+
+	maxMarginBTC := maxNotionalValueBTC / btcEthLeverage  // 80 / 5 = 16 USDT
+	maxMarginAlt := maxNotionalValueAlt / altcoinLeverage // 60 / 3 = 20 USDT
+
+	if maxPosBTC > maxMarginBTC {
+		maxPosBTC = maxMarginBTC
 	}
-	if maxPosAlt > 24 {
-		maxPosAlt = 24
+	if maxPosAlt > maxMarginAlt {
+		maxPosAlt = maxMarginAlt
 	}
 
 	sb.WriteString(fmt.Sprintf("- **账户净值**: %.2f USDT | **可用余额**: %.2f USDT\n",
@@ -1198,17 +1211,22 @@ func validateDecisionWithMarketData(d *Decision, accountEquity float64, btcEthLe
 
 		// ==================== V6.0 新增：硬性物理过滤器 ====================
 
-		// 1. 同向持仓限制 (防止 BTC/ETH/SOL 同时开空)
-		// 逻辑：如果我已经有了任意一个空单，就不允许开新的空单
-		if d.Action == "open_short" || d.Action == "open_long" {
-			for _, pos := range currentPositions {
-				// 如果想做空，且手里已经有空单了 -> 拒绝
-				if d.Action == "open_short" && pos.Side == "short" {
-					return fmt.Errorf("风控拦截: 已持有空单 (%s)，禁止多币种同向赌博", pos.Symbol)
-				}
-				// 如果想做多，且手里已经有多单了 -> 拒绝
-				if d.Action == "open_long" && pos.Side == "long" {
-					return fmt.Errorf("风控拦截: 已持有多单 (%s)，禁止多币种同向赌博", pos.Symbol)
+		// 1. 同向持仓限制 (已禁用 - 中长线策略允许多币种同向分散风险)
+		// 原限制：已有空单则禁止再开任何空单，已有多单则禁止再开任何多单
+		// 禁用理由：
+		//   - 中长线策略基于大周期趋势（日线/4H 共振），多币种同向是合理的分散策略
+		//   - 已有其他风控保护：持仓数量上限3个、单笔风险2%、独立止损(ATR*3)
+		//   - 允许 BTC空 + ETH空 + SOL空，只要每个都符合趋势判断
+		// 保留风控：同币种重复持仓检查（防止 BTCUSDT 重复开空）
+		if false { // 使用 false 禁用此逻辑
+			if d.Action == "open_short" || d.Action == "open_long" {
+				for _, pos := range currentPositions {
+					if d.Action == "open_short" && pos.Side == "short" {
+						return fmt.Errorf("风控拦截: 已持有空单 (%s)，禁止多币种同向赌博", pos.Symbol)
+					}
+					if d.Action == "open_long" && pos.Side == "long" {
+						return fmt.Errorf("风控拦截: 已持有多单 (%s)，禁止多币种同向赌博", pos.Symbol)
+					}
 				}
 			}
 		}
