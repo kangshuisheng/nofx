@@ -698,8 +698,7 @@ func buildCandidatesSection(ctx *Context) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## 🎯 4. 猎物扫描 (Candidate Setup)\n")
-	sb.WriteString("> 任务：对以下币种进行【算分审计】，寻找得分 ≥ 32 的机会。\n\n")
+	sb.WriteString("## 🎯 4. 猎物扫描 (Candidate Setup)\n\n")
 
 	validCount := 0
 	for _, coin := range ctx.CandidateCoins {
@@ -721,8 +720,6 @@ func buildCandidatesSection(ctx *Context) string {
 
 		sb.WriteString(fmt.Sprintf("### [%d] %s (%s)\n", validCount, coin.Symbol, sourceTag))
 
-		// 核心：直接展示 Market Data 供 AI 算分
-		// 这里直接利用 market.Format 的详细输出，包含 4H/1H/15m/3m
 		sb.WriteString(market.Format(marketData))
 		sb.WriteString("\n")
 	}
