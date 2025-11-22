@@ -666,6 +666,64 @@ func (t *AsterTrader) OpenLong(symbol string, quantity float64, leverage int) (m
 	return result, nil
 }
 
+// OpenLongLimit 开多单（限价）
+func (t *AsterTrader) OpenLongLimit(symbol string, quantity float64, price float64, leverage int) (map[string]interface{}, error) {
+	// 开仓前先取消所有挂单,防止残留挂单导致仓位叠加
+	if err := t.CancelAllOrders(symbol); err != nil {
+		log.Printf("  ⚠ 取消挂单失败(继续开仓): %v", err)
+	}
+
+	// 先设置杠杆
+	if err := t.SetLeverage(symbol, leverage); err != nil {
+		return nil, fmt.Errorf("设置杠杆失败: %w", err)
+	}
+
+	// 格式化价格和数量到正确精度
+	formattedPrice, err := t.formatPrice(symbol, price)
+	if err != nil {
+		return nil, err
+	}
+	formattedQty, err := t.formatQuantity(symbol, quantity)
+	if err != nil {
+		return nil, err
+	}
+
+	// 获取精度信息
+	prec, err := t.getPrecision(symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为字符串，使用正确的精度格式
+	priceStr := t.formatFloatWithPrecision(formattedPrice, prec.PricePrecision)
+	qtyStr := t.formatFloatWithPrecision(formattedQty, prec.QuantityPrecision)
+
+	log.Printf("  📏 精度处理: 价格 %.8f -> %s (精度=%d), 数量 %.8f -> %s (精度=%d)",
+		price, priceStr, prec.PricePrecision, quantity, qtyStr, prec.QuantityPrecision)
+
+	params := map[string]interface{}{
+		"symbol":       symbol,
+		"positionSide": "BOTH",
+		"type":         "LIMIT",
+		"side":         "BUY",
+		"timeInForce":  "GTC",
+		"quantity":     qtyStr,
+		"price":        priceStr,
+	}
+
+	body, err := t.request("POST", "/fapi/v3/order", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // OpenShort 开空单
 func (t *AsterTrader) OpenShort(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
 	// 开仓前先取消所有挂单,防止残留挂单导致仓位叠加
@@ -709,6 +767,64 @@ func (t *AsterTrader) OpenShort(symbol string, quantity float64, leverage int) (
 
 	log.Printf("  📏 精度处理: 价格 %.8f -> %s (精度=%d), 数量 %.8f -> %s (精度=%d)",
 		limitPrice, priceStr, prec.PricePrecision, quantity, qtyStr, prec.QuantityPrecision)
+
+	params := map[string]interface{}{
+		"symbol":       symbol,
+		"positionSide": "BOTH",
+		"type":         "LIMIT",
+		"side":         "SELL",
+		"timeInForce":  "GTC",
+		"quantity":     qtyStr,
+		"price":        priceStr,
+	}
+
+	body, err := t.request("POST", "/fapi/v3/order", params)
+	if err != nil {
+		return nil, err
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// OpenShortLimit 开空单（限价）
+func (t *AsterTrader) OpenShortLimit(symbol string, quantity float64, price float64, leverage int) (map[string]interface{}, error) {
+	// 开仓前先取消所有挂单,防止残留挂单导致仓位叠加
+	if err := t.CancelAllOrders(symbol); err != nil {
+		log.Printf("  ⚠ 取消挂单失败(继续开仓): %v", err)
+	}
+
+	// 先设置杠杆
+	if err := t.SetLeverage(symbol, leverage); err != nil {
+		return nil, fmt.Errorf("设置杠杆失败: %w", err)
+	}
+
+	// 格式化价格和数量到正确精度
+	formattedPrice, err := t.formatPrice(symbol, price)
+	if err != nil {
+		return nil, err
+	}
+	formattedQty, err := t.formatQuantity(symbol, quantity)
+	if err != nil {
+		return nil, err
+	}
+
+	// 获取精度信息
+	prec, err := t.getPrecision(symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为字符串，使用正确的精度格式
+	priceStr := t.formatFloatWithPrecision(formattedPrice, prec.PricePrecision)
+	qtyStr := t.formatFloatWithPrecision(formattedQty, prec.QuantityPrecision)
+
+	log.Printf("  📏 精度处理: 价格 %.8f -> %s (精度=%d), 数量 %.8f -> %s (精度=%d)",
+		price, priceStr, prec.PricePrecision, quantity, qtyStr, prec.QuantityPrecision)
 
 	params := map[string]interface{}{
 		"symbol":       symbol,

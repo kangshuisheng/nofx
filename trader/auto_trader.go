@@ -1168,7 +1168,22 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	}
 
 	// 开仓
-	order, err := at.trader.OpenLong(decision.Symbol, quantity, decision.Leverage)
+	var order map[string]interface{}
+
+	// 检查是否有指定限价
+	if decision.EntryPrice > 0 {
+		log.Printf("  🎯 使用限价单开多: 价格 %.4f", decision.EntryPrice)
+		// 重新计算数量（基于限价）
+		quantity = notionalValue / decision.EntryPrice
+		actionRecord.Quantity = quantity
+		actionRecord.Price = decision.EntryPrice
+
+		order, err = at.trader.OpenLongLimit(decision.Symbol, quantity, decision.EntryPrice, decision.Leverage)
+	} else {
+		// 市价单（或基于当前价的限价单）
+		order, err = at.trader.OpenLong(decision.Symbol, quantity, decision.Leverage)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -1347,7 +1362,22 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	}
 
 	// 开仓
-	order, err := at.trader.OpenShort(decision.Symbol, quantity, decision.Leverage)
+	var order map[string]interface{}
+
+	// 检查是否有指定限价
+	if decision.EntryPrice > 0 {
+		log.Printf("  🎯 使用限价单开空: 价格 %.4f", decision.EntryPrice)
+		// 重新计算数量（基于限价）
+		quantity = notionalValue / decision.EntryPrice
+		actionRecord.Quantity = quantity
+		actionRecord.Price = decision.EntryPrice
+
+		order, err = at.trader.OpenShortLimit(decision.Symbol, quantity, decision.EntryPrice, decision.Leverage)
+	} else {
+		// 市价单（或基于当前价的限价单）
+		order, err = at.trader.OpenShort(decision.Symbol, quantity, decision.Leverage)
+	}
+
 	if err != nil {
 		return err
 	}

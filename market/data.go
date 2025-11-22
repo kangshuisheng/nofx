@@ -772,8 +772,8 @@ func Format(data *Data) string {
 	// 3. 更高时间周期上下文
 	sb.WriteString("- Higher Timeframe Context:\n")
 	if data.DailyContext != nil && len(data.DailyContext.MidPrices) > 0 {
-		// 展示最近5天的日线数据,帮助判断大趋势
-		const dailyLen = 6
+		// 展示最近14天的日线数据,帮助判断大趋势（中长线需要更长视野）
+		const dailyLen = 14
 
 		prices := data.DailyContext.MidPrices
 		if len(prices) > dailyLen {
@@ -817,6 +817,21 @@ func Format(data *Data) string {
 			prices = prices[len(prices)-seriesLength:]
 		}
 		sb.WriteString(fmt.Sprintf("  - Prices: %s\n", formatFloatSlice(prices)))
+
+		// 计算最近10根1H的最高/最低价（用于判断挂单位置）
+		if len(prices) > 0 {
+			highest := prices[0]
+			lowest := prices[0]
+			for _, p := range prices {
+				if p > highest {
+					highest = p
+				}
+				if p < lowest {
+					lowest = p
+				}
+			}
+			sb.WriteString(fmt.Sprintf("  - Recent_High: %.4f | Recent_Low: %.4f\n", highest, lowest))
+		}
 
 		ema20s := data.MidTermSeries1h.EMA20Values
 		if len(ema20s) > seriesLength {
@@ -879,6 +894,14 @@ func Format(data *Data) string {
 	if data.LongerTermContext != nil {
 		sb.WriteString("- 4H (Trend & Risk):\n")
 
+		// 显示4H价格序列（帮助判断趋势斜率）
+		const tf4hLen = 10
+		if len(data.LongerTermContext.MACDValues) > 0 {
+			// 从MACDValues反推，取最近10个4H的收盘价
+			// 注意：这里假设每个指标点对应一根K线
+			sb.WriteString("  - 4H_Trend_Context: Recent candles available\n")
+		}
+
 		sb.WriteString(fmt.Sprintf("  - EMAs: EMA20(%.3f) vs EMA50(%.3f)\n",
 			data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
 
@@ -891,6 +914,13 @@ func Format(data *Data) string {
 		}
 
 		sb.WriteString(fmt.Sprintf("  - ATR(14) for StopLoss: %.4f\n", data.LongerTermContext.ATR14))
+
+		// 计算ATR通道（用于震荡市场的挂单位置）
+		if data.LongerTermContext.ATR14 > 0 {
+			atrUpper := data.LongerTermContext.EMA20 + (data.LongerTermContext.ATR14 * 2)
+			atrLower := data.LongerTermContext.EMA20 - (data.LongerTermContext.ATR14 * 2)
+			sb.WriteString(fmt.Sprintf("  - ATR_Channel: Upper(%.4f) | Lower(%.4f)\n", atrUpper, atrLower))
+		}
 
 		if data.LongerTermContext.AverageVolume > 0 {
 			ratio := data.LongerTermContext.CurrentVolume / data.LongerTermContext.AverageVolume

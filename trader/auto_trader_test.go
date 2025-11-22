@@ -1047,6 +1047,25 @@ func (m *MockTrader) OpenShort(symbol string, quantity float64, leverage int) (m
 	}, nil
 }
 
+func (m *MockTrader) OpenLongLimit(symbol string, quantity float64, price float64, leverage int) (map[string]interface{}, error) {
+	if m.shouldFailOpenLong {
+		return nil, errors.New("failed to open long limit")
+	}
+	return map[string]interface{}{
+		"orderId": int64(123460),
+		"symbol":  symbol,
+		"price":   price,
+	}, nil
+}
+
+func (m *MockTrader) OpenShortLimit(symbol string, quantity float64, price float64, leverage int) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"orderId": int64(123461),
+		"symbol":  symbol,
+		"price":   price,
+	}, nil
+}
+
 func (m *MockTrader) CloseLong(symbol string, quantity float64) (map[string]interface{}, error) {
 	if m.shouldFailCloseLong {
 		return nil, errors.New("failed to close long")

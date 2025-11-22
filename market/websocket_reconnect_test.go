@@ -182,7 +182,7 @@ func TestWSMonitor_GetCurrentKlines_NoDataFallsBackToAPI(t *testing.T) {
 		t.Fatalf("API fallback should work, got error: %v", err)
 	}
 
-	if klines == nil || len(klines) == 0 {
+	if len(klines) == 0 {
 		t.Error("Should return klines from API")
 	}
 

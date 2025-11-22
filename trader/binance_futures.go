@@ -649,6 +649,70 @@ func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) 
 	return result, nil
 }
 
+// OpenLongLimit 开多仓（限价单）
+func (t *FuturesTrader) OpenLongLimit(symbol string, quantity float64, price float64, leverage int) (map[string]interface{}, error) {
+	// 先取消该币种的所有委托单（清理旧的止损止盈单）
+	if err := t.CancelAllOrders(symbol); err != nil {
+		log.Printf("  ⚠ 取消旧委托单失败（可能没有委托单）: %v", err)
+	}
+
+	// 设置杠杆
+	if err := t.SetLeverage(symbol, leverage); err != nil {
+		return nil, err
+	}
+
+	// 格式化数量
+	quantityStr, err := t.FormatQuantity(symbol, quantity)
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查数量
+	quantityFloat, parseErr := strconv.ParseFloat(quantityStr, 64)
+	if parseErr != nil || quantityFloat <= 0 {
+		return nil, fmt.Errorf("开仓数量过小: %s", quantityStr)
+	}
+
+	// 检查最小名义价值
+	if err := t.CheckMinNotional(symbol, quantityFloat); err != nil {
+		return nil, err
+	}
+
+	// 格式化价格
+	priceStr, err := t.FormatPrice(symbol, price)
+	if err != nil {
+		return nil, fmt.Errorf("格式化价格失败: %w", err)
+	}
+
+	log.Printf("📋 [%s] 提交限价多单: 价格 %s 数量 %s", symbol, priceStr, quantityStr)
+
+	order, err := t.client.NewCreateOrderService().
+		Symbol(symbol).
+		Side(futures.SideTypeBuy).
+		PositionSide(futures.PositionSideTypeLong).
+		Type(futures.OrderTypeLimit).
+		Quantity(quantityStr).
+		Price(priceStr).
+		TimeInForce(futures.TimeInForceTypeGTC).
+		NewClientOrderID(getBrOrderID()).
+		Do(context.Background())
+
+	if err != nil {
+		return nil, fmt.Errorf("限价多单提交失败: %w", err)
+	}
+
+	log.Printf("✓ 限价多单已提交: %s OrderID=%d", symbol, order.OrderID)
+
+	// 交易成功后清除缓存
+	t.InvalidateAllCaches()
+
+	result := make(map[string]interface{})
+	result["orderId"] = order.OrderID
+	result["symbol"] = order.Symbol
+	result["status"] = order.Status
+	return result, nil
+}
+
 // OpenShort 开空仓
 func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
 	// 先取消该币种的所有委托单（清理旧的止损止盈单）
@@ -774,6 +838,70 @@ func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int)
 
 	log.Printf("✓ 开空仓成功: %s 数量: %s 类型: %s", symbol, quantityStr, order.Type)
 	log.Printf("  订单ID: %d 状态: %s", order.OrderID, order.Status)
+
+	// 交易成功后清除缓存
+	t.InvalidateAllCaches()
+
+	result := make(map[string]interface{})
+	result["orderId"] = order.OrderID
+	result["symbol"] = order.Symbol
+	result["status"] = order.Status
+	return result, nil
+}
+
+// OpenShortLimit 开空仓（限价单）
+func (t *FuturesTrader) OpenShortLimit(symbol string, quantity float64, price float64, leverage int) (map[string]interface{}, error) {
+	// 先取消该币种的所有委托单（清理旧的止损止盈单）
+	if err := t.CancelAllOrders(symbol); err != nil {
+		log.Printf("  ⚠ 取消旧委托单失败（可能没有委托单）: %v", err)
+	}
+
+	// 设置杠杆
+	if err := t.SetLeverage(symbol, leverage); err != nil {
+		return nil, err
+	}
+
+	// 格式化数量
+	quantityStr, err := t.FormatQuantity(symbol, quantity)
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查数量
+	quantityFloat, parseErr := strconv.ParseFloat(quantityStr, 64)
+	if parseErr != nil || quantityFloat <= 0 {
+		return nil, fmt.Errorf("开仓数量过小: %s", quantityStr)
+	}
+
+	// 检查最小名义价值
+	if err := t.CheckMinNotional(symbol, quantityFloat); err != nil {
+		return nil, err
+	}
+
+	// 格式化价格
+	priceStr, err := t.FormatPrice(symbol, price)
+	if err != nil {
+		return nil, fmt.Errorf("格式化价格失败: %w", err)
+	}
+
+	log.Printf("📋 [%s] 提交限价空单: 价格 %s 数量 %s", symbol, priceStr, quantityStr)
+
+	order, err := t.client.NewCreateOrderService().
+		Symbol(symbol).
+		Side(futures.SideTypeSell).
+		PositionSide(futures.PositionSideTypeShort).
+		Type(futures.OrderTypeLimit).
+		Quantity(quantityStr).
+		Price(priceStr).
+		TimeInForce(futures.TimeInForceTypeGTC).
+		NewClientOrderID(getBrOrderID()).
+		Do(context.Background())
+
+	if err != nil {
+		return nil, fmt.Errorf("限价空单提交失败: %w", err)
+	}
+
+	log.Printf("✓ 限价空单已提交: %s OrderID=%d", symbol, order.OrderID)
 
 	// 交易成功后清除缓存
 	t.InvalidateAllCaches()

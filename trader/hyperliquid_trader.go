@@ -430,6 +430,58 @@ func (t *HyperliquidTrader) OpenLong(symbol string, quantity float64, leverage i
 	return result, nil
 }
 
+// OpenLongLimit 开多仓（限价单）
+func (t *HyperliquidTrader) OpenLongLimit(symbol string, quantity float64, price float64, leverage int) (map[string]interface{}, error) {
+	// 先取消该币种的所有委托单
+	if err := t.CancelAllOrders(symbol); err != nil {
+		log.Printf("  ⚠ 取消旧委托单失败: %v", err)
+	}
+
+	// 设置杠杆
+	if err := t.SetLeverage(symbol, leverage); err != nil {
+		return nil, err
+	}
+
+	// Hyperliquid symbol格式
+	coin := convertSymbolToHyperliquid(symbol)
+
+	// ⚠️ 关键：根据币种精度要求，四舍五入数量
+	roundedQuantity := t.roundToSzDecimals(coin, quantity)
+	log.Printf("  📏 数量精度处理: %.8f -> %.8f (szDecimals=%d)", quantity, roundedQuantity, t.getSzDecimals(coin))
+
+	// ⚠️ 关键：价格也需要处理为5位有效数字
+	roundedPrice := t.roundPriceToSigfigs(price)
+	log.Printf("  💰 价格精度处理: %.8f -> %.8f (5位有效数字)", price, roundedPrice)
+
+	// 创建限价买入订单 (GTC)
+	order := hyperliquid.CreateOrderRequest{
+		Coin:  coin,
+		IsBuy: true,
+		Size:  roundedQuantity,
+		Price: roundedPrice,
+		OrderType: hyperliquid.OrderType{
+			Limit: &hyperliquid.LimitOrderType{
+				Tif: hyperliquid.TifGtc, // Good Till Cancel
+			},
+		},
+		ReduceOnly: false,
+	}
+
+	_, err := t.exchange.Order(t.ctx, order, nil)
+	if err != nil {
+		return nil, fmt.Errorf("限价多单提交失败: %w", err)
+	}
+
+	log.Printf("✓ 限价多单提交成功: %s 数量: %.4f 价格: %.4f", symbol, roundedQuantity, roundedPrice)
+
+	result := make(map[string]interface{})
+	result["orderId"] = 0
+	result["symbol"] = symbol
+	result["status"] = "NEW"
+
+	return result, nil
+}
+
 // OpenShort 开空仓
 func (t *HyperliquidTrader) OpenShort(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
 	// 先取消该币种的所有委托单
@@ -484,6 +536,58 @@ func (t *HyperliquidTrader) OpenShort(symbol string, quantity float64, leverage 
 	result["orderId"] = 0
 	result["symbol"] = symbol
 	result["status"] = "FILLED"
+
+	return result, nil
+}
+
+// OpenShortLimit 开空仓（限价单）
+func (t *HyperliquidTrader) OpenShortLimit(symbol string, quantity float64, price float64, leverage int) (map[string]interface{}, error) {
+	// 先取消该币种的所有委托单
+	if err := t.CancelAllOrders(symbol); err != nil {
+		log.Printf("  ⚠ 取消旧委托单失败: %v", err)
+	}
+
+	// 设置杠杆
+	if err := t.SetLeverage(symbol, leverage); err != nil {
+		return nil, err
+	}
+
+	// Hyperliquid symbol格式
+	coin := convertSymbolToHyperliquid(symbol)
+
+	// ⚠️ 关键：根据币种精度要求，四舍五入数量
+	roundedQuantity := t.roundToSzDecimals(coin, quantity)
+	log.Printf("  📏 数量精度处理: %.8f -> %.8f (szDecimals=%d)", quantity, roundedQuantity, t.getSzDecimals(coin))
+
+	// ⚠️ 关键：价格也需要处理为5位有效数字
+	roundedPrice := t.roundPriceToSigfigs(price)
+	log.Printf("  💰 价格精度处理: %.8f -> %.8f (5位有效数字)", price, roundedPrice)
+
+	// 创建限价卖出订单 (GTC)
+	order := hyperliquid.CreateOrderRequest{
+		Coin:  coin,
+		IsBuy: false,
+		Size:  roundedQuantity,
+		Price: roundedPrice,
+		OrderType: hyperliquid.OrderType{
+			Limit: &hyperliquid.LimitOrderType{
+				Tif: hyperliquid.TifGtc, // Good Till Cancel
+			},
+		},
+		ReduceOnly: false,
+	}
+
+	_, err := t.exchange.Order(t.ctx, order, nil)
+	if err != nil {
+		return nil, fmt.Errorf("限价空单提交失败: %w", err)
+	}
+
+	log.Printf("✓ 限价空单提交成功: %s 数量: %.4f 价格: %.4f", symbol, roundedQuantity, roundedPrice)
+
+	result := make(map[string]interface{})
+	result["orderId"] = 0
+	result["symbol"] = symbol
+	result["status"] = "NEW"
 
 	return result, nil
 }
