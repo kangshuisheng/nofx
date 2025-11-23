@@ -524,11 +524,19 @@ func buildMarketContextSection(ctx *Context) string {
 	sb.WriteString("> 这里的状态决定了是否允许开新仓 (Long/Short)。\n\n")
 
 	// 1.1 VIX 恐慌指数 (如有)
-	// 1.1 VIX 恐慌指数 (如有)
 	if ctx.GlobalSentiment != nil {
 		sb.WriteString(fmt.Sprintf("- **市场情绪 (VIX)**: %.2f [%s]\n",
 			ctx.GlobalSentiment.VIX, ctx.GlobalSentiment.FearLevel))
 		sb.WriteString(fmt.Sprintf("  👉 **风控建议**: %s\n", ctx.GlobalSentiment.Recommendation))
+
+		// 1.1.5 美股状态 (S&P 500) - 辅助判断 Risk-On/Off
+		if ctx.GlobalSentiment.USMarket != nil && ctx.GlobalSentiment.USMarket.IsOpen {
+			us := ctx.GlobalSentiment.USMarket
+			sb.WriteString(fmt.Sprintf("- **美股 (S&P 500)**: %s (1h: %+.2f%%)\n", us.SPXTrend, us.SPXChange1h))
+			if us.Warning != "" {
+				sb.WriteString(fmt.Sprintf("  ⚠️ **美股预警**: %s\n", us.Warning))
+			}
+		}
 	}
 
 	// 1.2 恐慌贪婪指数 (Fear & Greed Index) - 新增

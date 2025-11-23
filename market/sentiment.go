@@ -144,13 +144,13 @@ func FetchVIX() (float64, error) {
 func AnalyzeVIX(vix float64) (fearLevel, recommendation string) {
 	switch {
 	case vix < 15:
-		return "low", "normal"
+		return "low", "市场情绪平稳，适合顺势交易 (Risk-On)"
 	case vix < 20:
-		return "moderate", "cautious"
+		return "moderate", "波动率正常，按标准策略执行 (Normal)"
 	case vix < 30:
-		return "high", "defensive"
+		return "high", "恐慌情绪上升，关注关键支撑位 (Watch Support)"
 	default:
-		return "extreme", "avoid_new_positions"
+		return "extreme", "极度恐慌，关注超跌反弹机会 (Oversold/Rebound)"
 	}
 }
 
