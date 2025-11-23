@@ -798,9 +798,7 @@ func (t *HyperliquidTrader) CancelStopOrders(symbol string) error {
 		return fmt.Errorf("获取挂单失败: %w", err)
 	}
 
-	// 注意：Hyperliquid SDK 的 OpenOrder 结构不暴露 trigger 字段
-	// 因此暂时取消该币种的所有挂单（包括止盈止损单）
-	// 这是安全的，因为在设置新的止盈止损之前，应该清理所有旧订单
+	// 取消该币种的所有挂单 (Hyperliquid 无法区分止损止盈)
 	canceledCount := 0
 	for _, order := range openOrders {
 		if order.Coin == coin {
@@ -813,13 +811,45 @@ func (t *HyperliquidTrader) CancelStopOrders(symbol string) error {
 		}
 	}
 
-	if canceledCount == 0 {
-		log.Printf("  ℹ %s 没有挂单需要取消", symbol)
-	} else {
-		log.Printf("  ✓ 已取消 %s 的 %d 个挂单（包括止盈/止损单）", symbol, canceledCount)
+	if canceledCount > 0 {
+		log.Printf("  ✓ 已取消 %s 的 %d 个挂单", symbol, canceledCount)
 	}
 
 	return nil
+}
+
+// UpdateStopLoss 更新止损价格 (先取消旧止损，再下新止损)
+func (t *HyperliquidTrader) UpdateStopLoss(symbol, side string, stopPrice float64) error {
+	// 1. 取消旧的止损单
+	if err := t.CancelStopOrders(symbol); err != nil {
+		log.Printf("⚠️ [Hyperliquid] 取消旧止损失败 (可能无订单): %v", err)
+	}
+
+	// 2. 获取持仓数量
+	positions, err := t.GetPositions()
+	if err != nil {
+		return fmt.Errorf("获取持仓失败: %w", err)
+	}
+
+	var quantity float64
+	for _, pos := range positions {
+		if pos["symbol"] == symbol && pos["side"] == side {
+			if q, ok := pos["positionAmt"].(float64); ok {
+				quantity = q
+				if quantity < 0 {
+					quantity = -quantity
+				}
+				break
+			}
+		}
+	}
+
+	if quantity == 0 {
+		return fmt.Errorf("未找到持仓，无法设置止损")
+	}
+
+	// 3. 设置新止损
+	return t.SetStopLoss(symbol, strings.ToUpper(side), quantity, stopPrice)
 }
 
 // GetMarketPrice 获取市场价格

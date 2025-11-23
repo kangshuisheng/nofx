@@ -1122,6 +1122,10 @@ func (m *MockTrader) CancelStopOrders(symbol string) error {
 	return nil
 }
 
+func (m *MockTrader) UpdateStopLoss(symbol, side string, stopPrice float64) error {
+	return nil
+}
+
 func (m *MockTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
 	return fmt.Sprintf("%.4f", quantity), nil
 }

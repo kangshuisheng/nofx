@@ -56,6 +56,9 @@ type Trader interface {
 	// CancelStopOrders 取消该币种的止盈/止损单（用于调整止盈止损位置）
 	CancelStopOrders(symbol string) error
 
+	// UpdateStopLoss 更新止损价格 (先取消旧止损，再下新止损)
+	UpdateStopLoss(symbol, side string, stopPrice float64) error
+
 	// FormatQuantity 格式化数量到正确的精度
 	FormatQuantity(symbol string, quantity float64) (string, error)
 

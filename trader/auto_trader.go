@@ -474,6 +474,26 @@ func (at *AutoTrader) runMonitoringCycle() error {
 					Decisions:    []logger.DecisionAction{record},
 				})
 			}
+			continue // 既然平仓了，就不需要后续管理了
+		}
+
+		// 3. 自动管理逻辑 (移动止损/保本) - Go 代码直接接管
+		// 获取当前止损价格
+		currentSL := at.positionStopLoss[symbol+"_"+side]
+		mgmtAction := decision.CheckManagementAction(posInfo, currentSL, marketData)
+
+		if mgmtAction.Action == "update_stop_loss" {
+			log.Printf("🛡️ [自动管理] %s: %s -> 移动止损至 %.4f", symbol, mgmtAction.Reason, mgmtAction.NewPrice)
+
+			// 执行移动止损
+			err := at.trader.UpdateStopLoss(symbol, side, mgmtAction.NewPrice)
+			if err != nil {
+				log.Printf("❌ [自动管理] 移动止损失败 (%s): %v", symbol, err)
+			} else {
+				log.Printf("✅ [自动管理] 移动止损成功 (%s)", symbol)
+				// 更新本地缓存
+				at.positionStopLoss[symbol+"_"+side] = mgmtAction.NewPrice
+			}
 		}
 	}
 

@@ -1480,3 +1480,37 @@ func (t *AsterTrader) GetOpenOrders(symbol string) ([]decision.OpenOrderInfo, er
 
 	return result, nil
 }
+
+// UpdateStopLoss 更新止损价格 (先取消旧止损，再下新止损)
+func (t *AsterTrader) UpdateStopLoss(symbol, side string, stopPrice float64) error {
+	// 1. 取消旧的止损单
+	if err := t.CancelStopOrders(symbol); err != nil {
+		log.Printf("⚠️ [Aster] 取消旧止损失败 (可能无订单): %v", err)
+	}
+
+	// 2. 获取持仓数量（用于设置止损单数量）
+	positions, err := t.GetPositions()
+	if err != nil {
+		return fmt.Errorf("获取持仓失败: %w", err)
+	}
+
+	var quantity float64
+	for _, pos := range positions {
+		if pos["symbol"] == symbol && pos["side"] == side {
+			if q, ok := pos["positionAmt"].(float64); ok {
+				quantity = q
+				if quantity < 0 {
+					quantity = -quantity
+				}
+				break
+			}
+		}
+	}
+
+	if quantity == 0 {
+		return fmt.Errorf("未找到持仓，无法设置止损")
+	}
+
+	// 3. 设置新止损
+	return t.SetStopLoss(symbol, strings.ToUpper(side), quantity, stopPrice)
+}

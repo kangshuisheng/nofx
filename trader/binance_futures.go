@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"math"
 	"nofx/decision"
 	"nofx/hook"
 	"strconv"
@@ -1227,6 +1228,37 @@ func (t *FuturesTrader) CalculatePositionSize(balance, riskPercent, price float6
 	return quantity
 }
 
+// UpdateStopLoss 更新止损价格 (先取消旧止损，再下新止损)
+func (t *FuturesTrader) UpdateStopLoss(symbol, side string, stopPrice float64) error {
+	// 1. 取消旧的止损单
+	if err := t.CancelStopOrders(symbol); err != nil {
+		log.Printf("⚠️ [Binance] 取消旧止损失败 (可能无订单): %v", err)
+	}
+
+	// 2. 获取持仓数量
+	positions, err := t.GetPositions()
+	if err != nil {
+		return fmt.Errorf("获取持仓失败: %w", err)
+	}
+
+	var quantity float64
+	for _, pos := range positions {
+		if pos["symbol"] == symbol && pos["side"] == side {
+			if q, ok := pos["positionAmt"].(float64); ok {
+				quantity = math.Abs(q)
+				break
+			}
+		}
+	}
+
+	if quantity == 0 {
+		return fmt.Errorf("未找到持仓，无法设置止损")
+	}
+
+	// 3. 设置新止损
+	return t.SetStopLoss(symbol, strings.ToUpper(side), quantity, stopPrice)
+}
+
 // SetStopLoss 设置止损单
 func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity, stopPrice float64) error {
 	var side futures.SideType
@@ -1246,12 +1278,15 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 		return err
 	}
 
+	// 格式化价格
+	priceStr := fmt.Sprintf("%.8f", stopPrice)
+
 	_, err = t.client.NewCreateOrderService().
 		Symbol(symbol).
 		Side(side).
 		PositionSide(posSide).
 		Type(futures.OrderTypeStopMarket).
-		StopPrice(fmt.Sprintf("%.8f", stopPrice)).
+		StopPrice(priceStr).
 		Quantity(quantityStr).
 		WorkingType(futures.WorkingTypeContractPrice).
 		ClosePosition(true).
@@ -1261,7 +1296,7 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 		return fmt.Errorf("设置止损失败: %w", err)
 	}
 
-	// 设置止损后清除持仓缓存（掛單會影響持倉信息）
+	// 设置止损后清除持仓缓存
 	t.InvalidatePositionsCache()
 
 	log.Printf("  止损价设置: %.4f", stopPrice)

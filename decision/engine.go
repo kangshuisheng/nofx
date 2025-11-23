@@ -543,17 +543,32 @@ func buildMarketContextSection(ctx *Context) string {
 	// 从 BTCUSDT 数据中获取 (因为它是全局指标，每个 Data 都有)
 	if btcData, ok := ctx.MarketDataMap["BTCUSDT"]; ok && btcData.FearGreedIndex != nil {
 		fg := btcData.FearGreedIndex
-		sb.WriteString(fmt.Sprintf("- **Fear & Greed Index**: %d [%s]\n", fg.Value, fg.Classification))
+		val := fg.Value
 
-		// 简单的行动建议
+		// 格式化输出分数
+		sb.WriteString(fmt.Sprintf("- **Fear & Greed Index**: %d [%s]\n", val, fg.Classification))
+
 		var advice string
-		if fg.Value < 20 {
-			advice = "极度恐慌 (Extreme Fear) -> 寻找超跌反弹机会"
-		} else if fg.Value > 80 {
-			advice = "极度贪婪 (Extreme Greed) -> 警惕顶部反转"
-		} else {
-			advice = "情绪中性 -> 依赖技术面"
+
+		// 使用 switch case 进行 5 档划分，提供更细腻的语境
+		switch {
+		case val <= 20:
+			// 极度恐慌：不仅仅是抄底，更要提醒风险
+			advice = "🔴 极度恐慌 (Extreme Fear) -> 市场情绪冰点，可能存在非理性抛售，关注左侧建仓机会，但需防范阴跌。"
+		case val > 20 && val <= 40:
+			// 恐慌：市场疲软，适合定投
+			advice = "🟠 恐慌 (Fear) -> 市场信心不足，空头占优，适合观望或小额定投，等待筑底信号。"
+		case val > 40 && val <= 60:
+			// 中性：真正的震荡期
+			advice = "⚪️ 中性 (Neutral) -> 多空博弈平衡，情绪无明显倾向，建议重点依赖K线形态和趋势线操作。"
+		case val > 60 && val <= 80:
+			// 贪婪：趋势向好
+			advice = "🟢 贪婪 (Greed) -> 市场情绪乐观，购买力增强，顺势持有为主，但不宜激进追高。"
+		case val > 80:
+			// 极度贪婪：泡沫风险
+			advice = "🟣 极度贪婪 (Extreme Greed) -> FOMO 情绪高涨，虽然可能有加速冲顶行情，但务必分批止盈，收紧止损。"
 		}
+
 		sb.WriteString(fmt.Sprintf("  👉 **AI参考**: %s\n", advice))
 	}
 
@@ -670,22 +685,22 @@ func buildPositionsSection(ctx *Context) string {
 		switch state {
 		case "NO_STOP_LOSS":
 			statusIcon = "🚨"
-			actionGuide = "**极度危险**:该持仓没有止损!请立即输出 `update_stop_loss` (建议距离 ATR*3,中长线策略)。"
+			actionGuide = "**系统监控中**: 系统将自动设置初始止损。"
 		case "STAGE_1_INITIAL_RISK":
 			statusIcon = "🥚"
-			actionGuide = "**孵化期**：R:R < 0.8。除非价格跌破关键技术结构，否则 **HOLD**。给交易呼吸空间。"
+			actionGuide = "**孵化期**：R:R < 0.8。系统自动管理止损。AI请专注于趋势判断，除非结构破坏否则 **HOLD**。"
 		case "STAGE_2_RISK_REMOVAL":
 			statusIcon = "🛡️"
 			// 检查是否真保本了
 			isSafe := (pos.Side == "long" && currentSL >= pos.EntryPrice) || (pos.Side == "short" && currentSL <= pos.EntryPrice)
 			if isSafe {
-				actionGuide = "**安全期**：风险已移除。保持持有，等待利润奔跑。"
+				actionGuide = "**安全期**：风险已移除。系统自动追踪止损。"
 			} else {
-				actionGuide = "**行动请求**：系统判定应移除风险。请输出 `update_stop_loss` 将止损移至入场价附近 (Breakeven)。"
+				actionGuide = "**系统接管**：系统正在将止损移至保本位置 (Breakeven)。"
 			}
 		case "STAGE_3_TRAILING":
 			statusIcon = "💰"
-			actionGuide = "**获利期**：R:R > 1.5。请检查是否满足 `partial_close` (R:R>2.5) 或根据 ATR 收紧止损来锁定利润。"
+			actionGuide = "**获利期**：R:R > 1.5。系统自动执行移动止损 (Trailing Stop)。AI可根据市场结构决定是否 `partial_close` 或 `close_position`。"
 		default:
 			statusIcon = "❓"
 			actionGuide = "数据不足，建议 HOLD。"
@@ -868,17 +883,52 @@ func calculateManagementState(pos PositionInfo, currentStopLossPrice float64, ma
 	return state, rRatio
 }
 
-// CheckEmergencyExit 检查是否需要紧急离场（趋势破坏）
+// CheckEmergencyExit 检查是否需要紧急离场（趋势结构破坏）
 // 返回值: (是否需要平仓, 原因)
 //
-// 🔧 中长线策略优化: 完全禁用硬风控
-// 理由:
-// 1. 中长线策略不在意短期波动,给交易足够的呼吸空间
-// 2. 止损已调整为ATR*3,有足够的容错空间
-// 3. 完全交给AI根据大周期趋势判断,避免被正常回调扫出
+// 🔧 中长线策略优化: 仅在趋势结构彻底破坏时触发
+// 逻辑:
+// 1. 价格站稳 4H EMA50 对侧 (趋势分水岭)
+// 2. RSI(4H) 进入极值区 (超买/超卖)
+// 3. 避免因短期波动或轻微趋势线破坏而频繁止损
 func CheckEmergencyExit(pos PositionInfo, marketData *market.Data) (bool, string) {
-	// 中长线策略: 完全禁用紧急平仓,交给AI决策
-	// 如果方向错了,通过止损或AI主动平仓处理
+	// if marketData == nil || marketData.LongerTermContext == nil {
+	// 	return false, ""
+	// }
+
+	// ctx := marketData.LongerTermContext
+	// currentPrice := marketData.CurrentPrice
+
+	// // 获取 4H RSI (取最新值)
+	// var rsi4h float64
+	// if len(ctx.RSI14Values) > 0 {
+	// 	rsi4h = ctx.RSI14Values[len(ctx.RSI14Values)-1]
+	// }
+
+	// // 1. 空头 (Short) 离场条件
+	// if pos.Side == "short" {
+	// 	// A. 价格站稳 4H EMA50 上方 (趋势转牛)
+	// 	if ctx.EMA50 > 0 && currentPrice > ctx.EMA50 {
+	// 		return true, fmt.Sprintf("结构破坏: 价格(%.2f) 站上 4H EMA50(%.2f)", currentPrice, ctx.EMA50)
+	// 	}
+	// 	// B. RSI(4H) 超买 (不利于空头)
+	// 	if rsi4h > 70 {
+	// 		return true, fmt.Sprintf("结构破坏: 4H RSI(%.2f) 进入超买区", rsi4h)
+	// 	}
+	// }
+
+	// // 2. 多头 (Long) 离场条件
+	// if pos.Side == "long" {
+	// 	// A. 价格跌破 4H EMA50 下方 (趋势转熊)
+	// 	if ctx.EMA50 > 0 && currentPrice < ctx.EMA50 {
+	// 		return true, fmt.Sprintf("结构破坏: 价格(%.2f) 跌破 4H EMA50(%.2f)", currentPrice, ctx.EMA50)
+	// 	}
+	// 	// B. RSI(4H) 超卖 (不利于多头)
+	// 	if rsi4h > 0 && rsi4h < 30 {
+	// 		return true, fmt.Sprintf("结构破坏: 4H RSI(%.2f) 进入超卖区", rsi4h)
+	// 	}
+	// }
+
 	return false, ""
 }
 
