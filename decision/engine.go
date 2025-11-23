@@ -524,10 +524,29 @@ func buildMarketContextSection(ctx *Context) string {
 	sb.WriteString("> 这里的状态决定了是否允许开新仓 (Long/Short)。\n\n")
 
 	// 1.1 VIX 恐慌指数 (如有)
+	// 1.1 VIX 恐慌指数 (如有)
 	if ctx.GlobalSentiment != nil {
 		sb.WriteString(fmt.Sprintf("- **市场情绪 (VIX)**: %.2f [%s]\n",
 			ctx.GlobalSentiment.VIX, ctx.GlobalSentiment.FearLevel))
 		sb.WriteString(fmt.Sprintf("  👉 **风控建议**: %s\n", ctx.GlobalSentiment.Recommendation))
+	}
+
+	// 1.2 恐慌贪婪指数 (Fear & Greed Index) - 新增
+	// 从 BTCUSDT 数据中获取 (因为它是全局指标，每个 Data 都有)
+	if btcData, ok := ctx.MarketDataMap["BTCUSDT"]; ok && btcData.FearGreedIndex != nil {
+		fg := btcData.FearGreedIndex
+		sb.WriteString(fmt.Sprintf("- **Fear & Greed Index**: %d [%s]\n", fg.Value, fg.Classification))
+
+		// 简单的行动建议
+		var advice string
+		if fg.Value < 20 {
+			advice = "极度恐慌 (Extreme Fear) -> 寻找超跌反弹机会"
+		} else if fg.Value > 80 {
+			advice = "极度贪婪 (Extreme Greed) -> 警惕顶部反转"
+		} else {
+			advice = "情绪中性 -> 依赖技术面"
+		}
+		sb.WriteString(fmt.Sprintf("  👉 **AI参考**: %s\n", advice))
 	}
 
 	// 1.2 BTC 领头羊状态
