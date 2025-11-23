@@ -21,6 +21,7 @@ type Data struct {
 	MidTermSeries1h   *MidTermData1h  // 1小时数据 - 中期趋势
 	LongerTermContext *LongerTermData // 4小时数据 - 长期趋势
 	DailyContext      *DailyData      // 日线数据 - 长期趋势和极端位置判断
+	FearGreedIndex    *FearGreedIndex // 恐慌贪婪指数
 
 	// ⚡ 新增：宏觀市場情緒（免費來源：Yahoo Finance API、Alpha Vantage）
 	MarketSentiment *MarketSentiment // VIX 恐慌指數、美股狀態等

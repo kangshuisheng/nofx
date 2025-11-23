@@ -20,6 +20,32 @@ type FundingRateCache struct {
 	UpdatedAt time.Time
 }
 
+// FearGreedIndex 恐慌贪婪指数结构
+type FearGreedIndex struct {
+	Value          int    `json:"value"`          // 0-100
+	Classification string `json:"classification"` // e.g. "Extreme Fear"
+	Timestamp      int64  `json:"timestamp"`
+}
+
+// FearGreedResponse API响应结构
+type FearGreedResponse struct {
+	Data []struct {
+		Value           string `json:"value"`
+		ValueClass      string `json:"value_classification"`
+		Timestamp       string `json:"timestamp"`
+		TimeUntilUpdate string `json:"time_until_update"`
+	} `json:"data"`
+	Metadata struct {
+		Error interface{} `json:"error"`
+	} `json:"metadata"`
+}
+
+var (
+	fearGreedCache     *FearGreedIndex
+	fearGreedUpdatedAt time.Time
+	fgCacheTTL         = 30 * time.Minute // 指数每天更新一次，30分钟缓存足够
+)
+
 var (
 	fundingRateMap sync.Map // map[string]*FundingRateCache
 	frCacheTTL     = 1 * time.Hour
@@ -233,6 +259,7 @@ func Get(symbol string, timeframes []string) (*Data, error) {
 		MidTermSeries1h:   midTermData1h,
 		LongerTermContext: longerTermData,
 		DailyContext:      dailyData,
+		FearGreedIndex:    getFearGreedIndex(), // 获取恐慌贪婪指数
 	}, nil
 }
 
@@ -734,6 +761,60 @@ func getFundingRate(symbol string) (float64, error) {
 	})
 
 	return rate, nil
+	return rate, nil
+}
+
+// getFearGreedIndex 获取恐慌贪婪指数 (带缓存)
+func getFearGreedIndex() *FearGreedIndex {
+	// 1. 检查缓存
+	if fearGreedCache != nil && time.Since(fearGreedUpdatedAt) < fgCacheTTL {
+		return fearGreedCache
+	}
+
+	// 2. 调用 API
+	url := "https://api.alternative.me/fng/?limit=1"
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("⚠️ 获取恐慌贪婪指数失败: %v", err)
+		if fearGreedCache != nil {
+			return fearGreedCache // 失败时返回旧缓存
+		}
+		return nil
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("⚠️ 读取恐慌贪婪指数响应失败: %v", err)
+		return nil
+	}
+
+	var result FearGreedResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("⚠️ 解析恐慌贪婪指数JSON失败: %v", err)
+		return nil
+	}
+
+	if len(result.Data) == 0 {
+		return nil
+	}
+
+	// 3. 解析数据
+	val, _ := strconv.Atoi(result.Data[0].Value)
+	ts, _ := strconv.ParseInt(result.Data[0].Timestamp, 10, 64)
+
+	index := &FearGreedIndex{
+		Value:          val,
+		Classification: result.Data[0].ValueClass,
+		Timestamp:      ts,
+	}
+
+	// 4. 更新缓存
+	fearGreedCache = index
+	fearGreedUpdatedAt = time.Now()
+
+	return index
 }
 
 // Format 格式化市场数据
@@ -753,6 +834,12 @@ func Format(data *Data) string {
 
 	sb.WriteString(fmt.Sprintf("Price: %s | OI Chg(4h): %.2f%%%s | Funding: %.6f%s\n\n",
 		priceStr, data.OpenInterest.Change4h, oiIcon, data.FundingRate, fundingIcon))
+
+	// 1.5 恐慌贪婪指数
+	if data.FearGreedIndex != nil {
+		sb.WriteString(fmt.Sprintf("- Fear & Greed Index: %d (%s)\n",
+			data.FearGreedIndex.Value, data.FearGreedIndex.Classification))
+	}
 
 	// 2. 市场情绪上下文
 	if data.OpenInterest != nil && data.OpenInterest.LongShortRatio > 0 {

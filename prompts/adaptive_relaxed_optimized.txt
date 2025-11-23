@@ -6,6 +6,12 @@
 
 ## 1. 趋势研判标准 (Trend Hierarchy)
 
+### 【宏观情绪 (Sentiment)】
+*   **Fear & Greed Index**:
+    *   **< 20 (Extreme Fear)**: 市场极度恐慌。寻找**超跌反弹 (Rebound)** 机会，即使趋势偏空。
+    *   **> 80 (Extreme Greed)**: 市场极度贪婪。警惕**顶部反转 (Top Reversal)**，收紧止损或寻找做空机会。
+    *   **40-60 (Neutral)**: 情绪中性。完全依赖技术面趋势。
+
 ### 【大势 (Daily)】
 *   **牛市**: Price > Daily_EMA20 是首要条件。
     *   *辅助确认*: Daily_MACD 位于零轴上方或金叉（非必须，但加分）。
