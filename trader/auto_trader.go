@@ -478,8 +478,29 @@ func (at *AutoTrader) runMonitoringCycle() error {
 		}
 
 		// 3. 自动管理逻辑 (移动止损/保本) - Go 代码直接接管
-		// 获取当前止损价格
+		// 获取当前止损价格：优先使用缓存，没有缓存时从实际订单中获取
 		currentSL := at.positionStopLoss[symbol+"_"+side]
+		if currentSL == 0 {
+			// 缓存中没有，尝试从实际订单中获取
+			openOrders, err := at.trader.GetOpenOrders(symbol)
+			if err == nil {
+				for _, order := range openOrders {
+					// 判断是否为当前持仓的止损单
+					isStopOrder := (order.Type == "STOP_MARKET" || order.Type == "STOP")
+					isMatchingSide := (side == "long" && order.Side == "SELL") ||
+						(side == "short" && order.Side == "BUY")
+
+					if isStopOrder && isMatchingSide {
+						currentSL = order.StopPrice
+						// 同步到缓存
+						at.positionStopLoss[symbol+"_"+side] = currentSL
+						log.Printf("📝 [监控] 从订单同步止损价格到缓存: %s %.4f", symbol, currentSL)
+						break
+					}
+				}
+			}
+		}
+
 		mgmtAction := decision.CheckManagementAction(posInfo, currentSL, marketData)
 
 		if mgmtAction.Action == "update_stop_loss" {

@@ -18,25 +18,25 @@ type ManagementAction struct {
 func CheckManagementAction(pos PositionInfo, currentSL float64, marketData *market.Data) ManagementAction {
 	if currentSL == 0 {
 		// 没有止损，必须立即设置
-		// 默认 ATR*3 宽止损
+		// 默认 ATR*2.5 中长线止损（兼顾安全性和风险控制）
 		atr := 0.0
 		if marketData != nil && marketData.LongerTermContext != nil {
 			atr = marketData.LongerTermContext.ATR14
 		}
 		if atr == 0 {
-			atr = pos.MarkPrice * 0.05 // 降级：5%
+			atr = pos.MarkPrice * 0.03 // 降级：3%
 		}
 
 		newSL := 0.0
 		if pos.Side == "long" {
-			newSL = pos.EntryPrice - 3*atr
+			newSL = pos.EntryPrice - 2.5*atr
 		} else {
-			newSL = pos.EntryPrice + 3*atr
+			newSL = pos.EntryPrice + 2.5*atr
 		}
 		return ManagementAction{
 			Action:   "update_stop_loss",
 			NewPrice: newSL,
-			Reason:   "紧急: 缺失止损保护 (默认 ATR*3)",
+			Reason:   "紧急: 缺失止损保护 (默认 ATR*2.5)",
 		}
 	}
 
