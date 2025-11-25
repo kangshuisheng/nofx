@@ -89,6 +89,7 @@ type LongerTermData struct {
 	AverageVolume float64
 	MACDValues    []float64
 	RSI14Values   []float64
+	ADX           float64 // 新增: ADX趋势强度
 }
 
 // DailyData 日线数据 - 用于长期趋势判断和极端位置识别
@@ -100,6 +101,7 @@ type DailyData struct {
 	RSI14Values []float64 // RSI14序列
 	ATR14Values []float64 // ATR14序列（波动率）
 	Volume      []float64 // 成交量序列
+	ADX         float64   // 新增: ADX趋势强度
 }
 
 // Binance API 响应结构
