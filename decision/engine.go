@@ -408,8 +408,13 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	}
 
 	// 2. 硬约束（风险控制）- 动态生成
+	// 🔧 使用统一风控配置
+	cfg := DefaultRiskConfig()
+	maxRiskPct := cfg.MaxSingleTradeRiskPct * 100 // 转换为百分比
+	targetRiskPct := maxRiskPct * 0.9             // 建议目标为上限的90%
+
 	sb.WriteString("# 硬约束（绝对风控法则）\n\n")
-	sb.WriteString(fmt.Sprintf("1. **最大单笔亏损**: **任何单笔交易的潜在亏损不得超过账户净值的2%%** (后端代码强制验证)。你的计算目标应为1.8%%以确保通过。\n"))
+	sb.WriteString(fmt.Sprintf("1. **最大单笔亏损**: **任何单笔交易的潜在亏损不得超过账户净值的%.1f%%** (后端代码强制验证)。你的计算目标应为%.1f%%以确保通过。\n", maxRiskPct, targetRiskPct))
 	sb.WriteString(fmt.Sprintf("2. **最大仓位价值**: \n   - **山寨币**: 名义价值不得超过账户净值的**75%%** (≤ %.2f USDT)\n   - **BTC/ETH**: 名义价值不得超过账户净值的**85%%** (≤ %.2f USDT)\n", accountEquity*0.75, accountEquity*0.85))
 	sb.WriteString("3. **最多持仓**: 3个币种\n")
 	sb.WriteString(fmt.Sprintf("4. **杠杆限制**: **山寨币最大%dx** | **BTC/ETH最大%dx**\n", altcoinLeverage, btcEthLeverage))
@@ -598,8 +603,9 @@ func buildAccountSection(ctx *Context) string {
 	sb.WriteString("## 💼 2. 账户资金与硬性风控 (Risk Limits)\n")
 	sb.WriteString("> 所有开仓指令必须通过以下验证，否则会被拒绝。\n\n")
 
-	// 计算具体的风控数值，直接告诉 AI 结果
-	maxRiskUSD := ctx.Account.TotalEquity * 0.03 // 3% 单笔最大亏损
+	// 🔧 使用统一风控配置
+	cfg := DefaultRiskConfig()
+	maxRiskUSD := ctx.Account.TotalEquity * cfg.MaxSingleTradeRiskPct // 单笔最大亏损
 
 	// 获取 BTC 和 山寨 的具体仓位上限
 	// minBTCSize := calculateMinPositionSize("BTCUSDT", ctx.Account.TotalEquity)
@@ -632,7 +638,7 @@ func buildAccountSection(ctx *Context) string {
 	sb.WriteString(fmt.Sprintf("- **持仓占用**: %d / 3 个位置\n", ctx.Account.PositionCount))
 
 	sb.WriteString("- **本轮开仓限制 (Hard Constraints)**:\n")
-	sb.WriteString(fmt.Sprintf("  1. **最大亏损 (Risk)**: 单笔不得超过 **%.2f USDT** (净值的 3%%)\n", maxRiskUSD))
+	sb.WriteString(fmt.Sprintf("  1. **最大亏损 (Risk)**: 单笔不得超过 **%.2f USDT** (净值的 %.1f%%)\n", maxRiskUSD, cfg.MaxSingleTradeRiskPct*100))
 	sb.WriteString(fmt.Sprintf("  2. **BTC/ETH 开仓价值**: 24 - %.0f USDT\n", maxPosBTC))
 	sb.WriteString(fmt.Sprintf("  3. **山寨币开仓价值**: 12 - %.0f USDT\n", maxPosAlt))
 	sb.WriteString("\n")

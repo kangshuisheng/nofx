@@ -16,24 +16,26 @@ type ManagementAction struct {
 // CheckManagementAction 检查持仓管理动作 (Go自动执行)
 // 替代原有的 calculateManagementState，直接返回具体操作
 func CheckManagementAction(pos PositionInfo, currentSL float64, marketData *market.Data) ManagementAction {
+	cfg := DefaultRiskConfig() // 🔧 使用统一风控配置
+
 	if currentSL == 0 {
 		// 没有止损，必须立即设置
-		// 默认 ATR*1.5 紧凑止损（优化风控：减少单笔亏损）
+		// 默认 ATR*multiplier 紧凑止损（优化风控：减少单笔亏损）
 		atr := 0.0
 		if marketData != nil && marketData.LongerTermContext != nil {
 			atr = marketData.LongerTermContext.ATR14
 		}
 		if atr == 0 {
-			atr = pos.MarkPrice * 0.015 // 降级：1.5% (原 3%)
+			atr = pos.MarkPrice * cfg.DefaultStopLossPct // 🔧 使用配置: 降级 2.5%
 		}
 
 		newSL := 0.0
-		// 计算 ATR*1.5 止损
-		slDist := 1.5 * atr
+		// 计算 ATR*multiplier 止损
+		slDist := cfg.DefaultStopLossATRMultiplier * atr // 🔧 使用配置: 2.5x
 
-		// 🛡️ 硬顶保护：止损距离不得超过入场价的 2%
+		// 🛡️ 硬顶保护：止损距离不得超过入场价的配置百分比
 		// 防止高波动率下 ATR 过大导致亏损过高
-		maxDist := pos.EntryPrice * 0.02
+		maxDist := pos.EntryPrice * cfg.MaxStopLossPct // 🔧 使用配置: 2.5%
 		if slDist > maxDist {
 			slDist = maxDist
 		}
@@ -46,7 +48,7 @@ func CheckManagementAction(pos PositionInfo, currentSL float64, marketData *mark
 		return ManagementAction{
 			Action:   "update_stop_loss",
 			NewPrice: newSL,
-			Reason:   fmt.Sprintf("紧急: 缺失止损保护 (默认 ATR*1.5, Max 2%%)"),
+			Reason:   fmt.Sprintf("紧急: 缺失止损保护 (默认 ATR*%.1f, Max %.1f%%)", cfg.DefaultStopLossATRMultiplier, cfg.MaxStopLossPct*100),
 		}
 	}
 
@@ -74,8 +76,8 @@ func CheckManagementAction(pos PositionInfo, currentSL float64, marketData *mark
 	rRatio := currentProfitDist / initialRisk
 
 	// 4. 阶段 2: 风险移除 (Breakeven)
-	// 条件: R:R > 1.0 且尚未保本
-	if rRatio >= 1.0 {
+	// 条件: R:R >= BreakevenRRRatio 且尚未保本
+	if rRatio >= cfg.BreakevenRRRatio { // 🔧 使用配置: 1.0
 		isBreakeven := (pos.Side == "long" && currentSL >= pos.EntryPrice) ||
 			(pos.Side == "short" && currentSL <= pos.EntryPrice)
 
@@ -91,14 +93,14 @@ func CheckManagementAction(pos PositionInfo, currentSL float64, marketData *mark
 			return ManagementAction{
 				Action:   "update_stop_loss",
 				NewPrice: newSL,
-				Reason:   fmt.Sprintf("风险移除 (R:R=%.2f > 1.0) -> 移动至保本位", rRatio),
+				Reason:   fmt.Sprintf("风险移除 (R:R=%.2f >= %.1f) -> 移动至保本位", rRatio, cfg.BreakevenRRRatio),
 			}
 		}
 	}
 
 	// 5. 阶段 3: 利润锁定 (Trailing)
-	// 条件: R:R > 2.0
-	if rRatio >= 2.0 {
+	// 条件: R:R >= TrailingRRRatio
+	if rRatio >= cfg.TrailingRRRatio { // 🔧 使用配置: 2.0
 		// 简单的移动止损逻辑: 锁定 50% 的利润
 		// 或者移动到 Entry + 1R 的位置
 		targetLockPrice := 0.0
@@ -109,7 +111,7 @@ func CheckManagementAction(pos PositionInfo, currentSL float64, marketData *mark
 				return ManagementAction{
 					Action:   "update_stop_loss",
 					NewPrice: targetLockPrice,
-					Reason:   fmt.Sprintf("利润锁定 (R:R=%.2f > 2.0) -> 锁定 1R 利润", rRatio),
+					Reason:   fmt.Sprintf("利润锁定 (R:R=%.2f >= %.1f) -> 锁定 1R 利润", rRatio, cfg.TrailingRRRatio),
 				}
 			}
 		} else {
@@ -119,7 +121,7 @@ func CheckManagementAction(pos PositionInfo, currentSL float64, marketData *mark
 				return ManagementAction{
 					Action:   "update_stop_loss",
 					NewPrice: targetLockPrice,
-					Reason:   fmt.Sprintf("利润锁定 (R:R=%.2f > 2.0) -> 锁定 1R 利润", rRatio),
+					Reason:   fmt.Sprintf("利润锁定 (R:R=%.2f >= %.1f) -> 锁定 1R 利润", rRatio, cfg.TrailingRRRatio),
 				}
 			}
 		}

@@ -86,7 +86,7 @@ func (ev *EnhancedValidator) basicValidation(d *Decision) error {
 	return nil
 }
 
-// validateRisk 风险验证 (与您的最新指令同步: 2%硬顶)
+// validateRisk 风险验证 (使用统一风控配置)
 func (ev *EnhancedValidator) validateRisk(d *Decision, result *ValidationResult) {
 	marketData, ok := ev.MarketData[d.Symbol]
 	if !ok || marketData.CurrentPrice <= 0 {
@@ -112,12 +112,13 @@ func (ev *EnhancedValidator) validateRisk(d *Decision, result *ValidationResult)
 	riskPercent := (potentialLossUSD / ev.AccountEquity) * 100
 	result.RiskPercent = riskPercent
 
-	// 验证风险预算，与您的最新指令同步：2%
-	maxAllowedRisk := ev.AccountEquity * 0.02
+	// 🔧 使用统一风控配置
+	cfg := DefaultRiskConfig()
+	maxAllowedRisk := ev.AccountEquity * cfg.MaxSingleTradeRiskPct
 	if potentialLossUSD > maxAllowedRisk {
 		result.Errors = append(result.Errors,
-			fmt.Sprintf("风险超限: 潜在亏损 %.2f USDT (%.2f%%) > 最大允许 %.2f USDT (2.0%%)",
-				potentialLossUSD, riskPercent, maxAllowedRisk))
+			fmt.Sprintf("风险超限: 潜在亏损 %.2f USDT (%.2f%%) > 最大允许 %.2f USDT (%.1f%%)",
+				potentialLossUSD, riskPercent, maxAllowedRisk, cfg.MaxSingleTradeRiskPct*100))
 		result.IsValid = false
 	}
 }
