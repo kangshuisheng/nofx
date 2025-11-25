@@ -524,7 +524,7 @@ func buildMarketContextSection(ctx *Context) string {
 	sb.WriteString("> 这里的状态决定了是否允许开新仓 (Long/Short)。\n\n")
 
 	// 1.1 VIX 恐慌指数 (如有)
-	if ctx.GlobalSentiment != nil {
+	if ctx.GlobalSentiment != nil && ctx.GlobalSentiment.VIX > 0 {
 		sb.WriteString(fmt.Sprintf("- **市场情绪 (VIX)**: %.2f [%s]\n",
 			ctx.GlobalSentiment.VIX, ctx.GlobalSentiment.FearLevel))
 		sb.WriteString(fmt.Sprintf("  👉 **风控建议**: %s\n", ctx.GlobalSentiment.Recommendation))

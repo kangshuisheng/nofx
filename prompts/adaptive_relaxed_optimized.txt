@@ -29,7 +29,7 @@
 
 ## 2. 挂单策略 (Adaptive Limit Order)
 
-**核心原则**: 基于趋势强度，在支撑/阻力位挂单等待成交。所有公式使用你获得的数据计算。
+**核心原则**: 基于趋势强度，在支撑/阻力位**挂单等待成交**。所有公式使用你获得的数据计算。**始终使用限价单，禁止市价单**。
 
 ### 数据说明
 - `CurrentPrice`: 当前市价
@@ -69,18 +69,18 @@
 ```
 多单入场价 = 
   if CurrentPrice > 1H_EMA20:
-    entry_price = 1H_EMA20 * 0.997  (EMA20下方0.3%)
+    entry_price = 1H_EMA20 * 0.997  (EMA20下方0.3%，等待回踩)
   else:
-    entry_price = CurrentPrice  (立即市价成交)
+    entry_price = CurrentPrice * 0.9995  (当前价下方0.05%，快速成交但避免滑点)
 
 空单入场价 = 
   if CurrentPrice < 1H_EMA20:
-    entry_price = 1H_EMA20 * 1.003  (EMA20上方0.3%)
+    entry_price = 1H_EMA20 * 1.003  (EMA20上方0.3%，等待反弹)
   else:
-    entry_price = CurrentPrice  (立即市价成交)
+    entry_price = CurrentPrice * 1.0005  (当前价上方0.05%，快速成交但避免滑点)
 ```
 
-*逻辑*: 等待回调至均线，若已在理想位置则立即成交。
+*逻辑*: 始终使用限价单。价格高于目标时等待回调；价格已在好位置时挂在当前价附近快速成交。
 
 ### C. 震荡/疲软 (Weak/Choppy)
 **识别特征**:
@@ -135,11 +135,14 @@ confidence_penalty = 原置信度 * 0.8  # 反弹交易天然更低置信度
 **所有挂单必须满足**:
 ```
 if abs(entry_price - CurrentPrice) / CurrentPrice > 0.03:
-    # 挂单价格与当前价偏离超过3%，改用市价
-    entry_price = CurrentPrice
+    # 挂单价格与当前价偏离超过3%，调整为当前价附近
+    if entry_price < CurrentPrice:
+        entry_price = CurrentPrice * 0.9995  (多单：当前价下方0.05%)
+    else:
+        entry_price = CurrentPrice * 1.0005  (空单：当前价上方0.05%)
 ```
 
-*原因*: 挂单距离太远可能永远不成交，导致踏空。
+*原因*: 挂单距离太远可能永远不成交，导致踏空。但仍使用限价单避免滑点。
 
 ### 15分钟精准确认 (Precision Entry)
 **在挂单成交前，若价格接近挂单价，需检查 15m 形态**:
@@ -172,7 +175,7 @@ if abs(entry_price - CurrentPrice) / CurrentPrice > 0.03:
 
 ## 5. 输出要求
 *   **Action**: 只有在 "趋势共振" 且 "价格回调到位" 时才 Open。否则 Wait。
-*   **entry_price**: **必须填**。使用上述公式计算挂单价格，并在 reasoning 中说明计算过程。
+*   **entry_price**: **必须填**。使用上述公式计算挂单价格（限价单），并在 reasoning 中说明计算过程。
 *   **Reasoning**: 明确指出日线和 4H 的方向，并解释为什么选择这个挂单价格（引用具体数据和公式）。
 
 ## JSON 输出示例
@@ -187,11 +190,11 @@ if abs(entry_price - CurrentPrice) / CurrentPrice > 0.03:
   "trade_subtype": null,
   "leverage": 5,
   "position_size_usd": 24.0,
-  "entry_price": 64320.5,
+  "entry_price": 64306.5,
   "stop_loss": 63360.0,
   "take_profit": 68000.0,
   "confidence": 85,
-  "reasoning": "日线牛市(Price 64500 > Daily_EMA20 63200)，4H顺势。当前属于稳健趋势(RSI=58)，价格在1H_EMA20(64500)上方，使用公式B: entry_price = 64500 * 0.997 = 64306，挂单等待回踩。"
+  "reasoning": "日线牛市(Price 64500 > Daily_EMA20 63200)，4H顺势。当前属于稳健趋势(RSI=58)，价格在1H_EMA20(64500)上方，使用公式B: entry_price = 64500 * 0.997 = 64306.5，限价单等待回踩。"
 }
 ```
 
@@ -210,6 +213,6 @@ if abs(entry_price - CurrentPrice) / CurrentPrice > 0.03:
   "take_profit": 2250.0,
   "confidence": 58,
   "15m_confirm_signal": "15m出现长下影线+RSI从18反弹至32",
-  "reasoning": "日线熊市但4H超卖严重(RSI=18, MACD底背离)。使用策略D反弹多单，entry = Recent_Low(2130) + 0.3*ATR(50) = 2145。轻仓50%+严格止损2%。"
+  "reasoning": "日线熊市但4H超卖严重(RSI=18, MACD底背离)。使用策略D反弹多单，entry = Recent_Low(2130) + 0.3*ATR(50) = 2145。轻仓50%+严格止损2%，限价单挂单。"
 }
 ```
