@@ -1124,16 +1124,17 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 		}
 	}
 
-	// 计算数量 (PositionSizeUSD 视为保证金，需乘以杠杆)
-	// 修正: 用户输入 24U 通常指保证金，而非名义价值。
-	// 名义价值 = 保证金 * 杠杆
-	notionalValue := decision.PositionSizeUSD * float64(decision.Leverage)
-	quantity := notionalValue / marketData.CurrentPrice
+	// 计算数量 (ComputePositionSize: 由 Go 端根据 stop loss、账户余额和配置计算)
+	notionalValue, quantity, appliedRisk, err := ComputePositionSize(at, decision, marketData)
+	if err != nil {
+		return fmt.Errorf("❌ 计算仓位失败: %v", err)
+	}
+	_ = appliedRisk // currently not used in this scope but returned for visibility
 	actionRecord.Quantity = quantity
 	actionRecord.Price = marketData.CurrentPrice
 
 	// ⚠️ 保证金验证：防止保证金不足错误（code=-2019）
-	requiredMargin := decision.PositionSizeUSD
+	requiredMargin := notionalValue / float64(decision.Leverage)
 
 	balance, err := at.trader.GetBalance()
 	if err != nil {
@@ -1151,6 +1152,11 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	if totalRequired > availableBalance {
 		return fmt.Errorf("❌ 保证金不足: 需要 %.2f USDT（保证金 %.2f + 手续费 %.2f），可用 %.2f USDT",
 			totalRequired, requiredMargin, estimatedFee, availableBalance)
+	}
+
+	// 🔒 强制名义价值上限验证（使用集中校验 helper）
+	if err := ValidateNotional(decision.Symbol, notionalValue); err != nil {
+		return err
 	}
 
 	// ⚡ 严格验证止损/止盈价格（防止开仓后无法设置保护，导致仓位风险）
@@ -1318,16 +1324,17 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 		}
 	}
 
-	// 计算数量 (PositionSizeUSD 视为保证金，需乘以杠杆)
-	// 修正: 用户输入 24U 通常指保证金，而非名义价值。
-	// 名义价值 = 保证金 * 杠杆
-	notionalValue := decision.PositionSizeUSD * float64(decision.Leverage)
-	quantity := notionalValue / marketData.CurrentPrice
+	// 计算数量 (ComputePositionSize: 由 Go 端根据 stop loss、账户余额和配置计算)
+	notionalValue, quantity, appliedRisk, err := ComputePositionSize(at, decision, marketData)
+	if err != nil {
+		return fmt.Errorf("❌ 计算仓位失败: %v", err)
+	}
+	_ = appliedRisk
 	actionRecord.Quantity = quantity
 	actionRecord.Price = marketData.CurrentPrice
 
 	// ⚠️ 保证金验证：防止保证金不足错误（code=-2019）
-	requiredMargin := decision.PositionSizeUSD
+	requiredMargin := notionalValue / float64(decision.Leverage)
 
 	balance, err := at.trader.GetBalance()
 	if err != nil {

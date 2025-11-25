@@ -117,11 +117,12 @@ type Decision struct {
 	Action string `json:"action"` // "open_long", "open_short", "close_long", "close_short", "update_stop_loss", "update_take_profit", "partial_close", "hold", "wait"
 
 	// 开仓参数
-	Leverage        int     `json:"leverage,omitempty"`
-	PositionSizeUSD float64 `json:"position_size_usd,omitempty"`
-	StopLoss        float64 `json:"stop_loss,omitempty"`
-	TakeProfit      float64 `json:"take_profit,omitempty"`
-	EntryPrice      float64 `json:"entry_price,omitempty"` // 限价单价格 (0表示市价)
+	Leverage                 int     `json:"leverage,omitempty"`
+	PositionSizeUSD          float64 `json:"position_size_usd,omitempty"`
+	SuggestedPositionSizeUSD float64 `json:"suggested_position_size_usd,omitempty"`
+	StopLoss                 float64 `json:"stop_loss,omitempty"`
+	TakeProfit               float64 `json:"take_profit,omitempty"`
+	EntryPrice               float64 `json:"entry_price,omitempty"` // 限价单价格 (0表示市价)
 
 	// 调整参数（新增）
 	NewStopLoss     float64 `json:"new_stop_loss,omitempty"`    // 用于 update_stop_loss
@@ -457,6 +458,8 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("- ❌ **不要使用市场数据中的任何数字**（如 Open Interest 合约数、Volume、价格等）作为 position_size_usd\n")
 	sb.WriteString("- ✅ **position_size_usd 必须根据账户净值和上述范围计算**\n")
 	sb.WriteString("- ✅ **系统会自动验证所有计算，确保风险控制在安全范围内**\n\n")
+	sb.WriteString("🔁 **输出说明**: 请在 JSON 输出中使用 `suggested_position_size_usd` 字段表示 AI 的建议名义（USDT）。如果仍使用 `position_size_usd`（兼容性），系统会自动将其视为建议。\n")
+	sb.WriteString("⚠️ **注意**: 所有建议均为参考，系统将基于止损、账户净值、杠杆和配置计算最终名义并执行订单。\n\n")
 
 	// 3. 输出格式 - 动态生成
 	sb.WriteString("# 输出格式 (严格遵守)\n\n")
@@ -608,29 +611,24 @@ func buildAccountSection(ctx *Context) string {
 	maxRiskUSD := ctx.Account.TotalEquity * cfg.MaxSingleTradeRiskPct // 单笔最大亏损
 
 	// 获取 BTC 和 山寨 的具体仓位上限
-	// minBTCSize := calculateMinPositionSize("BTCUSDT", ctx.Account.TotalEquity)
-	maxPosBTC := ctx.Account.TotalEquity * 0.85
+	minBTCSize := calculateMinPositionSize("BTCUSDT", ctx.Account.TotalEquity)
+	maxPosBTC := ctx.Account.TotalEquity * 1.0 // 默认允许名义价值上限为净值的100%
 	maxPosAlt := ctx.Account.TotalEquity * 0.75
 
-	// 🔒 测试阶段：设置名义价值上限
+	// 🔒 测试阶段：可选的名义价值上限（通过环境变量或配置设置）
 	// 名义价值 = 保证金 × 杠杆，因此保证金上限 = 名义价值上限 / 杠杆
-	// BTC/ETH: 5x 杠杆 → 保证金上限 = 80 / 5 = 16 USDT (名义价值 80 USDT)
-	// 山寨币: 3x 杠杆 → 保证金上限 = 60 / 3 = 20 USDT (名义价值 60 USDT)
-	maxNotionalValueBTC := 80.0 // BTC/ETH 名义价值上限（USDT）
-	maxNotionalValueAlt := 60.0 // 山寨币名义价值上限（USDT）
+	// 如果未设置，则默认不强制限制（在生产中请谨慎）
+	maxNotionalValueBTC := cfg.MaxNotionalBTC
+	maxNotionalValueAlt := cfg.MaxNotionalAlt
 
-	// 动态计算保证金上限（根据杠杆倍数）
-	btcEthLeverage := float64(ctx.BTCETHLeverage)   // 默认 5x
-	altcoinLeverage := float64(ctx.AltcoinLeverage) // 默认 3x
+	// 动态计算保证金上限（根据杠杆倍数） -- 占位注释
 
-	maxMarginBTC := maxNotionalValueBTC / btcEthLeverage  // 80 / 5 = 16 USDT
-	maxMarginAlt := maxNotionalValueAlt / altcoinLeverage // 60 / 3 = 20 USDT
-
-	if maxPosBTC > maxMarginBTC {
-		maxPosBTC = maxMarginBTC
+	// 如果测试环境设置了名义价值上限（maxNotionalValueBTC/Alt），就限制到该值
+	if maxNotionalValueBTC > 0 && maxPosBTC > maxNotionalValueBTC {
+		maxPosBTC = maxNotionalValueBTC
 	}
-	if maxPosAlt > maxMarginAlt {
-		maxPosAlt = maxMarginAlt
+	if maxNotionalValueAlt > 0 && maxPosAlt > maxNotionalValueAlt {
+		maxPosAlt = maxNotionalValueAlt
 	}
 
 	sb.WriteString(fmt.Sprintf("- **账户净值**: %.2f USDT | **可用余额**: %.2f USDT\n",
@@ -639,7 +637,7 @@ func buildAccountSection(ctx *Context) string {
 
 	sb.WriteString("- **本轮开仓限制 (Hard Constraints)**:\n")
 	sb.WriteString(fmt.Sprintf("  1. **最大亏损 (Risk)**: 单笔不得超过 **%.2f USDT** (净值的 %.1f%%)\n", maxRiskUSD, cfg.MaxSingleTradeRiskPct*100))
-	sb.WriteString(fmt.Sprintf("  2. **BTC/ETH 开仓价值**: 24 - %.0f USDT\n", maxPosBTC))
+	sb.WriteString(fmt.Sprintf("  2. **BTC/ETH 开仓价值**: %.0f - %.0f USDT\n", minBTCSize, maxPosBTC))
 	sb.WriteString(fmt.Sprintf("  3. **山寨币开仓价值**: 12 - %.0f USDT\n", maxPosAlt))
 	sb.WriteString("\n")
 	return sb.String()
@@ -748,27 +746,34 @@ func buildCandidatesSection(ctx *Context) string {
 	var sb strings.Builder
 	sb.WriteString("## 🎯 4. 猎物扫描 (Candidate Setup)\n\n")
 
-	validCount := 0
+	// 先筛选并收集所有有效候选币种，以便输出数量统计
+	validCoins := make([]CandidateCoin, 0)
 	for _, coin := range ctx.CandidateCoins {
 		// 过滤掉已经持有的币种
 		if holdingMap[coin.Symbol] {
 			continue
 		}
-
-		marketData, ok := ctx.MarketDataMap[coin.Symbol]
-		if !ok {
+		if _, ok := ctx.MarketDataMap[coin.Symbol]; !ok {
 			continue
 		}
+		validCoins = append(validCoins, coin)
+	}
 
-		validCount++
+	validCount := len(validCoins)
+	sb.WriteString(fmt.Sprintf("候选币种 (%d个)\n\n", validCount))
+
+	for i, coin := range validCoins {
 		sourceTag := "AI500"
 		if len(coin.Sources) > 0 {
 			sourceTag = strings.Join(coin.Sources, "+")
 		}
+		sb.WriteString(fmt.Sprintf("### [%d] %s (%s)\n", i+1, coin.Symbol, sourceTag))
 
-		sb.WriteString(fmt.Sprintf("### [%d] %s (%s)\n", validCount, coin.Symbol, sourceTag))
-
-		sb.WriteString(market.Format(marketData))
+		if marketData, ok := ctx.MarketDataMap[coin.Symbol]; ok {
+			sb.WriteString(market.Format(marketData))
+		} else {
+			sb.WriteString("(数据缺失)\n")
+		}
 		sb.WriteString("\n")
 	}
 
@@ -898,42 +903,42 @@ func calculateManagementState(pos PositionInfo, currentStopLossPrice float64, ma
 // 2. RSI(4H) 进入极值区 (超买/超卖)
 // 3. 避免因短期波动或轻微趋势线破坏而频繁止损
 func CheckEmergencyExit(pos PositionInfo, marketData *market.Data) (bool, string) {
-	// if marketData == nil || marketData.LongerTermContext == nil {
-	// 	return false, ""
-	// }
+	if marketData == nil || marketData.LongerTermContext == nil {
+		return false, ""
+	}
 
-	// ctx := marketData.LongerTermContext
-	// currentPrice := marketData.CurrentPrice
+	ctx := marketData.LongerTermContext
+	currentPrice := marketData.CurrentPrice
 
-	// // 获取 4H RSI (取最新值)
-	// var rsi4h float64
-	// if len(ctx.RSI14Values) > 0 {
-	// 	rsi4h = ctx.RSI14Values[len(ctx.RSI14Values)-1]
-	// }
+	// 获取 4H RSI (取最新值)
+	var rsi4h float64
+	if len(ctx.RSI14Values) > 0 {
+		rsi4h = ctx.RSI14Values[len(ctx.RSI14Values)-1]
+	}
 
-	// // 1. 空头 (Short) 离场条件
-	// if pos.Side == "short" {
-	// 	// A. 价格站稳 4H EMA50 上方 (趋势转牛)
-	// 	if ctx.EMA50 > 0 && currentPrice > ctx.EMA50 {
-	// 		return true, fmt.Sprintf("结构破坏: 价格(%.2f) 站上 4H EMA50(%.2f)", currentPrice, ctx.EMA50)
-	// 	}
-	// 	// B. RSI(4H) 超买 (不利于空头)
-	// 	if rsi4h > 70 {
-	// 		return true, fmt.Sprintf("结构破坏: 4H RSI(%.2f) 进入超买区", rsi4h)
-	// 	}
-	// }
+	// 1. 空头 (Short) 离场条件
+	if pos.Side == "short" {
+		// A. 价格站稳 4H EMA50 上方 (趋势转牛)
+		if ctx.EMA50 > 0 && currentPrice > ctx.EMA50 {
+			return true, fmt.Sprintf("结构破坏: 价格(%.2f) 站上 4H EMA50(%.2f)", currentPrice, ctx.EMA50)
+		}
+		// B. RSI(4H) 超买 (不利于空头)
+		if rsi4h > 70 {
+			return true, fmt.Sprintf("结构破坏: 4H RSI(%.2f) 进入超买区", rsi4h)
+		}
+	}
 
-	// // 2. 多头 (Long) 离场条件
-	// if pos.Side == "long" {
-	// 	// A. 价格跌破 4H EMA50 下方 (趋势转熊)
-	// 	if ctx.EMA50 > 0 && currentPrice < ctx.EMA50 {
-	// 		return true, fmt.Sprintf("结构破坏: 价格(%.2f) 跌破 4H EMA50(%.2f)", currentPrice, ctx.EMA50)
-	// 	}
-	// 	// B. RSI(4H) 超卖 (不利于多头)
-	// 	if rsi4h > 0 && rsi4h < 30 {
-	// 		return true, fmt.Sprintf("结构破坏: 4H RSI(%.2f) 进入超卖区", rsi4h)
-	// 	}
-	// }
+	// 2. 多头 (Long) 离场条件
+	if pos.Side == "long" {
+		// A. 价格跌破 4H EMA50 下方 (趋势转熊)
+		if ctx.EMA50 > 0 && currentPrice < ctx.EMA50 {
+			return true, fmt.Sprintf("结构破坏: 价格(%.2f) 跌破 4H EMA50(%.2f)", currentPrice, ctx.EMA50)
+		}
+		// B. RSI(4H) 超卖 (不利于多头)
+		if rsi4h > 0 && rsi4h < 30 {
+			return true, fmt.Sprintf("结构破坏: 4H RSI(%.2f) 进入超卖区", rsi4h)
+		}
+	}
 
 	return false, ""
 }
@@ -950,6 +955,15 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 			CoTTrace:  cotTrace,
 			Decisions: []Decision{},
 		}, fmt.Errorf("提取决策失败: %w", err)
+	}
+
+	// Map legacy PositionSizeUSD to SuggestedPositionSizeUSD for backward compatibility
+	for i := range decisions {
+		if decisions[i].PositionSizeUSD > 0 && decisions[i].SuggestedPositionSizeUSD == 0 {
+			decisions[i].SuggestedPositionSizeUSD = decisions[i].PositionSizeUSD
+			log.Printf("⚠️ Decision [%s] maps legacy PositionSizeUSD=%.2f to suggested_position_size_usd",
+				decisions[i].Symbol, decisions[i].PositionSizeUSD)
+		}
 	}
 
 	// 3. 验证决策
@@ -1275,6 +1289,11 @@ func validateDecisionWithMarketData(d *Decision, accountEquity float64, btcEthLe
 		// 使用增强版验证器进行详细检查
 		validator := NewEnhancedValidator(accountEquity, btcEthLeverage, altcoinLeverage, currentPositions)
 
+		// Map legacy PositionSizeUSD to SuggestedPositionSizeUSD for backward compatibility
+		if d.PositionSizeUSD > 0 && d.SuggestedPositionSizeUSD == 0 {
+			d.SuggestedPositionSizeUSD = d.PositionSizeUSD
+		}
+
 		// 获取市场数据用于验证
 		var marketData *market.Data
 		var err error
@@ -1375,8 +1394,8 @@ func validateDecisionWithMarketData(d *Decision, accountEquity float64, btcEthLe
 		}
 
 		// 记录风险控制信息
-		log.Printf("✅ %s 风险控制通过: 风险等级=%s, 风险比例=%.2f%%, 杠杆=%dx, 仓位=$%.2f",
-			d.Symbol, result.RiskLevel, result.RiskPercent, d.Leverage, d.PositionSizeUSD)
+		log.Printf("✅ %s 风险控制通过: 风险等级=%s, 风险比例=%.2f%%, 杠杆=%dx, 建议仓位=$%.2f",
+			d.Symbol, result.RiskLevel, result.RiskPercent, d.Leverage, d.SuggestedPositionSizeUSD)
 	}
 
 	// 动态调整止损验证

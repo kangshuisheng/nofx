@@ -44,6 +44,8 @@
 - `Daily_ADX`: 日线ADX趋势强度
 - `Funding_Rate`: 资金费率 (正值过高表示多头拥挤)
 
+⚠️ **输出说明（重要）**: 在 JSON 输出中请使用 `suggested_position_size_usd` 字段表示 AI 的建议名义价值（单位：USDT）。该字段为建议值，**服务器将基于止损、账户净值、杠杆与统一风控配置重新计算最终名义并裁剪执行**。如果你仍使用 `position_size_usd`（旧字段），服务器会将其视为 `suggested_position_size_usd` 的兼容输入。
+
 ### A. 极强趋势 (Strong Momentum)
 **识别特征**:
 - **4H_ADX > 25** (关键条件)
@@ -172,7 +174,7 @@ if abs(entry_price - CurrentPrice) / CurrentPrice > 0.03:
   "strategy_used": "B",
   "trade_subtype": null,
   "leverage": 5,
-  "position_size_usd": 24.0,
+  "suggested_position_size_usd": 24.0,  // 建议值（USDT），服务器将重新计算最终名义
   "entry_price": 64306.5,
   "stop_loss": 63360.0,
   "take_profit": 68000.0,
@@ -190,7 +192,7 @@ if abs(entry_price - CurrentPrice) / CurrentPrice > 0.03:
   "strategy_used": "D",
   "trade_subtype": "oversold_bounce",
   "leverage": 3,
-  "position_size_usd": 12.0,
+  "suggested_position_size_usd": 12.0,  // 建议值（USDT），服务器将重新计算最终名义
   "entry_price": 2145.0,
   "stop_loss": 2102.0,
   "take_profit": 2250.0,

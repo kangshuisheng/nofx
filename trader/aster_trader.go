@@ -653,6 +653,11 @@ func (t *AsterTrader) OpenLong(symbol string, quantity float64, leverage int) (m
 		"price":        priceStr,
 	}
 
+	// 在下单前验证名义价值
+	notional := formattedQty * formattedPrice
+	if err := ValidateNotional(symbol, notional); err != nil {
+		return nil, err
+	}
 	body, err := t.request("POST", "/fapi/v3/order", params)
 	if err != nil {
 		return nil, err

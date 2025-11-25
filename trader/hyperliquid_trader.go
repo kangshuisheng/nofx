@@ -415,6 +415,14 @@ func (t *HyperliquidTrader) OpenLong(symbol string, quantity float64, leverage i
 		ReduceOnly: false,
 	}
 
+	// Verify notional before placing the order
+	if err := ValidateNotional(symbol, roundedQuantity*price); err != nil {
+		return nil, err
+	}
+	// 验证名义价值
+	if err := ValidateNotional(symbol, roundedQuantity*aggressivePrice); err != nil {
+		return nil, err
+	}
 	_, err = t.exchange.Order(t.ctx, order, nil)
 	if err != nil {
 		return nil, fmt.Errorf("开多仓失败: %w", err)
@@ -467,6 +475,14 @@ func (t *HyperliquidTrader) OpenLongLimit(symbol string, quantity float64, price
 		ReduceOnly: false,
 	}
 
+	// 验证名义价值（限价单使用 limit price）
+	if err := ValidateNotional(symbol, roundedQuantity*roundedPrice); err != nil {
+		return nil, err
+	}
+	// 验证名义价值（限价单使用roundedPrice）
+	if err := ValidateNotional(symbol, roundedQuantity*roundedPrice); err != nil {
+		return nil, err
+	}
 	_, err := t.exchange.Order(t.ctx, order, nil)
 	if err != nil {
 		return nil, fmt.Errorf("限价多单提交失败: %w", err)
@@ -525,6 +541,9 @@ func (t *HyperliquidTrader) OpenShort(symbol string, quantity float64, leverage 
 		ReduceOnly: false,
 	}
 
+	if err := ValidateNotional(symbol, roundedQuantity*aggressivePrice); err != nil {
+		return nil, err
+	}
 	_, err = t.exchange.Order(t.ctx, order, nil)
 	if err != nil {
 		return nil, fmt.Errorf("开空仓失败: %w", err)
@@ -577,6 +596,9 @@ func (t *HyperliquidTrader) OpenShortLimit(symbol string, quantity float64, pric
 		ReduceOnly: false,
 	}
 
+	if err := ValidateNotional(symbol, roundedQuantity*roundedPrice); err != nil {
+		return nil, err
+	}
 	_, err := t.exchange.Order(t.ctx, order, nil)
 	if err != nil {
 		return nil, fmt.Errorf("限价空单提交失败: %w", err)
@@ -649,6 +671,9 @@ func (t *HyperliquidTrader) CloseLong(symbol string, quantity float64) (map[stri
 		ReduceOnly: true, // 只平仓，不开新仓
 	}
 
+	if err := ValidateNotional(symbol, roundedQuantity*aggressivePrice); err != nil {
+		return nil, err
+	}
 	_, err = t.exchange.Order(t.ctx, order, nil)
 	if err != nil {
 		return nil, fmt.Errorf("平多仓失败: %w", err)
@@ -726,6 +751,9 @@ func (t *HyperliquidTrader) CloseShort(symbol string, quantity float64) (map[str
 		ReduceOnly: true,
 	}
 
+	if err := ValidateNotional(symbol, roundedQuantity*aggressivePrice); err != nil {
+		return nil, err
+	}
 	_, err = t.exchange.Order(t.ctx, order, nil)
 	if err != nil {
 		return nil, fmt.Errorf("平空仓失败: %w", err)

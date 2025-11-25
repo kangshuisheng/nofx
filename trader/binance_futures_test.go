@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"nofx/config"
 	"strings"
 	"testing"
 	"time"
@@ -337,6 +338,30 @@ func NewBinanceFuturesTestSuite(t *testing.T) *BinanceFuturesTestSuite {
 	return &BinanceFuturesTestSuite{
 		TraderTestSuite: baseSuite,
 		mockServer:      mockServer,
+	}
+}
+
+func TestCheckMinNotional_EnforcesMaxNotional(t *testing.T) {
+	suite := NewBinanceFuturesTestSuite(t)
+	// DefaultRiskConfig returns 80 / 60 by default; for test override to 100
+	cfg := config.DefaultRiskConfig()
+	cfg.MaxNotionalBTC = 100.0
+
+	// quantity 0.01 * price 50000 = 500 USDT -> exceeds 100
+	ft := suite.Trader.(*FuturesTrader)
+	err := ft.CheckMinNotional("BTCUSDT", 0.01)
+	if err == nil {
+		t.Fatalf("expected error when notional 500 > max 100, got nil")
+	}
+}
+
+func TestCheckMinNotional_AllowBelowMax(t *testing.T) {
+	suite := NewBinanceFuturesTestSuite(t)
+	// Default MaxNotionalBTC == 80; choose a small quantity to be below limit
+	ft2 := suite.Trader.(*FuturesTrader)
+	// quantity 0.0002 * price 50000 = 10 USDT == minNotional, and < MaxNotional=80
+	if err := ft2.CheckMinNotional("BTCUSDT", 0.0002); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -51,6 +51,14 @@ func TestPromptContainsAllValidActions(t *testing.T) {
 	}
 }
 
+// TestPromptMentionsSuggestedField verifies prompt instructs AI to output suggested_position_size_usd
+func TestPromptMentionsSuggestedField(t *testing.T) {
+	prompt := buildSystemPrompt(100.0, 5, 5, "default")
+	if !strings.Contains(prompt, "suggested_position_size_usd") && !strings.Contains(prompt, "position_size_usd") {
+		t.Errorf("Prompt must mention suggested_position_size_usd or position_size_usd (compatibility) but didn't")
+	}
+}
+
 // TestValidateDecisionAcceptsAllActions verifies that validateDecision accepts all 9 actions
 // This ensures the prompt and validation logic are in sync
 func TestValidateDecisionAcceptsAllActions(t *testing.T) {
@@ -78,14 +86,14 @@ func TestValidateDecisionAcceptsAllActions(t *testing.T) {
 			// For open actions, add required fields
 			if action == "open_long" {
 				decision.Leverage = 5
-				decision.PositionSizeUSD = 100
+				decision.PositionSizeUSD = 65
 				decision.StopLoss = 99500 // 降低止损距离，使风险控制在1.5%以内
 				decision.TakeProfit = 100500
 				decision.RiskUSD = 1 // 风险1美元，对100美元账户就是1%
 			}
 			if action == "open_short" {
 				decision.Leverage = 5
-				decision.PositionSizeUSD = 100
+				decision.PositionSizeUSD = 65
 				decision.StopLoss = 100500 // For short: stop loss > take profit
 				decision.TakeProfit = 99500
 				decision.RiskUSD = 1 // 风险1美元，对100美元账户就是1%

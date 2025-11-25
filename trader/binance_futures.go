@@ -1358,6 +1358,10 @@ func (t *FuturesTrader) CheckMinNotional(symbol string, quantity float64) error 
 	}
 
 	notionalValue := quantity * price
+	// 校验名义价值是否超过系统配置的上限
+	if err := ValidateNotional(symbol, notionalValue); err != nil {
+		return err
+	}
 	minNotional := t.GetMinNotional(symbol)
 
 	if notionalValue < minNotional {

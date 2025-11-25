@@ -330,7 +330,7 @@ func (s *TraderTestSuite) TestOpenLong() {
 		{
 			name:      "成功开多仓",
 			symbol:    "BTCUSDT",
-			quantity:  0.01,
+			quantity:  0.001,
 			leverage:  10,
 			wantError: false,
 			validate: func(t *testing.T, result map[string]interface{}) {
@@ -379,7 +379,7 @@ func (s *TraderTestSuite) TestOpenShort() {
 		{
 			name:      "成功开空仓",
 			symbol:    "BTCUSDT",
-			quantity:  0.01,
+			quantity:  0.001,
 			leverage:  10,
 			wantError: false,
 			validate: func(t *testing.T, result map[string]interface{}) {
@@ -427,7 +427,7 @@ func (s *TraderTestSuite) TestCloseLong() {
 		{
 			name:      "平指定数量",
 			symbol:    "BTCUSDT",
-			quantity:  0.01,
+			quantity:  0.001,
 			wantError: false,
 			validate: func(t *testing.T, result map[string]interface{}) {
 				assert.NotNil(t, result)
@@ -470,7 +470,7 @@ func (s *TraderTestSuite) TestCloseShort() {
 		{
 			name:      "平指定数量",
 			symbol:    "BTCUSDT",
-			quantity:  0.01,
+			quantity:  0.001,
 			wantError: false,
 			validate: func(t *testing.T, result map[string]interface{}) {
 				assert.NotNil(t, result)

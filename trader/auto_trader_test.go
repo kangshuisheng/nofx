@@ -114,6 +114,12 @@ func (s *AutoTraderTestSuite) SetupTest() {
 		database:              s.mockDB,
 		userID:                "test_user",
 	}
+
+	// 默认 patch market.Get 避免 WSMonitor 未初始化导致的 panic
+	s.patches.ApplyFunc(market.Get, func(symbol string, frames []string) (*market.Data, error) {
+		// 返回简单的市场数据供测试使用
+		return &market.Data{Symbol: symbol, CurrentPrice: 50000.0}, nil
+	})
 }
 
 // TearDownTest 在每个测试用例结束后执行
@@ -852,6 +858,35 @@ func (s *AutoTraderTestSuite) TestExecuteDecisionWithRecord() {
 		s.Error(err)
 		s.Contains(err.Error(), "未知的action")
 	})
+}
+
+func (s *AutoTraderTestSuite) TestServerUsesComputePositionSize() {
+	// Ensure server-side ComputePositionSize is authoritative even when AI suggests large size
+	s.patches.ApplyFunc(market.Get, func(symbol string, frames []string) (*market.Data, error) {
+		return &market.Data{Symbol: symbol, CurrentPrice: 50500.0}, nil
+	})
+
+	s.mockTrader.balance["availableBalance"] = 10000.0
+
+	decision := &decision.Decision{
+		Action:                   "open_long",
+		Symbol:                   "BTCUSDT",
+		Leverage:                 10,
+		SuggestedPositionSizeUSD: 9999999, // AI suggests huge position
+		StopLoss:                 50499.0,
+	}
+	actionRecord := &logger.DecisionAction{Action: "open_long", Symbol: "BTCUSDT"}
+
+	// Compute expected values using ComputePositionSize
+	notional, qty, _, err := ComputePositionSize(s.autoTrader, decision, &market.Data{Symbol: "BTCUSDT", CurrentPrice: 50500.0})
+	s.NoError(err)
+
+	err = s.autoTrader.executeOpenLongWithRecord(decision, actionRecord)
+	s.NoError(err)
+
+	// ActionRecord should reflect server computed quantity
+	s.InDelta(qty, actionRecord.Quantity, 1e-8)
+	s.InDelta(notional/50500.0, actionRecord.Quantity, 1e-8)
 }
 
 func (s *AutoTraderTestSuite) TestCheckPositionDrawdown() {

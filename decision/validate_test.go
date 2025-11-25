@@ -122,6 +122,60 @@ func TestLeverageFallback(t *testing.T) {
 	}
 }
 
+// TestValidateDecision_AllowsMissingPositionSize ensures that a decision without
+// PositionSizeUSD (AI omitted it) still passes validation as long as other fields are valid
+func TestValidateDecision_AllowsMissingPositionSize(t *testing.T) {
+	decision := Decision{
+		Symbol:     "BTCUSDT",
+		Action:     "open_long",
+		Leverage:   5,
+		StopLoss:   99000,
+		TakeProfit: 101000,
+		// PositionSizeUSD is zero (AI did not supply)
+	}
+	err := validateDecisionWithMarketData(&decision, 100.0, 10, 5, nil, createMockMarketData())
+	if err != nil {
+		t.Fatalf("Expected validation to accept missing PositionSizeUSD, got: %v", err)
+	}
+}
+
+// TestValidateDecision_AISuggestsTooLarge ensures validator rejects AI's suggestion
+// when it exceeds server computed final notional
+func TestValidateDecision_AISuggestsTooLarge(t *testing.T) {
+	decision := Decision{
+		Symbol:          "BTCUSDT",
+		Action:          "open_long",
+		Leverage:        5,
+		StopLoss:        99000,
+		TakeProfit:      101000,
+		PositionSizeUSD: 9999999, // intentionally huge
+	}
+	err := validateDecisionWithMarketData(&decision, 100.0, 10, 5, nil, createMockMarketData())
+	if err == nil {
+		t.Fatalf("Expected validation to reject excessive PositionSizeUSD suggestion, got nil")
+	}
+}
+
+// TestMapping_LegacyPositionSize validates that legacy PositionSizeUSD is mapped to SuggestedPositionSizeUSD
+func TestMapping_LegacyPositionSize(t *testing.T) {
+	decision := Decision{
+		Symbol:          "BTCUSDT",
+		Action:          "open_long",
+		Leverage:        5,
+		StopLoss:        99000,
+		TakeProfit:      101000,
+		PositionSizeUSD: 30,
+	}
+	// validateDecisionWithMarketData maps PositionSizeUSD -> SuggestedPositionSizeUSD
+	err := validateDecisionWithMarketData(&decision, 100.0, 10, 5, nil, createMockMarketData())
+	if err != nil {
+		t.Fatalf("expected mapping & validation to succeed, got: %v", err)
+	}
+	if decision.SuggestedPositionSizeUSD != 30 {
+		t.Fatalf("expected SuggestedPositionSizeUSD to be mapped to 30, got: %.2f", decision.SuggestedPositionSizeUSD)
+	}
+}
+
 // TestCheckThousandsSeparatorsOutsideStrings tests the thousands separator validation
 func TestCheckThousandsSeparatorsOutsideStrings(t *testing.T) {
 	tests := []struct {

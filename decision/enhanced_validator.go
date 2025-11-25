@@ -3,7 +3,9 @@ package decision
 import (
 	"fmt"
 	"math"
+	"nofx/config"
 	"nofx/market"
+	"strings"
 )
 
 // EnhancedValidator 增强版验证器
@@ -95,25 +97,81 @@ func (ev *EnhancedValidator) validateRisk(d *Decision, result *ValidationResult)
 		return
 	}
 
-	if d.PositionSizeUSD <= 0 || d.StopLoss <= 0 {
-		result.Errors = append(result.Errors, "开仓金额和止损价必须为正数")
+	if d.StopLoss <= 0 {
+		result.Errors = append(result.Errors, "止损价必须为正数")
 		result.IsValid = false
 		return
 	}
 
-	quantity := d.PositionSizeUSD / marketData.CurrentPrice
-	potentialLossUSD := 0.0
-	if d.Action == "open_long" {
-		potentialLossUSD = quantity * (marketData.CurrentPrice - d.StopLoss)
+	// Compute stopPct based on side
+	currentPrice := marketData.CurrentPrice
+	side := "LONG"
+	if strings.Contains(strings.ToLower(d.Action), "short") {
+		side = "SHORT"
+	}
+	stopPct := 0.0
+	if side == "LONG" {
+		if currentPrice <= d.StopLoss {
+			result.Errors = append(result.Errors, "long stop_loss must be less than entry/current price")
+			result.IsValid = false
+			return
+		}
+		stopPct = (currentPrice - d.StopLoss) / currentPrice
 	} else {
-		potentialLossUSD = quantity * (d.StopLoss - marketData.CurrentPrice)
+		if currentPrice >= d.StopLoss {
+			result.Errors = append(result.Errors, "short stop_loss must be greater than entry/current price")
+			result.IsValid = false
+			return
+		}
+		stopPct = (d.StopLoss - currentPrice) / currentPrice
+	}
+	if stopPct <= 0 {
+		cfg := config.DefaultRiskConfig()
+		stopPct = cfg.DefaultStopLossPct
+	}
+	// 计算最大名义价值基于风险限制
+	cfg := config.DefaultRiskConfig()
+	riskUSD := ev.AccountEquity * cfg.MaxSingleTradeRiskPct
+	if d.RiskUSD > 0 && d.RiskUSD < riskUSD {
+		riskUSD = d.RiskUSD
+	}
+	maxNotionalByRisk := 0.0
+	if stopPct > 0 {
+		maxNotionalByRisk = riskUSD / stopPct
+	}
+	// 币种单独名义上限
+	useMaxNotional := cfg.MaxNotionalAlt
+	upSym := strings.ToUpper(d.Symbol)
+	if strings.Contains(upSym, "BTC") || strings.Contains(upSym, "ETH") {
+		useMaxNotional = cfg.MaxNotionalBTC
+	}
+	finalNotional := maxNotionalByRisk
+	if useMaxNotional > 0 && finalNotional > useMaxNotional {
+		finalNotional = useMaxNotional
+	}
+	// 考虑杠杆调整最终名义价值
+	leverage := d.Leverage
+	if leverage <= 0 {
+		// fallback
+		if strings.Contains(upSym, "BTC") || strings.Contains(upSym, "ETH") {
+			leverage = ev.BTCETHLeverage
+		} else {
+			leverage = ev.AltcoinLeverage
+		}
+		if leverage <= 0 {
+			leverage = 1
+		}
+	}
+	requiredMargin := finalNotional / float64(leverage)
+	if requiredMargin > ev.AccountEquity {
+		finalNotional = ev.AccountEquity * float64(leverage) * 0.99
+		requiredMargin = finalNotional / float64(leverage)
 	}
 
+	// 潜在亏损
+	potentialLossUSD := finalNotional * stopPct
 	riskPercent := (potentialLossUSD / ev.AccountEquity) * 100
 	result.RiskPercent = riskPercent
-
-	// 🔧 使用统一风控配置
-	cfg := DefaultRiskConfig()
 	maxAllowedRisk := ev.AccountEquity * cfg.MaxSingleTradeRiskPct
 	if potentialLossUSD > maxAllowedRisk {
 		result.Errors = append(result.Errors,
@@ -121,24 +179,33 @@ func (ev *EnhancedValidator) validateRisk(d *Decision, result *ValidationResult)
 				potentialLossUSD, riskPercent, maxAllowedRisk, cfg.MaxSingleTradeRiskPct*100))
 		result.IsValid = false
 	}
+
+	// 如果有AI建议仓位，检查是否超过系统计算的最终名义价值
+	if d.SuggestedPositionSizeUSD > 0 {
+		if d.SuggestedPositionSizeUSD > finalNotional {
+			result.Errors = append(result.Errors, fmt.Sprintf("AI建议的仓位 (%.2f USDT) 超过系统限定 (%.2f USDT)", d.SuggestedPositionSizeUSD, finalNotional))
+			result.IsValid = false
+		}
+	}
 }
 
-// validatePositionSize 仓位大小验证 (与您的最新指令同步: 60%/85%)
+// validatePositionSize 仓位大小验证
 func (ev *EnhancedValidator) validatePositionSize(d *Decision, result *ValidationResult) {
 	// 最小开仓金额
 	minSize := 12.0 // 与system prompt保持一致
-	if d.PositionSizeUSD < minSize {
+	if d.SuggestedPositionSizeUSD > 0 && d.SuggestedPositionSizeUSD < minSize {
 		result.Errors = append(result.Errors,
-			fmt.Sprintf("开仓金额过小: %.2f USDT < 最小要求 %.2f USDT", d.PositionSizeUSD, minSize))
+			fmt.Sprintf("开仓金额过小: %.2f USDT < 最小要求 %.2f USDT", d.SuggestedPositionSizeUSD, minSize))
 		result.IsValid = false
 	}
 
-	// 最大仓位限制 (硬顶)
+	// 最大仓位限制 (硬顶) — only enforce if AI provided a suggestion
 	maxPositionValue := ev.getMaxPositionValue(d.Symbol)
-	if d.PositionSizeUSD > maxPositionValue {
+	if d.SuggestedPositionSizeUSD > 0 && d.SuggestedPositionSizeUSD > maxPositionValue {
+		cfg := DefaultRiskConfig()
 		result.Errors = append(result.Errors,
-			fmt.Sprintf("仓位价值超限: %.2f USDT > 最大允许 %.2f USDT (净值%.0f%%)",
-				d.PositionSizeUSD, maxPositionValue, ev.getPositionCapRatio(d.Symbol)*100))
+			fmt.Sprintf("仓位价值超限: %.2f USDT > 最大允许 %.2f USDT (净值%.0f%%) [AccountEquity=%.2f cfgMaxNotionalBTC=%.2f]",
+				d.SuggestedPositionSizeUSD, maxPositionValue, ev.getPositionCapRatio(d.Symbol)*100, ev.AccountEquity, cfg.MaxNotionalBTC))
 		result.IsValid = false
 	}
 }
@@ -200,12 +267,21 @@ func (ev *EnhancedValidator) assessRiskLevel(d *Decision, result *ValidationResu
 	}
 }
 
-// 辅助函数 (与您的最新指令同步: 60%/85%)
+// 辅助函数 (与您的最新指令同步， 计算名义价值上限)
 func (ev *EnhancedValidator) getMaxPositionValue(symbol string) float64 {
+	cfg := DefaultRiskConfig()
 	if symbol == "BTCUSDT" || symbol == "ETHUSDT" {
-		return ev.AccountEquity * 0.85
+		max := ev.AccountEquity * 0.85 // 使用 85% 净值作为默认名义上限（与文档一致）
+		if cfg.MaxNotionalBTC > 0 && cfg.MaxNotionalBTC < max {
+			return cfg.MaxNotionalBTC
+		}
+		return max
 	}
-	return ev.AccountEquity * 0.60
+	max := ev.AccountEquity * 0.75 // 使用 75% 净值作为默认名义上限（与文档一致）
+	if cfg.MaxNotionalAlt > 0 && cfg.MaxNotionalAlt < max {
+		return cfg.MaxNotionalAlt
+	}
+	return max
 }
 
 // 辅助函数 (与您的最新指令同步)
@@ -213,5 +289,5 @@ func (ev *EnhancedValidator) getPositionCapRatio(symbol string) float64 {
 	if symbol == "BTCUSDT" || symbol == "ETHUSDT" {
 		return 0.85
 	}
-	return 0.60
+	return 0.75
 }

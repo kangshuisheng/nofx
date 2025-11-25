@@ -1,4 +1,4 @@
-package decision
+package config
 
 // RiskConfig 统一风控参数配置
 // 集中管理所有止损、风险相关的百分比参数，避免硬编码分散
@@ -18,11 +18,17 @@ type RiskConfig struct {
 	// 账户级风控
 	MaxDailyLossPct float64 // 最大日亏损百分比 (默认 5%)
 	MaxDrawdownPct  float64 // 最大回撤百分比 (默认 10%)
+	// 可选：单币种名义价值上限（0 表示未设置）
+	MaxNotionalBTC float64 // BTC/ETH 名义价值上限（USDT, 0 表示不启用）
+	MaxNotionalAlt float64 // 山寨币 名义价值上限（USDT, 0 表示不启用）
 }
 
 // DefaultRiskConfig 返回默认风控配置
 // 统一所有风控参数，确保系统各模块使用一致的风险控制标准
 func DefaultRiskConfig() *RiskConfig {
+	// 默认名义价值上限（为测试与小账户安全设置）：BTC/ETH 80U, 山寨 60U
+	maxNotionalBTC := 80.0
+	maxNotionalAlt := 60.0
 	return &RiskConfig{
 		// 核心风控: 单笔最大风险 2%
 		MaxSingleTradeRiskPct: 0.02, // 2%
@@ -39,5 +45,8 @@ func DefaultRiskConfig() *RiskConfig {
 		// 账户级风控
 		MaxDailyLossPct: 5.0,  // 5% 日亏损上限
 		MaxDrawdownPct:  10.0, // 10% 回撤上限
+		// 默认启用名义价值上限，避免在测试/默认运行中造成超大仓位
+		MaxNotionalBTC: maxNotionalBTC,
+		MaxNotionalAlt: maxNotionalAlt,
 	}
 }
