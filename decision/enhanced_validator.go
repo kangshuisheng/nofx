@@ -164,8 +164,12 @@ func (ev *EnhancedValidator) validateRisk(d *Decision, result *ValidationResult)
 	}
 	requiredMargin := finalNotional / float64(leverage)
 	if requiredMargin > ev.AccountEquity {
+		originalMargin := requiredMargin
 		finalNotional = ev.AccountEquity * float64(leverage) * 0.99
 		requiredMargin = finalNotional / float64(leverage)
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("保证金需求已调整: %.2f USDT → %.2f USDT (账户净值限制: %.2f USDT)",
+				originalMargin, requiredMargin, ev.AccountEquity))
 	}
 
 	// 潜在亏损

@@ -894,21 +894,24 @@ func calculateManagementState(pos PositionInfo, currentStopLossPrice float64, ma
 	return state, rRatio
 }
 
-// CheckEmergencyExit 检查是否需要紧急离场（趋势结构破坏）
+// CheckEmergencyExit 检查是否需要紧急离场（基于亏损和极端波动）
 // 返回值: (是否需要平仓, 原因)
 //
-// 🔧 中长线策略优化: 仅在趋势结构彻底破坏时触发
 // 逻辑:
-// 1. 价格站稳 4H EMA50 对侧 (趋势分水岭)
-// 2. RSI(4H) 进入极值区 (超买/超卖)
-// 3. 避免因短期波动或轻微趋势线破坏而频繁止损
+// 1. 硬性止损保护: 亏损超过 20% (防止爆仓风险)
+// 2. 极端行情保护: 亏损超过 15% 且 RSI 极度超买/超卖 (防止单边加速行情)
 func CheckEmergencyExit(pos PositionInfo, marketData *market.Data) (bool, string) {
+	// 1. 硬性止损保护 (Safety Net)
+	// 如果未实现亏损超过 20%，强制离场保护本金
+	if pos.UnrealizedPnLPct <= -20.0 {
+		return true, fmt.Sprintf("硬性止损触发: 亏损达到 %.2f%% (阈值 -20%%)", pos.UnrealizedPnLPct)
+	}
+
 	if marketData == nil || marketData.LongerTermContext == nil {
 		return false, ""
 	}
 
 	ctx := marketData.LongerTermContext
-	currentPrice := marketData.CurrentPrice
 
 	// 获取 4H RSI (取最新值)
 	var rsi4h float64
@@ -916,27 +919,14 @@ func CheckEmergencyExit(pos PositionInfo, marketData *market.Data) (bool, string
 		rsi4h = ctx.RSI14Values[len(ctx.RSI14Values)-1]
 	}
 
-	// 1. 空头 (Short) 离场条件
-	if pos.Side == "short" {
-		// A. 价格站稳 4H EMA50 上方 (趋势转牛)
-		if ctx.EMA50 > 0 && currentPrice > ctx.EMA50 {
-			return true, fmt.Sprintf("结构破坏: 价格(%.2f) 站上 4H EMA50(%.2f)", currentPrice, ctx.EMA50)
+	// 2. 极端行情保护 (Extreme Volatility Protection)
+	// 如果亏损超过 15% 且 RSI 进入极值区，说明行情正在加速反向运行，先出来观望
+	if pos.UnrealizedPnLPct <= -15.0 {
+		if pos.Side == "short" && rsi4h > 85 {
+			return true, fmt.Sprintf("极端行情保护: 亏损 %.2f%% 且 4H RSI(%.2f) 极度超买", pos.UnrealizedPnLPct, rsi4h)
 		}
-		// B. RSI(4H) 超买 (不利于空头)
-		if rsi4h > 70 {
-			return true, fmt.Sprintf("结构破坏: 4H RSI(%.2f) 进入超买区", rsi4h)
-		}
-	}
-
-	// 2. 多头 (Long) 离场条件
-	if pos.Side == "long" {
-		// A. 价格跌破 4H EMA50 下方 (趋势转熊)
-		if ctx.EMA50 > 0 && currentPrice < ctx.EMA50 {
-			return true, fmt.Sprintf("结构破坏: 价格(%.2f) 跌破 4H EMA50(%.2f)", currentPrice, ctx.EMA50)
-		}
-		// B. RSI(4H) 超卖 (不利于多头)
-		if rsi4h > 0 && rsi4h < 30 {
-			return true, fmt.Sprintf("结构破坏: 4H RSI(%.2f) 进入超卖区", rsi4h)
+		if pos.Side == "long" && rsi4h > 0 && rsi4h < 15 {
+			return true, fmt.Sprintf("极端行情保护: 亏损 %.2f%% 且 4H RSI(%.2f) 极度超卖", pos.UnrealizedPnLPct, rsi4h)
 		}
 	}
 
