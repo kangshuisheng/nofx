@@ -833,14 +833,16 @@ func (at *AutoTrader) enforceRiskLimits(currentEquity float64) (string, bool) {
 		}
 	}
 
-	if dd := at.config.MaxDrawdown; dd > 0 && at.peakEquity > 0 {
-		drawdownPct := (at.peakEquity - currentEquity) / at.peakEquity * 100
-		if drawdownPct >= dd {
-			reason := fmt.Sprintf("触发账户回撤 %.2f%% (峰值 %.2f → 当前 %.2f)", drawdownPct, at.peakEquity, currentEquity)
-			at.activateRiskStop()
-			return reason, true
-		}
-	}
+	// 🚫 已禁用账户回撤检查 - 会把手动转出资金误判为回撤
+	// 只保留每日亏损限制即可有效控制风险
+	// if dd := at.config.MaxDrawdown; dd > 0 && at.peakEquity > 0 {
+	// 	drawdownPct := (at.peakEquity - currentEquity) / at.peakEquity * 100
+	// 	if drawdownPct >= dd {
+	// 		reason := fmt.Sprintf("触发账户回撤 %.2f%% (峰值 %.2f → 当前 %.2f)", drawdownPct, at.peakEquity, currentEquity)
+	// 		at.activateRiskStop()
+	// 		return reason, true
+	// 	}
+	// }
 
 	return "", false
 }
