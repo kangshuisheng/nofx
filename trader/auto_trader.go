@@ -129,6 +129,7 @@ type AutoTrader struct {
 	positionStopLoss      map[string]float64               // 持仓止损价格 (symbol_side -> stop_loss_price)
 	positionTakeProfit    map[string]float64               // 持仓止盈价格 (symbol_side -> take_profit_price)
 	marketDataFailCount   map[string]int                   // 市场数据获取连续失败次数 (symbol -> count)
+	partialCloseStatus    map[string]bool                  // 是否已触发部分平仓 (symbol_side -> bool)
 	stopMonitorCh         chan struct{}                    // 用于停止监控goroutine
 	monitorWg             sync.WaitGroup                   // 用于等待监控goroutine结束
 	peakPnLCache          map[string]float64               // 最高收益缓存 (symbol -> 峰值盈亏百分比)
@@ -293,6 +294,7 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		positionStopLoss:      make(map[string]float64),
 		positionTakeProfit:    make(map[string]float64),
 		marketDataFailCount:   make(map[string]int),
+		partialCloseStatus:    make(map[string]bool),
 		stopMonitorCh:         make(chan struct{}),
 		monitorWg:             sync.WaitGroup{},
 		peakPnLCache:          make(map[string]float64),
@@ -396,7 +398,7 @@ func (at *AutoTrader) runMonitoringCycle() error {
 		return nil
 	}
 
-	// 2. 检查每个持仓的紧急离场条件
+	// 2. 检查每个持仓
 	for _, pos := range positions {
 		symbol, _ := SafeString(pos, "symbol")
 		side, _ := SafeString(pos, "side")
@@ -412,23 +414,19 @@ func (at *AutoTrader) runMonitoringCycle() error {
 			quantity = -quantity
 		}
 
-		// 获取市场数据 (中长线策略: 使用1h/4h数据进行监控)
-		// 注: 虽然硬风控已禁用,但仍需获取数据用于未来扩展
-		marketData, err := market.Get(symbol, []string{"1h", "4h"})
-		if err != nil {
-			// 记录连续失败次数
-			at.marketDataFailCount[symbol]++
-			if at.marketDataFailCount[symbol] >= 3 {
-				log.Printf("🚨 [监控] %s 市场数据连续 %d 次获取失败，硬风控失效！", symbol, at.marketDataFailCount[symbol])
-			}
-			log.Printf("⚠️ [监控] 获取 %s 市场数据失败 (第 %d 次): %v", symbol, at.marketDataFailCount[symbol], err)
-			continue
-		} else {
-			// 成功获取，重置计数器
-			at.marketDataFailCount[symbol] = 0
+		// 获取杠杆倍数
+		leverage := 10 // 默认值
+		if lev, ok := pos["leverage"].(float64); ok {
+			leverage = int(lev)
 		}
 
-		// 构造完整的 PositionInfo (用于未来扩展)
+		// 获取市场数据
+		marketData, err := at.fetchMonitoringData(symbol)
+		if err != nil {
+			continue
+		}
+
+		// 构造完整的 PositionInfo
 		posInfo := decision.PositionInfo{
 			Symbol:        symbol,
 			Side:          side,
@@ -436,88 +434,133 @@ func (at *AutoTrader) runMonitoringCycle() error {
 			EntryPrice:    entryPrice,
 			MarkPrice:     markPrice,
 			UnrealizedPnL: unrealizedPnL,
+			Leverage:      leverage,
 		}
 
-		// 调用 engine 中的硬风控逻辑
-		shouldExit, reason := decision.CheckEmergencyExit(posInfo, marketData)
-		if shouldExit {
-			log.Printf("🚨 [紧急离场触发] %s: %s", symbol, reason)
+		// 优先级 1: 止盈减仓 (Partial Close)
+		at.checkPartialClose(posInfo)
 
-			// 执行平仓
-			action := "close_short"
-			if side == "long" {
-				action = "close_long"
-			}
+		// 优先级 2: 自动管理 (Auto Management - 移动止损)
+		at.checkAutoManagement(posInfo, marketData)
+	}
 
-			// 构造决策对象
-			d := decision.Decision{
-				Symbol:    symbol,
-				Action:    action,
-				Reasoning: "[监控] " + reason,
-			}
+	return nil
+}
 
-			// 执行平仓
-			record := logger.DecisionAction{
-				Action:    action,
-				Symbol:    symbol,
-				Timestamp: time.Now(),
-			}
+// fetchMonitoringData 获取监控所需的市场数据
+func (at *AutoTrader) fetchMonitoringData(symbol string) (*market.Data, error) {
+	// 获取市场数据 (中长线策略: 使用1h/4h数据进行监控)
+	marketData, err := market.Get(symbol, []string{"1h", "4h"})
+	if err != nil {
+		at.marketDataFailCount[symbol]++
+		if at.marketDataFailCount[symbol] >= 3 {
+			log.Printf("🚨 [监控] %s 市场数据连续 %d 次获取失败，硬风控失效！", symbol, at.marketDataFailCount[symbol])
+		}
+		log.Printf("⚠️ [监控] 获取 %s 市场数据失败 (第 %d 次): %v", symbol, at.marketDataFailCount[symbol], err)
+		return nil, err
+	}
 
-			if err := at.executeDecisionWithRecord(&d, &record); err != nil {
-				log.Printf("❌ [监控] 紧急平仓失败 (%s): %v", symbol, err)
-			} else {
-				log.Printf("✅ [监控] 紧急平仓成功 (%s)", symbol)
-				// 记录到日志
-				at.decisionLogger.LogDecision(&logger.DecisionRecord{
-					Success:      true,
-					ExecutionLog: []string{fmt.Sprintf("紧急平仓触发: %s", reason)},
-					Decisions:    []logger.DecisionAction{record},
-				})
-			}
-			continue // 既然平仓了，就不需要后续管理了
+	// 成功获取，重置计数器
+	at.marketDataFailCount[symbol] = 0
+	return marketData, nil
+}
+
+// checkPartialClose 检查并执行部分平仓逻辑
+func (at *AutoTrader) checkPartialClose(pos decision.PositionInfo) error {
+	// 计算收益率 (ROI)
+	leverage := 10 // 默认值
+	if pos.Leverage > 0 {
+		leverage = pos.Leverage
+	}
+
+	var currentPnLPct float64
+	if pos.Side == "long" {
+		currentPnLPct = ((pos.MarkPrice - pos.EntryPrice) / pos.EntryPrice) * float64(leverage) * 100
+	} else {
+		currentPnLPct = ((pos.EntryPrice - pos.MarkPrice) / pos.EntryPrice) * float64(leverage) * 100
+	}
+
+	posKey := pos.Symbol + "_" + pos.Side
+
+	// 检查是否满足减仓条件: 收益率 >= 5% 且 未触发过减仓
+	if currentPnLPct >= 5.0 && !at.partialCloseStatus[posKey] {
+		log.Printf("💰 [止盈触发] %s %s 收益率达到 %.2f%% (>= 5%%)，执行部分平仓 (50%%)", pos.Symbol, pos.Side, currentPnLPct)
+
+		// 构造部分平仓决策
+		d := decision.Decision{
+			Symbol:          pos.Symbol,
+			Action:          "partial_close",
+			ClosePercentage: 50, // 平仓 50%
+			Reasoning:       fmt.Sprintf("[监控] 收益率达到 %.2f%%，自动锁定利润", currentPnLPct),
 		}
 
-		// 3. 自动管理逻辑 (移动止损/保本) - Go 代码直接接管
-		// 获取当前止损价格：优先使用缓存，没有缓存时从实际订单中获取
-		currentSL := at.positionStopLoss[symbol+"_"+side]
-		if currentSL == 0 {
-			// 缓存中没有，尝试从实际订单中获取
-			openOrders, err := at.trader.GetOpenOrders(symbol)
-			if err == nil {
-				for _, order := range openOrders {
-					// 判断是否为当前持仓的止损单
-					isStopOrder := (order.Type == "STOP_MARKET" || order.Type == "STOP")
-					isMatchingSide := (side == "long" && order.Side == "SELL") ||
-						(side == "short" && order.Side == "BUY")
+		// 记录执行
+		record := logger.DecisionAction{
+			Action:    "partial_close",
+			Symbol:    pos.Symbol,
+			Timestamp: time.Now(),
+		}
 
-					if isStopOrder && isMatchingSide {
-						currentSL = order.StopPrice
-						// 同步到缓存
-						at.positionStopLoss[symbol+"_"+side] = currentSL
-						log.Printf("📝 [监控] 从订单同步止损价格到缓存: %s %.4f", symbol, currentSL)
-						break
-					}
+		if err := at.executeDecisionWithRecord(&d, &record); err != nil {
+			log.Printf("❌ [监控] 部分平仓失败 (%s): %v", pos.Symbol, err)
+			return err
+		}
+
+		log.Printf("✅ [监控] 部分平仓成功 (%s)，已锁定利润", pos.Symbol)
+		// 标记为已触发
+		at.partialCloseStatus[posKey] = true
+
+		// 记录到日志
+		at.decisionLogger.LogDecision(&logger.DecisionRecord{
+			Success:      true,
+			ExecutionLog: []string{fmt.Sprintf("止盈触发: 收益 %.2f%%，平仓 50%%", currentPnLPct)},
+			Decisions:    []logger.DecisionAction{record},
+		})
+	}
+	return nil
+}
+
+// checkAutoManagement 检查并执行自动管理逻辑 (移动止损)
+func (at *AutoTrader) checkAutoManagement(pos decision.PositionInfo, marketData *market.Data) error {
+	// 获取当前止损价格：优先使用缓存，没有缓存时从实际订单中获取
+	currentSL := at.positionStopLoss[pos.Symbol+"_"+pos.Side]
+	if currentSL == 0 {
+		// 缓存中没有，尝试从实际订单中获取
+		openOrders, err := at.trader.GetOpenOrders(pos.Symbol)
+		if err == nil {
+			for _, order := range openOrders {
+				// 判断是否为当前持仓的止损单
+				isStopOrder := (order.Type == "STOP_MARKET" || order.Type == "STOP")
+				isMatchingSide := (pos.Side == "long" && order.Side == "SELL") ||
+					(pos.Side == "short" && order.Side == "BUY")
+
+				if isStopOrder && isMatchingSide {
+					currentSL = order.StopPrice
+					// 同步到缓存
+					at.positionStopLoss[pos.Symbol+"_"+pos.Side] = currentSL
+					log.Printf("📝 [监控] 从订单同步止损价格到缓存: %s %.4f", pos.Symbol, currentSL)
+					break
 				}
-			}
-		}
-
-		mgmtAction := decision.CheckManagementAction(posInfo, currentSL, marketData)
-
-		if mgmtAction.Action == "update_stop_loss" {
-			log.Printf("🛡️ [自动管理] %s: %s -> 移动止损至 %.4f", symbol, mgmtAction.Reason, mgmtAction.NewPrice)
-
-			// 执行移动止损
-			err := at.trader.UpdateStopLoss(symbol, side, mgmtAction.NewPrice)
-			if err != nil {
-				log.Printf("❌ [自动管理] 移动止损失败 (%s): %v", symbol, err)
-			} else {
-				log.Printf("✅ [自动管理] 移动止损成功 (%s)", symbol)
-				// 更新本地缓存
-				at.positionStopLoss[symbol+"_"+side] = mgmtAction.NewPrice
 			}
 		}
 	}
 
+	mgmtAction := decision.CheckManagementAction(pos, currentSL, marketData)
+
+	if mgmtAction.Action == "update_stop_loss" {
+		log.Printf("🛡️ [自动管理] %s: %s -> 移动止损至 %.4f", pos.Symbol, mgmtAction.Reason, mgmtAction.NewPrice)
+
+		// 执行移动止损
+		err := at.trader.UpdateStopLoss(pos.Symbol, pos.Side, mgmtAction.NewPrice)
+		if err != nil {
+			log.Printf("❌ [自动管理] 移动止损失败 (%s): %v", pos.Symbol, err)
+			return err
+		}
+
+		log.Printf("✅ [自动管理] 移动止损成功 (%s)", pos.Symbol)
+		// 更新本地缓存
+		at.positionStopLoss[pos.Symbol+"_"+pos.Side] = mgmtAction.NewPrice
+	}
 	return nil
 }
 
@@ -2741,6 +2784,9 @@ func (at *AutoTrader) detectClosedPositions(currentPositions []decision.Position
 		if !currentKeys[key] {
 			// 持仓消失了，说明被自动平仓（止损/止盈触发）
 			closedPositions = append(closedPositions, lastPos)
+
+			// 清理部分平仓状态
+			delete(at.partialCloseStatus, key)
 		}
 	}
 
