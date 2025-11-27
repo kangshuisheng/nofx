@@ -54,6 +54,7 @@ type AccountInfo struct {
 	MarginUsed       float64 `json:"margin_used"`       // 已用保证金
 	MarginUsedPct    float64 `json:"margin_used_pct"`   // 保证金使用率
 	PositionCount    int     `json:"position_count"`    // 持仓数量
+	DailyPnL         float64 `json:"daily_pnl"`         // 当日已实现盈亏（估算）
 }
 
 // CandidateCoin 候选币种（来自币种池）
@@ -333,7 +334,8 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 		accountEquity*0.8, accountEquity*1.5, accountEquity*5, accountEquity*10))
 	sb.WriteString(fmt.Sprintf("4. 杠杆限制: **山寨币最大%dx杠杆** | **BTC/ETH最大%dx杠杆** (⚠️ 严格执行，不可超过)\n", altcoinLeverage, btcEthLeverage))
 	sb.WriteString("5. 保证金: 总使用率 ≤ 90%\n")
-	sb.WriteString("6. 开仓金额: 建议 **≥12 USDT** (交易所最小名义价值 10 USDT + 安全边际)\n\n")
+	sb.WriteString("6. 开仓金额: 建议 **≥12 USDT** (交易所最小名义价值 10 USDT + 安全边际)\n")
+	sb.WriteString("7. **资金回撤判断**: 如果 Total PnL 为负但 Daily PnL 为正或接近0，可能为资金转出而非亏损，此时应以 Daily PnL 为准继续交易。\n\n")
 
 	// 3. 输出格式 - 动态生成
 	sb.WriteString("# 输出格式 (严格遵守)\n\n")
@@ -377,11 +379,12 @@ func buildUserPrompt(ctx *Context) string {
 	}
 
 	// 账户
-	sb.WriteString(fmt.Sprintf("账户: 净值%.2f | 余额%.2f (%.1f%%) | 盈亏%+.2f%% | 保证金%.1f%% | 持仓%d个\n\n",
+	sb.WriteString(fmt.Sprintf("账户: 净值%.2f | 余额%.2f (%.1f%%) | 盈亏%+.2f%% | 日盈亏%+.2f | 保证金%.1f%% | 持仓%d个\n\n",
 		ctx.Account.TotalEquity,
 		ctx.Account.AvailableBalance,
 		(ctx.Account.AvailableBalance/ctx.Account.TotalEquity)*100,
 		ctx.Account.TotalPnLPct,
+		ctx.Account.DailyPnL,
 		ctx.Account.MarginUsedPct,
 		ctx.Account.PositionCount))
 

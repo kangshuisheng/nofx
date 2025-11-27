@@ -89,6 +89,7 @@ type AutoTrader struct {
 	decisionLogger        logger.IDecisionLogger // 决策日志记录器
 	initialBalance        float64
 	dailyPnL              float64
+	dailyRealizedPnL      float64  // 当日已实现盈亏（累计）
 	customPrompt          string   // 自定义交易策略prompt
 	overrideBasePrompt    bool     // 是否覆盖基础prompt
 	systemPromptTemplate  string   // 系统提示词模板名称
@@ -315,6 +316,7 @@ func (at *AutoTrader) runCycle() error {
 	// 2. 重置日盈亏（每天重置）
 	if time.Since(at.lastResetTime) > 24*time.Hour {
 		at.dailyPnL = 0
+		at.dailyRealizedPnL = 0
 		at.lastResetTime = time.Now()
 		log.Println("📅 日盈亏已重置")
 	}
@@ -622,6 +624,7 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 			UnrealizedPnL:    totalUnrealizedProfit,
 			TotalPnL:         totalPnL,
 			TotalPnLPct:      totalPnLPct,
+			DailyPnL:         at.dailyRealizedPnL, // 传递当日已实现盈亏
 			MarginUsed:       totalMarginUsed,
 			MarginUsedPct:    marginUsedPct,
 			PositionCount:    len(positionInfos),
@@ -841,6 +844,23 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 		actionRecord.OrderID = orderID
 	}
 
+	// 计算并累加已实现盈亏
+	// 假设成交价约为当前市价（实际应查询订单详情，但为减少API调用，此处做估算）
+	// 多单盈亏 = (平仓价 - 入场价) * 数量
+	// 注意：平仓数量可能小于持仓数量（如果之前有部分平仓），这里 CloseLong(0) 表示全平
+	// 我们需要获取该持仓的入场价和数量来计算
+	positions, _ := at.trader.GetPositions()
+	for _, pos := range positions {
+		if pos["symbol"] == decision.Symbol && pos["side"] == "long" {
+			entryPrice := pos["entryPrice"].(float64)
+			quantity := pos["positionAmt"].(float64)
+			pnl := (marketData.CurrentPrice - entryPrice) * quantity
+			at.dailyRealizedPnL += pnl
+			log.Printf("  💰 预计盈亏: %+.2f USDT (当前日累计: %+.2f)", pnl, at.dailyRealizedPnL)
+			break
+		}
+	}
+
 	log.Printf("  ✓ 平仓成功")
 	return nil
 }
@@ -865,6 +885,20 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 	// 记录订单ID
 	if orderID, ok := order["orderId"].(int64); ok {
 		actionRecord.OrderID = orderID
+	}
+
+	// 计算并累加已实现盈亏
+	// 空单盈亏 = (入场价 - 平仓价) * 数量
+	positions, _ := at.trader.GetPositions()
+	for _, pos := range positions {
+		if pos["symbol"] == decision.Symbol && pos["side"] == "short" {
+			entryPrice := pos["entryPrice"].(float64)
+			quantity := math.Abs(pos["positionAmt"].(float64)) // 空单数量为负
+			pnl := (entryPrice - marketData.CurrentPrice) * quantity
+			at.dailyRealizedPnL += pnl
+			log.Printf("  💰 预计盈亏: %+.2f USDT (当前日累计: %+.2f)", pnl, at.dailyRealizedPnL)
+			break
+		}
 	}
 
 	log.Printf("  ✓ 平仓成功")
@@ -1136,6 +1170,18 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *decision.Decision,
 
 	log.Printf("  ✓ 部分平仓成功: 平仓 %.4f (%.1f%%), 剩余 %.4f",
 		closeQuantity, decision.ClosePercentage, remainingQuantity)
+
+	// 计算并累加已实现盈亏
+	// 获取入场价
+	entryPrice := targetPosition["entryPrice"].(float64)
+	var pnl float64
+	if positionSide == "LONG" {
+		pnl = (marketData.CurrentPrice - entryPrice) * closeQuantity
+	} else {
+		pnl = (entryPrice - marketData.CurrentPrice) * closeQuantity
+	}
+	at.dailyRealizedPnL += pnl
+	log.Printf("  💰 预计部分平仓盈亏: %+.2f USDT (当前日累计: %+.2f)", pnl, at.dailyRealizedPnL)
 
 	// ✅ Step 4: 恢复止盈止损（防止剩余仓位裸奔）
 	// 重要：币安等交易所在部分平仓后会自动取消原有的 TP/SL 订单（因为数量不匹配）
