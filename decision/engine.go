@@ -68,6 +68,7 @@ type AccountInfo struct {
 	UnrealizedPnL    float64 `json:"unrealized_pnl"`    // 未实现盈亏
 	TotalPnL         float64 `json:"total_pnl"`         // 总盈亏
 	TotalPnLPct      float64 `json:"total_pnl_pct"`     // 总盈亏百分比
+	DailyPnL         float64 `json:"daily_pnl"`         // 当日已实现盈亏
 	MarginUsed       float64 `json:"margin_used"`       // 已用保证金
 	MarginUsedPct    float64 `json:"margin_used_pct"`   // 保证金使用率
 	PositionCount    int     `json:"position_count"`    // 持仓数量
@@ -633,6 +634,8 @@ func buildAccountSection(ctx *Context) string {
 
 	sb.WriteString(fmt.Sprintf("- **账户净值**: %.2f USDT | **可用余额**: %.2f USDT\n",
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance))
+	sb.WriteString(fmt.Sprintf("- **盈亏状态**: 总盈亏 %+.2f%% | **日已实现盈亏 %+.2f USDT**\n",
+		ctx.Account.TotalPnLPct, ctx.Account.DailyPnL))
 	sb.WriteString(fmt.Sprintf("- **持仓占用**: %d / 3 个位置\n", ctx.Account.PositionCount))
 
 	sb.WriteString("- **本轮开仓限制 (Hard Constraints)**:\n")

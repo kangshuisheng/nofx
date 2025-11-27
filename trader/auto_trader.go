@@ -107,6 +107,7 @@ type AutoTrader struct {
 	decisionLogger        logger.IDecisionLogger // 决策日志记录器
 	initialBalance        float64
 	dailyPnL              float64
+	dailyRealizedPnL      float64 // 当日已实现盈亏（累计）
 	dailyPnLBase          float64
 	needsDailyBaseline    bool
 	customPrompt          string   // 自定义交易策略prompt
@@ -812,6 +813,7 @@ func (at *AutoTrader) maybeResetDailyMetrics() {
 	now := time.Now()
 	if at.lastResetTime.IsZero() || !sameDay(at.lastResetTime, now) {
 		at.dailyPnL = 0
+		at.dailyRealizedPnL = 0
 		at.dailyPnLBase = 0
 		at.needsDailyBaseline = true
 		at.lastResetTime = now
@@ -1065,6 +1067,7 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 			UnrealizedPnL:    totalUnrealizedProfit,
 			TotalPnL:         totalPnL,
 			TotalPnLPct:      totalPnLPct,
+			DailyPnL:         at.dailyRealizedPnL, // 传递当日已实现盈亏
 			MarginUsed:       totalMarginUsed,
 			MarginUsedPct:    marginUsedPct,
 			PositionCount:    len(positionInfos),
@@ -1587,6 +1590,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 			log.Printf("  ⚠️ 記錄平倉到數據庫失敗: %v", err)
 		} else if pnl != 0 {
 			log.Printf("  💰 PnL: %.2f USDT (%.2f%%)", pnl, pnlPercent)
+			at.dailyRealizedPnL += pnl // 累加当日已实现盈亏
 		}
 	}
 
@@ -1681,6 +1685,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 			log.Printf("  ⚠️ 記錄平倉到數據庫失敗: %v", err)
 		} else if pnl != 0 {
 			log.Printf("  💰 PnL: %.2f USDT (%.2f%%)", pnl, pnlPercent)
+			at.dailyRealizedPnL += pnl // 累加当日已实现盈亏
 		}
 	}
 
@@ -2081,6 +2086,7 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *decision.Decision,
 			log.Printf("  ⚠️ 記錄部分平倉到數據庫失敗: %v", err)
 		} else if partialPnL != 0 {
 			log.Printf("  💰 部分平倉 PnL: %.2f USDT (%.2f%%)", partialPnL, partialPnLPct)
+			at.dailyRealizedPnL += partialPnL // 累加当日已实现盈亏
 		}
 	}
 
