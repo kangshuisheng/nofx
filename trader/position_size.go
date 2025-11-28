@@ -32,7 +32,8 @@ func ComputePositionSize(at *AutoTrader, d *decision.Decision, mkt *market.Data)
 		available = v
 	}
 	if available <= 0 {
-		return 0, 0, 0, fmt.Errorf("available balance is zero or unknown")
+		// 更友好的中文错误信息以便测试断言与日志保持一致
+		return 0, 0, 0, fmt.Errorf("保证金不足或可用余额未知: %.2f", available)
 	}
 
 	// 价格：优先使用 entry price，否则当前市场价
@@ -112,29 +113,37 @@ func ComputePositionSize(at *AutoTrader, d *decision.Decision, mkt *market.Data)
 
 	// 初始最终名义: 由风险得出
 	finalNotional := maxNotionalByRisk
-	// cap by config maximum
+	// 通过配置最大值来限制
 	if useMaxNotional > 0 && finalNotional > useMaxNotional {
 		finalNotional = useMaxNotional
 	}
 
-	// Make sure margin requirement fits available balance
+	// 确保保证金要求与可用余额相匹配
 	requiredMargin := finalNotional / float64(leverage)
 	if requiredMargin > available {
-		// reduce notional to available balance * leverage (leave small headroom)
+		// 将名义金额减少至可用余额乘以杠杆（保留少量余地）
 		finalNotional = available * float64(leverage) * 0.99
 		requiredMargin = finalNotional / float64(leverage)
 	}
 
-	// Safety: force finalNotional at least minimal exchange notional (conservative)
+	// 安全性：强制最终名义金额至少达到最小交换名义金额（保守型）
 	const minNotional = 10.0
 	if finalNotional < minNotional {
 		return 0, 0, 0, fmt.Errorf("final notional %.2f USDT is below minimum notional %.2f USDT", finalNotional, minNotional)
 	}
 
-	// Ensure finalNotional is positive
+	// 确保最终名义金额为正数
 	finalNotional = math.Max(0, finalNotional)
 
-	// quantity
+	// 尊重AI建议（如果提供）：AI可以建议更小的仓位。我们绝不允许AI超过
+	// 这里计算的安全限制——相反，如果AI建议更小的名义价值，则尊重它。
+	if d.SuggestedPositionSizeUSD > 0 {
+		if d.SuggestedPositionSizeUSD < finalNotional {
+			finalNotional = d.SuggestedPositionSizeUSD
+		}
+	}
+
+	// 数量
 	quantity := finalNotional / price
 	if quantity <= 0 {
 		return 0, 0, 0, fmt.Errorf("computed quantity <= 0")

@@ -187,8 +187,11 @@ func (ev *EnhancedValidator) validateRisk(d *Decision, result *ValidationResult)
 	// 如果有AI建议仓位，检查是否超过系统计算的最终名义价值
 	if d.SuggestedPositionSizeUSD > 0 {
 		if d.SuggestedPositionSizeUSD > finalNotional {
-			result.Errors = append(result.Errors, fmt.Sprintf("AI建议的仓位 (%.2f USDT) 超过系统限定 (%.2f USDT)", d.SuggestedPositionSizeUSD, finalNotional))
-			result.IsValid = false
+			// 不再将超出系统计算结果的建议直接视为致命错误
+			// 改为自动裁剪为系统计算结果，并生成可见警告（保留原始建议供审计）
+			result.Warnings = append(result.Warnings, fmt.Sprintf("AI建议的仓位 (%.2f USDT) 超过系统限定 (%.2f USDT)，已裁剪为 %.2f USDT", d.SuggestedPositionSizeUSD, finalNotional, finalNotional))
+			// 将建议仓位调整为最终安全值
+			d.SuggestedPositionSizeUSD = finalNotional
 		}
 	}
 }
@@ -206,11 +209,12 @@ func (ev *EnhancedValidator) validatePositionSize(d *Decision, result *Validatio
 	// 最大仓位限制 (硬顶) — only enforce if AI provided a suggestion
 	maxPositionValue := ev.getMaxPositionValue(d.Symbol)
 	if d.SuggestedPositionSizeUSD > 0 && d.SuggestedPositionSizeUSD > maxPositionValue {
-		cfg := DefaultRiskConfig()
-		result.Errors = append(result.Errors,
-			fmt.Sprintf("仓位价值超限: %.2f USDT > 最大允许 %.2f USDT (净值%.0f%%) [AccountEquity=%.2f cfgMaxNotionalBTC=%.2f]",
-				d.SuggestedPositionSizeUSD, maxPositionValue, ev.getPositionCapRatio(d.Symbol)*100, ev.AccountEquity, cfg.MaxNotionalBTC))
-		result.IsValid = false
+		// 改为非致命处理：将超限建议裁剪为最大允许值并以警告方式报告
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("AI建议仓位 (%.2f USDT) 超过最大允许值 (%.2f USDT)，已裁剪为 %.2f USDT (净值%.0f%%)",
+				d.SuggestedPositionSizeUSD, maxPositionValue, maxPositionValue, ev.getPositionCapRatio(d.Symbol)*100))
+		// 将建议仓位调整为最大允许值
+		d.SuggestedPositionSizeUSD = maxPositionValue
 	}
 }
 

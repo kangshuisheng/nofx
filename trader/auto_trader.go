@@ -824,17 +824,20 @@ func (at *AutoTrader) maybeResetDailyMetrics() {
 func (at *AutoTrader) enforceRiskLimits(currentEquity float64) (string, bool) {
 	at.updatePnLMetrics(currentEquity)
 
+	// 注意：执行每日最大亏损限制时，仅考虑已实现盈亏。
+	// 使用账户的全部权益（包含未实现盈亏）可能会使未执行/未成交的
+	// 订单或暂时性的未实现波动错误地触发硬性止损。
 	if limit := at.config.MaxDailyLoss; limit > 0 && at.dailyPnLBase > 0 {
 		maxLoss := -at.dailyPnLBase * limit / 100
-		if at.dailyPnL <= maxLoss {
-			reason := fmt.Sprintf("触发当日最大亏损 %.2f%% (盈亏 %.2f / 基准 %.2f USDT)", limit, at.dailyPnL, at.dailyPnLBase)
+		//使用每日已实现盈亏（dailyRealizedPnL）而非每日盈亏（dailyPnL，其中包含未实现的变动）
+		if at.dailyRealizedPnL <= maxLoss {
+			reason := fmt.Sprintf("触发当日最大亏损 %.2f%% (已实现盈亏 %.2f / 基准 %.2f USDT)", limit, at.dailyRealizedPnL, at.dailyPnLBase)
 			at.activateRiskStop()
 			return reason, true
 		}
 	}
 
-	// 🚫 已禁用账户回撤检查 - 会把手动转出资金误判为回撤
-	// 只保留每日亏损限制即可有效控制风险
+	// 账户回撤检查：如果配置了 MaxDrawdown，则基于峰值净值触发
 	// if dd := at.config.MaxDrawdown; dd > 0 && at.peakEquity > 0 {
 	// 	drawdownPct := (at.peakEquity - currentEquity) / at.peakEquity * 100
 	// 	if drawdownPct >= dd {

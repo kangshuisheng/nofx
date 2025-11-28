@@ -874,6 +874,7 @@ func (s *AutoTraderTestSuite) TestServerUsesComputePositionSize() {
 		Leverage:                 10,
 		SuggestedPositionSizeUSD: 9999999, // AI suggests huge position
 		StopLoss:                 50499.0,
+		TakeProfit:               52000.0,
 	}
 	actionRecord := &logger.DecisionAction{Action: "open_long", Symbol: "BTCUSDT"}
 
@@ -1476,6 +1477,9 @@ func (s *AutoTraderTestSuite) TestEnforceRiskLimits_DailyLossTrigger() {
 	at.config.StopTradingTime = 30 * time.Minute
 	at.dailyPnLBase = 1000
 	at.needsDailyBaseline = false
+
+	// set realized loss so the daily loss rule triggers (we now use realized PnL)
+	at.dailyRealizedPnL = -70
 
 	reason, triggered := at.enforceRiskLimits(930)
 	s.True(triggered, "应该触发日亏损限制")

@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reorganized documentation structure into logical categories
 - Updated all README files with proper navigation links
 
+### Fixed
+- Fix: use realized daily PnL (not total equity / unrealized changes) when enforcing MaxDailyLoss to avoid false positives from pending/limit orders
+
 ---
 
 ## [3.0.0] - 2025-10-30
